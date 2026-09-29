@@ -108,7 +108,7 @@
       await loadContext();
       if (parts[0] === 'staff') return await renderStaff();
       if (parts[0] === 'd' && parts[1]) return await renderDistrict(parts[1], parts[2], parts[3]);
-      if (!S.districts.length) return renderNoDistrict();
+      if (!S.districts.length) return S.isStaff ? go('#/staff', flash) : renderNoDistrict();
       let last = null; try { last = localStorage.getItem('highground-last-district'); } catch (e) {}
       const first = S.districts.find((x) => x.slug === last) || S.districts[0];
       return go(`#/d/${enc(first.slug)}/overview/today`, flash);
@@ -185,7 +185,7 @@
         <div class="main">
           ${d && d.is_demo ? '<div class="demo-bar">Demo district: made-up figures.</div>' : ''}
           <header class="topbar">
-            ${nb('Search', 'Search', 5).replace('class="btn notbuilt"', 'class="btn notbuilt small"')}
+            ${slug ? nb('Search', 'Search', 5).replace('class="btn notbuilt"', 'class="btn notbuilt small"') : ''}
             <span class="spacer"></span>
             ${S.districts.length ? `<label class="chip">${d ? `<span class="tile" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>` : ''}
               <select data-switch aria-label="District">${d ? '' : '<option value="">Choose a district</option>'}${options}</select></label>` : ''}
@@ -543,7 +543,7 @@
         { label: 'District', html: (r) => `<a href="#/d/${enc(r.slug)}/overview/today">${esc(r.name)}</a>` },
         { label: 'Link id', get: (r) => r.slug }, { label: 'State', get: (r) => r.state },
         { label: 'Demo', get: (r) => (r.is_demo ? 'Demo' : '') }, { label: 'Created', get: (r) => day(r.created_at) },
-      ], rows, 'No districts yet.')}</div>
+      ], rows, 'No districts yet. Add the first one below; start with a fictional demo district.')}</div>
       <div class="card"><h3>Add a district</h3>
         <form class="stack" data-form="createDistrict">
           <label class="field">District name<input name="name" required maxlength="120" placeholder="Ironwood Valley Community School District"></label>
