@@ -1347,7 +1347,7 @@
         UP.parsed.projects.forEach((p) => p.phases.forEach((ph, k) => {
           const pid = crypto.randomUUID();
           phases.push({ id: pid, district_id: d.id, scenario_id: createdScenario, initiative_id: idFor.get(p), seq: k + 1, fy: UP.startFY + ph.year,
-            cost: ph.cost, status: ph.status || 'planned', actual_cost: ph.actual == null ? null : ph.actual });
+            cost: ph.cost, status: ph.status || 'planned', actual_cost: ph.actual == null ? null : ph.actual, label: ph.label || null });
           ph.funding.forEach((f) => funding.push({ phase_id: pid, district_id: d.id, fund: f.b, pct: f.p }));
         }));
         await HG.db.insert('phase', phases);

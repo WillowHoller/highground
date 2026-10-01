@@ -126,7 +126,10 @@ async def handler(route):
   if t=="phase" and req.method=="POST" and DBFAIL["phase"]:
     return await ok({"code":"PGRST204","message":"Could not find the 'label' column of 'phase' in the schema cache"},400)
   if t in TABLES and req.method=="POST":
-    b=json.loads(body); return await ok(b if isinstance(b,list) else [b],201)
+    b=json.loads(body)
+    if isinstance(b,list) and len({tuple(sorted(x.keys())) for x in b})>1:   # like the real database
+      return await ok({"code":"PGRST102","message":"All object keys must match"},400)
+    return await ok(b if isinstance(b,list) else [b],201)
   if t in TABLES and req.method=="DELETE":
     return await ok([{"deleted":True}])
   if t in TABLES and req.method=="PATCH":

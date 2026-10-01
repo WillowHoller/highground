@@ -151,7 +151,7 @@
       const id = newId(); initId.set(p.id, id);
       out.initiative.push({ id: id, district_id: districtId, name: p.name, type: p.type || 'capital', status: p.status || 'proposed', engine_priority: p.pri || null,
         tier: p.tier || ({ High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' })[p.pri] || null,
-        ...(p.owner_name ? { owner_name: p.owner_name } : {}),
+        owner_name: p.owner_name || null,   // every row carries every field: the database rejects bulk rows that differ
         focus_area: p.area || null, cost_confidence: p.est === false ? 'firm' : 'estimate', condition: p.cond ? p.cond.toLowerCase() : null,
         remaining_life: p.life == null ? null : p.life });
     }));
@@ -169,7 +169,7 @@
           const pid = newId();
           out.phase.push({ id: pid, district_id: districtId, scenario_id: sid, initiative_id: initId.get(p.id), seq: k + 1,
             fy: startFY + ph.year, cost: ph.cost, status: ph.status || 'planned', actual_cost: ph.actual == null ? null : ph.actual,
-            ...(ph.label ? { label: ph.label } : {}) });
+            label: ph.label || null });
           (ph.funding || []).forEach((f) => out.phase_funding.push({ phase_id: pid, district_id: districtId, fund: f.b, pct: f.p }));
         });
       });
