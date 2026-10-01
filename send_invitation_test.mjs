@@ -31,7 +31,7 @@ const mail = pm && JSON.parse(pm.body);
 check('admin: email sent', r.status === 200 && b.status === 'sent' && b.to === 'new.person@ironwood.test', JSON.stringify(b));
 check('email goes to the invited address, from HighGround, transactional stream', mail && mail.To === 'new.person@ironwood.test' && mail.From === 'HighGround <no-reply@willowholler.com>' && mail.MessageStream === 'outbound');
 check('Postmark token sent only to Postmark, in its header', pm && pm.headers['X-Postmark-Server-Token'] === 'pm-secret' && !calls.some((c) => !c.url.includes('postmark') && JSON.stringify(c).includes('pm-secret')));
-check('email names the district, the inviter, the role and the sign-up link', mail && /Pat Admin invited you to Ironwood Valley CSD on HighGround, as an editor/.test(mail.TextBody) && mail.TextBody.includes('https://willowholler.github.io/highground/#/signup'));
+check('email names the district, the inviter, the role and the sign-up link', mail && /Pat Admin invited you to Ironwood Valley CSD on HighGround, as an editor/.test(mail.TextBody) && mail.TextBody.includes('https://highground.willowholler.com/#/signup'));
 check('invitation marked as sent, using the caller’s own sign-in', calls.some((c) => c.method === 'PATCH' && c.headers.Authorization === 'Bearer good' && JSON.parse(c.body).sent_count === 1));
 reset(); r = await call('Bearer notadmin', { invitation_id: ID });
 check('not an admin of that district: refused, nothing sent', r.status === 403 && !calls.some((c) => c.url.includes('postmark')));

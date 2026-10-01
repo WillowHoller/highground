@@ -1,6 +1,8 @@
 # HighGround
 
-Strategy, decisions, capital planning and accountability for Iowa school districts. By Willow Holler.
+Strategy, decisions, capital planning and accountability for Iowa school districts. Powered by Willow Holler.
+
+Live at **https://highground.willowholler.com** (GitHub Pages, custom domain). Marketing pages: https://www.willowholler.com (repository `willowholler-site`).
 
 **Status (29 Sept 2026):** database installed; app shell with sign-in, districts and people working; Resources → Capital plan runs the real engine from the database; every unfinished screen marked. See `SETUP.md`, and **Help → What's built** in the app.
 

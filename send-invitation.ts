@@ -3,7 +3,7 @@
 //
 // Secrets (Edge Functions → Secrets):
 //   POSTMARK_SERVER_TOKEN  required. Postmark Server API token. Never put it in the app or the repository.
-//   APP_URL                optional. Where the app lives; default https://willowholler.github.io/highground/
+//   APP_URL                optional. Where the app lives; default https://highground.willowholler.com/
 //   MAIL_FROM              optional. Default: HighGround <no-reply@willowholler.com>
 // SUPABASE_URL is provided by Supabase automatically.
 //
@@ -30,7 +30,7 @@ Deno.serve(async (req: Request) => {
   try {
     const base = Deno.env.get('SUPABASE_URL');
     const postmark = Deno.env.get('POSTMARK_SERVER_TOKEN');
-    const appUrl = (Deno.env.get('APP_URL') || 'https://willowholler.github.io/highground/').replace(/\/?$/, '/');
+    const appUrl = (Deno.env.get('APP_URL') || 'https://highground.willowholler.com/').replace(/\/?$/, '/');
     const from = Deno.env.get('MAIL_FROM') || 'HighGround <no-reply@willowholler.com>';
     if (!base || !postmark) return json({ error: 'Email isn’t set up on the server yet (POSTMARK_SERVER_TOKEN is missing).' }, 500);
 

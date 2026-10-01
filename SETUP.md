@@ -49,7 +49,7 @@ If step 1–4 shows an error, stop and send Claude the full message. If 5 or 6 s
 **Authentication → Multi-Factor:** enable **TOTP** (authenticator apps). The app will offer it; requiring it for admins comes later.
 
 **Authentication → URL Configuration:**
-- Site URL: the address the app will live at. Until it's hosted, use `https://willowholler.github.io/HighGround/` and change it later.
+- Site URL: the address the app will live at. Until it's hosted, use `https://highground.willowholler.com/` and change it later.
 - Redirect URLs: add the same address, plus `http://localhost:8000/**` for testing.
 
 ## 5. Email sending (required before real users)
@@ -88,7 +88,7 @@ In GitHub, open `config.js` → pencil icon (edit). Replace the two placeholders
 
 ## 9. Put the app online
 
-**GitHub → HighGround → Settings → Pages.** Source: *Deploy from a branch*, branch `main`, folder `/ (root)`. Save. After a minute or two it's at `https://willowholler.github.io/HighGround/`.
+**GitHub → HighGround → Settings → Pages.** Source: *Deploy from a branch*, branch `main`, folder `/ (root)`. Save. After a minute or two it's at `https://highground.willowholler.com/`.
 
 GitHub Pages from a **private** repository needs a paid GitHub plan for the organization. Two alternatives: make the repository public for now (nothing secret is in it, and the engine isn't in it yet), or host on Netlify or Cloudflare Pages, which can publish a private repository on a free plan. Decide before the engine moves in.
 
@@ -114,7 +114,7 @@ The app asks a small Supabase function to send invitation emails, so the Postmar
 3. Delete the template code, paste in all of `send-invitation.ts`, and click **Deploy function**. It takes 10–30 seconds.
    Then open the function's **Details** and switch off **Enforce JWT Verification**. Browsers send an unsigned check before the real request, and Supabase's built-in check would turn it away. The function verifies the caller itself and sends only for that district's admins.
 4. **Edge Functions → Secrets**: add a secret named `POSTMARK_SERVER_TOKEN` whose value is your Postmark **Server API token** (Postmark → your server → API Tokens). Save. No redeploy is needed.
-5. Optional secrets: `APP_URL` if the app moves to its own address (default `https://willowholler.github.io/highground/`), and `MAIL_FROM` (default `HighGround <no-reply@willowholler.com>`).
+5. Optional secrets: `APP_URL` if the app moves to its own address (default `https://highground.willowholler.com/`; set it anyway), and `MAIL_FROM` (default `HighGround <no-reply@willowholler.com>`).
 6. Test: **Settings → People → Invite someone** with an address you can check. Until Postmark approves the account, only willowholler.com addresses receive mail.
 
 If the email can’t be sent, the app says why and keeps the invitation, so the person can still create an account with the invited address.
