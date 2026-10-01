@@ -138,7 +138,7 @@
     { id: 'decisions', label: 'Decisions', tabs: [
       { id: 'initiatives', label: 'All initiatives', status: 'partial', phase: 2, lede: 'Everything that costs money: projects, programs, hires.', render: vInitiatives },
       { id: 'ranking', label: 'Ranking & funding line', status: 'wip', phase: 2, lede: 'Force-rank initiatives and see where the money runs out.', render: vRanking },
-      { id: 'scenarios', label: 'Scenarios', status: 'partial', phase: 2, lede: 'Different ways to pay for the plan, side by side.', render: vScenarios },
+      { id: 'scenarios', label: 'Scenarios', status: 'live', lede: 'Different ways to pay for the plan, side by side.', render: vScenarios },
     ] },
     { id: 'resources', label: 'Resources', tabs: [
       { id: 'summary', label: 'Summary', status: 'partial', phase: 6, lede: 'Every fund at a glance, from the board version.', render: vResSummary },
@@ -320,17 +320,72 @@
       '“Fund in rank order” as a what-if',
     ], uses: 'scenario_initiative (rank), the engine' });
   }
+  const CMP = { key: null, ids: [], a: null, b: null };
   async function vScenarios(c) {
-    const rows = await HG.db.select('scenario', `select=name,is_board_version,is_locked,updated_at&district_id=eq.${c.district.id}&order=name`);
+    const rows = await loadCapitalRows(c.district);
+    CMP.rows = rows;
+    if (!rows.settings || !rows.scenarios.length) return notReady(c, { rows });
+    const all = rows.scenarios.slice().sort((x, y) => (y.is_board_version - x.is_board_version) || x.name.localeCompare(y.name));
+    if (CMP.key !== c.district.id || !CMP.ids.every((id) => all.some((x) => x.id === id)) || !CMP.ids.length) {
+      CMP.key = c.district.id; CMP.ids = all.slice(0, 3).map((x) => x.id); CMP.a = CMP.ids[0]; CMP.b = CMP.ids[1] || CMP.ids[0];
+    }
+    const pick = (x) => `<input type="checkbox" data-cmp-pick value="${esc(x.id)}" ${CMP.ids.includes(x.id) ? 'checked' : ''} aria-label="Compare ${esc(x.name)}">`;
     return `
-      <div class="row"><a class="btn" href="#/d/${enc(c.district.slug)}/resources/capital">Open, copy or edit scenarios</a>${nb('Compare side by side', 'Scenario comparison', 2)}</div>
-      <div class="card">${table([
-        { label: 'Scenario', get: (r) => r.name },
-        { label: 'Board version', get: (r) => (r.is_board_version ? 'Yes' : '') },
-        { label: 'Locked', get: (r) => (r.is_locked ? 'Locked' : '') },
-        { label: 'Last changed', get: (r) => day(r.updated_at) },
-      ], rows, 'No scenarios yet.')}</div>
-      ${wip({ phase: 2, items: ['Need, gap and funding by source for each scenario side by side, from the engine', 'What each asks of the community: a vote, a tax change, a delay'], uses: 'scenario, phase, financing, the engine' })}`;
+      <div class="card"><h3>Scenarios</h3>
+        <p class="small muted">Tick up to three to compare. Open one to edit it on the capital plan.</p>
+        ${table([
+          { label: 'Compare', html: pick },
+          { label: 'Scenario', get: (r) => r.name },
+          { label: '', html: (r) => (r.is_board_version ? badge('live').replace('Live', 'Board version') : '') + (r.is_locked ? ' <span class="small muted">Locked</span>' : '') },
+          { label: 'Last changed', get: (r) => day(r.updated_at) },
+          { label: '', html: (r) => `<a href="#" data-action="openScenario" data-id="${esc(r.id)}">Open</a>` },
+        ], all, '')}</div>
+      <div id="cmp-table">${compareTableHtml()}</div>
+      <div id="cmp-why">${whyHtml()}</div>`;
+  }
+  function compareTableHtml() {
+    const rows = CMP.rows, cols = CMP.ids.map((id) => ({ sc: rows.scenarios.find((x) => x.id === id), m: HGCompare.metrics(HGCompare.run(rows, id)) }));
+    if (!cols.length) return '';
+    const minGap = Math.min(...cols.map((k) => k.m.gap));
+    const line = (label, f, opts) => `<tr${opts && opts.strong ? ' class="strong"' : ''}><th scope="row">${esc(label)}</th>${cols.map((k) => `<td class="num">${f(k.m, k)}</td>`).join('')}</tr>`;
+    const lowest = (v, fy) => `${fmtK(v)} <span class="small muted">FY${fy}</span>`;
+    return `<div class="card"><h3>Side by side</h3><div class="scroll"><table class="data cmp">
+      <thead><tr><th></th>${cols.map((k) => `<th class="num">${esc(k.sc.name)}${k.sc.is_board_version ? '<br><span class="small muted">board version</span>' : ''}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${line('10-year need', (m) => fmtK(m.need))}
+        ${line('Paid by levies and grants', (m) => fmtK(m.levyFunded))}
+        ${line('Boosters', (m) => fmtK(m.boosters))}
+        ${line('Campaign or bond projects', (m) => fmtK(m.campaign))}
+        ${line('Paid by borrowing or gifts in the scenario', (m) => fmtK(m.financed))}
+        ${line('Gap to close', (m) => `<b class="${m.gap > 0.5 ? 'gaptext' : ''}">${fmtK(m.gap)}</b>${cols.length > 1 && m.gap === minGap ? '<br><span class="small muted">smallest</span>' : ''}`, { strong: true })}
+        ${line('Busiest year', (m) => `FY${m.busiestFY} <span class="small muted">${fmtK(m.busiest)}</span>`)}
+        ${line('Lowest SAVE balance', (m) => lowest(m.saveLow, m.saveLowFY))}
+        ${line('Lowest PPEL balance', (m) => lowest(m.ppelLow, m.ppelLowFY))}
+        ${line('SAVE bond room', (m) => fmtK(m.bondRoom))}
+        ${line('General-obligation debt room', (m) => (m.goRoom == null ? '<span class="small muted">needs valuation</span>' : fmtK(m.goRoom)))}
+        <tr><th scope="row">What it asks of the community</th>${cols.map((k) => `<td class="asks">${k.m.asks.length ? `<ul>${k.m.asks.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : '<span class="muted">Nothing beyond current levies and grants</span>'}</td>`).join('')}</tr>
+      </tbody></table></div>
+      <p class="small muted" style="margin-top:8px">Bond room assumes 1.20 coverage, 20 years at 4.5%. A general-obligation bond needs a public vote; confirm requirements with bond counsel.</p></div>`;
+  }
+  function whyHtml() {
+    const rows = CMP.rows, all = rows.scenarios;
+    if (all.length < 2) return '';
+    if (!all.some((x) => x.id === CMP.a)) CMP.a = all[0].id;
+    if (!all.some((x) => x.id === CMP.b) || CMP.b === CMP.a) CMP.b = (all.find((x) => x.id !== CMP.a) || all[0]).id;
+    const ex = HGCompare.explain(rows, CMP.a, CMP.b);
+    const opt = (sel) => all.map((x) => `<option value="${esc(x.id)}" ${x.id === sel ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+    const effect = (v) => (Math.abs(v) < 0.5 ? '<span class="muted">no effect on its own</span>' : v < 0 ? `lowers the gap by <b>${fmtK(-v)}</b>` : `raises the gap by <b class="gaptext">${fmtK(v)}</b>`);
+    return `<div class="card"><h3>Why the gap differs</h3>
+      <div class="inline-form">
+        <label class="field">Compared with<select data-why="a">${opt(CMP.a)}</select></label>
+        <label class="field">What changes in<select data-why="b">${opt(CMP.b)}</select></label></div>
+      <p style="margin-top:12px">Gap: <b>${fmtK(ex.refGap)}</b> in ${esc(ex.ref.name)} → <b>${fmtK(ex.otherGap)}</b> in ${esc(ex.other.name)}
+        (${Math.abs(ex.total) < 0.5 ? 'the same' : ex.total < 0 ? `${fmtK(-ex.total)} smaller` : `${fmtK(ex.total)} larger`}).</p>
+      ${ex.items.length ? table([
+        { label: 'What changes', get: (x) => x.label },
+        { label: 'Effect on the gap', html: (x) => effect(x.effect) },
+      ], ex.items.concat(ex.together ? [{ label: 'These changes working together', effect: ex.together }] : []), '') : '<p class="muted">These two scenarios have the same projects, levers and financing.</p>'}
+      <p class="small muted" style="margin-top:8px">Each change is measured on its own: applied to “${esc(ex.ref.name)}” alone, then recomputed. When changes depend on each other (a bond that pays for a project only in the year it’s built, say), the difference shows up as “working together.”</p></div>`;
   }
 
   // ------------------------------------------------------------------ views: Resources
@@ -481,6 +536,7 @@
       <div class="row cap-bar">
         <label class="chip"><span class="small muted">Scenario</span><select data-cap-scenario aria-label="Scenario">${opts}</select></label>
         ${scenarioToolbar(c)}
+        ${rows.scenarios.length > 1 ? `<a class="btn" href="#/d/${enc(c.district.slug)}/decisions/scenarios">Compare scenarios</a>` : ''}
       </div>
       ${CAP.sc.is_locked ? `<div class="notice">This scenario is locked, so it can’t be changed${c.admin ? '. Unlock it to edit.' : '. A district admin can unlock it.'} Copy it to try changes.</div>` : ''}
       ${CAP.inputs.notes.length ? `<div class="notice">${CAP.inputs.notes.map(esc).join('<br>')}</div>` : ''}
@@ -491,7 +547,7 @@
       </div>
       <div id="cap-years">${capYearsHtml()}</div>
       ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add a project</button></div>' : ''}
-      ${wip({ title: 'Still to come on this screen', phase: 2, items: ['Table view and filters', '“Why the gap changed” between two scenarios', 'Side-by-side scenario comparison'] })}`;
+      ${wip({ title: 'Still to come on this screen', phase: 2, items: ['Table view and filters'] })}`;
   }
   function capLoadScenario() {
     CAP.sc = CAP.rows.scenarios.find((x) => x.id === CAP.scenarioId);
@@ -1569,6 +1625,7 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async openScenario(el) { CAP.key = S.district.id; CAP.scenarioId = el.dataset.id; go(`#/d/${enc(S.district.slug)}/resources/capital`); },
     async exportProjects() { await exportProjects(); },
     async exportPhases() { await exportPhases(); },
     async exportBackup() { await exportBackup(); },
@@ -1714,6 +1771,15 @@
     const lc = e.target.closest('input[type=checkbox][data-lever]');
     if (lc && CAP.inputs) { CAP.levers[lc.dataset.lever] = lc.checked; capRefresh(); return; }
     if (e.target.closest('[data-upload-file]') || (e.target.closest('[data-upload-kind]') && document.querySelector('[data-upload-file]').files.length)) { run(readUpload); return; }
+    const cp = e.target.closest('[data-cmp-pick]');
+    if (cp) {
+      const on = [...document.querySelectorAll('[data-cmp-pick]:checked')].map((x) => x.value);
+      if (on.length > 3) { cp.checked = false; toast('Up to three', 'Untick one to add another.', 'notbuilt'); return; }
+      if (!on.length) { cp.checked = true; return; }
+      CMP.ids = on; document.getElementById('cmp-table').innerHTML = compareTableHtml(); return;
+    }
+    const wy = e.target.closest('[data-why]');
+    if (wy) { CMP[wy.dataset.why] = wy.value; document.getElementById('cmp-why').innerHTML = whyHtml(); return; }
     const cs = e.target.closest('[data-cap-scenario]');
     if (cs) { CAP.scenarioId = cs.value; return here(); }
     const sw = e.target.closest('[data-switch]');

@@ -366,6 +366,23 @@ async def main():
     await pg.fill("[data-modal] input[name=code]","123 456"); n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
     seq=[c[1].split("?")[0] for c in calls[n0:] if "/factors/" in c[1]]
     check("two-step: challenge, then verify, then on", seq==["/auth/v1/factors/f1/challenge","/auth/v1/factors/f1/verify"] and "Two-step sign-in is on" in await pg.inner_text("#toasts"), str(seq))
+    # Phase 2A: compare scenarios
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/scenarios"); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#cmp-table")
+    check("compare: both scenarios side by side with their gaps", "$5.35M" in t and "$1.15M" in t and "smallest" in t, t[:200])
+    check("compare: what each asks of the community", "general-obligation bond of $4.20M in FY2030, which needs a public vote" in t and "not yet paid for" in t)
+    w=await pg.inner_text("#cmp-why")
+    check("compare: why the gap differs, in plain words", "lowers the gap by $4.20M" in w and "Financing adds" in w and "no effect on its own" in w, w[:300])
+    await pg.screenshot(path=SHOTS+"/compare.png",full_page=True)
+    boxes=pg.locator("[data-cmp-pick]")
+    await boxes.nth(1).uncheck(); await pg.wait_for_timeout(300)
+    check("compare: unticking a scenario removes its column", "$1.15M" not in await pg.inner_text("#cmp-table"))
+    await boxes.nth(1).check(); await pg.wait_for_timeout(300)
+    await pg.select_option("select[data-why=a]", index=1); await pg.wait_for_timeout(300)
+    w=await pg.inner_text("#cmp-why")
+    check("compare: either direction can be explained", "raises the gap by $4.20M" in w, w[:200])
+    await pg.click("a[data-action=openScenario] >> nth=1"); await pg.wait_for_timeout(600)
+    check("compare: Open goes to that scenario on the capital plan", "/resources/capital" in pg.url)
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;

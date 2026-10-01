@@ -190,3 +190,10 @@ table.phases input[name=actual]{display:block;margin-top:4px}
 
 .fundcard h3{margin-bottom:4px}
 .fundcard p.small{max-width:90ch}
+
+/* ---------- scenario comparison ---------- */
+table.cmp th[scope=row]{text-align:left;font-weight:500;color:var(--text);white-space:nowrap}
+table.cmp tr.strong th,table.cmp tr.strong td{background:#FBF7EE}
+table.cmp td.asks{text-align:left;min-width:220px;font-size:13px}
+table.cmp td.asks ul{margin:0;padding-left:16px}
+table.cmp td.asks li{margin:2px 0}
