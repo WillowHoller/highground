@@ -39,5 +39,15 @@ const rowsB = Object.assign({}, rows, { scenarios: rows.scenarios.concat([{ id: 
 const ex = X.explain(rowsB, sid, 'sB');
 check('why: a bigger yearly PPEL cost raises the gap and is named', ex.total > 0 && ex.items.some((x) => x.kind === 'yearly' && /FFA program: yearly costs/.test(x.label) && x.effect > 0), JSON.stringify(ex.items.map((x) => [x.label, Math.round(x.effect)])));
 check('why: still adds up exactly', Math.abs(ex.items.reduce((t, x) => t + x.effect, 0) + ex.together - ex.total) < 1e-6);
+// an assumption set fills levers the scenario hasn't saved, and gives settlement growth a rate
+const setRows = Object.assign({}, rows, { assumption_sets: [{ id: 'as1', name: 'Conservative', construction_inflation: 0.05, save_trend: -0.02, ppel_growth: 0.01, grant_yield: 0.5, settlement_pct: 0.04 }],
+  scenarios: rows.scenarios.map((x) => (x.id === sid ? Object.assign({}, x, { assumption_set_id: 'as1', lever_inflation: 0.02 }) : x)),
+  recurring: [Object.assign({}, rows.recurring[0], { fund: 'ppel', grows_with: 'settlement' })] });
+const si = C.buildInputs(setRows, sid);
+check('set fills the levers the scenario left open', si.levers.sg === -0.02 && si.levers.pg === 0.01 && si.levers.gy === 0.5 && si.set.name === 'Conservative');
+check('a lever saved on the scenario still wins', si.levers.infl === 0.02);
+check('settlement growth uses the set’s rate', Math.abs(E.recurIn(si.inp ? si.inp.cfg : si.cfg, 'ppel', 3, si.levers) - 65000 * Math.pow(1.04, 2)) < 1e-6 && !si.notes.some((n) => /settlement/.test(n)));
+const st = C.starterSets({ inflation: 0.035, save: { trend: 0 }, ppel: { growth: 0.03 }, grants: { yield: 0.75 } });
+check('starter sets: Base from the district, Conservative tougher, Growth easier', st[0].construction_inflation === 0.035 && st[1].construction_inflation > st[0].construction_inflation && st[2].ppel_growth > st[0].ppel_growth && st[1].settlement_pct > st[0].settlement_pct);
 console.log(`yearly cost tests: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

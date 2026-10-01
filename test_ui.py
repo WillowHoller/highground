@@ -194,7 +194,7 @@ async def main():
     await pg.select_option("select[data-cap-scenario]",sid); await pg.wait_for_timeout(400)
     ph=gold("phased",None); t=await pg.inner_text("#view")
     check("capital plan: phased-bond scenario matches ($1.15M gap)", fmtK(ph["gap"])=="$1.15M" and "$1.15M" in t and "Bond" in t, fmtK(ph["gap"]))
-    check("capital plan: unfinished parts still marked", "Still to come on this screen" in t)
+    check("capital plan: complete, no unfinished parts left", "Still to come on this screen" not in t and "Projects by year" in t)
     TAXEXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js'),T=require('./tax.js');let i=0;
       const R=C.demoRows(D['ironwood-valley'],'d1',()=>'00000000-0000-4000-8000-'+String(++i).padStart(12,'0'));
@@ -204,6 +204,28 @@ async def main():
     tx=await pg.inner_text("#cap-tax")
     check("taxpayers: the phased-bond scenario's added cost for a $150,000 home and an acre", ("$%.2f a year"%TAXEXP["home"]) in tx and ("$%.2f an acre"%TAXEXP["acre"]) in tx and ("FY%d"%TAXEXP["fy"]) in tx and ("$%.4f"%TAXEXP["rate"]) in tx, tx[:300])
     await pg.locator("#cap-tax").screenshot(path=SHOTS+"/tax.png")
+    # Phase 2E: table view and filters (phased scenario on screen)
+    total_phases=sum(1 for p in TABLES["phase"] if p["scenario_id"]==_ph_sid)
+    await pg.click("button[data-action=capView][data-v=table]"); await pg.wait_for_timeout(300)
+    rows_n=await pg.locator("table.captable tbody tr").count()
+    await pg.locator("#cap-filters").scroll_into_view_if_needed(); await pg.screenshot(path=SHOTS+"/captable.png")
+    check("table view: the switch shows which view is on", await pg.get_attribute("button[data-action=capView][data-v=table]","aria-pressed")=="true")
+    check("table view: one row per phase, with totals", rows_n==total_phases and "phases" in await pg.inner_text("table.captable tfoot"), f"{rows_n} vs {total_phases}")
+    await pg.select_option("select[data-cap-filter=tier]","must"); await pg.wait_for_timeout(300)
+    must_rows=await pg.locator("table.captable tbody tr").count()
+    tiers=await pg.locator("table.captable tbody tr td:nth-child(4)").all_inner_texts()
+    check("filters: priority", 0<must_rows<total_phases and all(x=="Must-have" for x in tiers) and "Showing %d of %d phases"%(must_rows,total_phases) in await pg.inner_text("#cap-years"), str(must_rows))
+    await pg.select_option("select[data-cap-filter=tier]",""); await pg.fill("input[data-cap-filter=q]","roof"); await pg.wait_for_timeout(300)
+    names=await pg.locator("table.captable tbody tr td:nth-child(2)").all_inner_texts()
+    check("filters: search as you type, without losing the search box", names and all("roof" in n.lower() for n in names) and await pg.evaluate("document.activeElement && document.activeElement.matches('[data-cap-filter=q]')"), str(names))
+    async with pg.expect_download() as dl: await pg.click("button[data-action=capDownload]")
+    f=await dl.value; csvtext=open(await f.path(),encoding="utf-8").read()
+    check("table view: download the filtered table", csvtext.startswith("FY,Initiative,Phase,Priority") and csvtext.count("\n")==len(names)+1, csvtext[:120])
+    await pg.click("a[data-action=capClearFilters]"); await pg.click("button[data-action=capView][data-v=cards]"); await pg.wait_for_timeout(300)
+    await pg.select_option("select[data-cap-filter=fund]","ppel"); await pg.wait_for_timeout(300)
+    check("filters: apply to the cards too", "Showing" in await pg.inner_text("#cap-years") and "Year totals still include everything" in await pg.inner_text("#cap-years"))
+    await pg.click("a[data-action=capClearFilters]"); await pg.wait_for_timeout(200)
+    check("filters: clearing resets the filter menus too", await pg.input_value("select[data-cap-filter=fund]")=="" and await pg.input_value("input[data-cap-filter=q]")=="")
     check("taxpayers: says when a bond's levy ends, past the plan", "continues past the plan’s last year, through FY2050" in tx)
     check("taxpayers: says it's the added cost, and that a bond needs a vote", "added cost only" in tx.lower() and "needs a public vote" in tx)
     # scenario work
@@ -546,6 +568,33 @@ async def main():
     await ck.screenshot(path=SHOTS+"/checks.png")
     check("checks: no existing debt is questioned", "No existing debt entered" in await ck.inner_text())
     check("checks: where-to-find hints on the fields", "certified budget (Iowa Department of Management)" in await pg.inner_text("#view"))
+    # Phase 2E: assumption sets
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/assumptions"); await pg.wait_for_timeout(600)
+    check("assumption sets: none yet, with starters offered", "No assumption sets yet" in await pg.inner_text("#view"))
+    n0=len(calls); await pg.click("button[data-action=starterSets]"); await pg.wait_for_timeout(600)
+    sp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "/rest/v1/assumption_set" in c[1]]
+    check("assumption sets: Base, Conservative and Growth made from the starting numbers", sp and [x["name"] for x in sp[0]]==["Base","Conservative","Growth"]
+          and sp[0][0]["is_default"] and sp[0][1]["construction_inflation"]>sp[0][0]["construction_inflation"] and sp[0][2]["ppel_growth"]>sp[0][0]["ppel_growth"], str(sp)[:300])
+    TABLES["assumption_set"]=[{"id":"as-c","district_id":"d1","name":"Conservative","is_default":False,"construction_inflation":0.05,"save_trend":-0.01,"ppel_growth":0.02,"grant_yield":0.5,"settlement_pct":0.04,"notes":"Tougher"}]
+    for sc in TABLES["scenario"]:
+      if sc["id"]==_ph_sid: sc["assumption_set_id"]="as-c"; sc["lever_inflation"]=None
+    await pg.reload(); await pg.wait_for_timeout(900)
+    t=await pg.inner_text("#view")
+    check("assumption sets: listed with values and the scenarios using them", "Conservative" in t and "5%" in t and "Addition phased" in t)
+    await pg.click("a[data-action=editSet]"); await pg.wait_for_timeout(300)
+    await pg.fill("[data-modal] input[name=construction_inflation]","6"); n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(500)
+    check("assumption sets: edit saves percentages as fractions", any(c[0]=="PATCH" and "/rest/v1/assumption_set?" in c[1] and json.loads(c[2])["construction_inflation"]==0.06 for c in calls[n0:]))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/capital"); await pg.wait_for_timeout(500)
+    await pg.select_option("select[data-cap-scenario]",_ph_sid); await pg.wait_for_timeout(500)
+    check("capital plan: the scenario's set drives its levers", "Conservative" in await pg.inner_text("#cap-levers") and (await pg.inner_text("[data-lever-val=infl]")).startswith("5"), await pg.inner_text("[data-lever-val=infl]"))
+    n0=len(calls); await pg.select_option("select[data-cap-set]",""); await pg.wait_for_timeout(600)
+    pp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1]]
+    check("capital plan: choosing assumptions clears saved levers so the choice applies", pp and pp[0]["assumption_set_id"] is None and pp[0]["lever_inflation"] is None and pp[0]["lever_ppel_growth"] is None, str(pp))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/scenarios"); await pg.wait_for_timeout(600)
+    check("compare: which assumptions each scenario uses", "Assumptions" in await pg.inner_text("#cmp-table") and "Conservative" in await pg.inner_text("#cmp-table"))
+    TABLES["assumption_set"]=[]
+    for sc in TABLES["scenario"]:
+      if sc["id"]==_ph_sid: sc["assumption_set_id"]=None
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;

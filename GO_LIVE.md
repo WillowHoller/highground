@@ -4,7 +4,8 @@ Decisions deferred during the build, and launch tasks.
 
 ## Status, 30 Sept 2026
 
-- **Phase 1 built and verified** (milestones 0–6). Remaining Phase 1 work is operations, below.
+- **Phase 1 built and verified** (milestones 0–6).
+- **Phase 2 Decisions and Resources built** (1 Oct 2026): scenario comparison, initiatives with yearly costs, ranking and the funding line, tax impact, assumption sets, capital-plan table and filters. The general-fund forecast stays in Phase 6. Remaining Phase 1 work is operations, below.
 - **Waiting on Postmark approval:** the Supabase Pro upgrade and the settings that follow it. Leslie is holding these until Postmark approves the account.
 - **Deliberately deferred:** staging (set up when the first real district's data is needed, not before; no point paying yet) and a private repository (wanted, but not yet). Work through this list before any district outside Willow Holler signs in. Any new chat with Claude: read this file first when "going live" comes up.
 

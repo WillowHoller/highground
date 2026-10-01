@@ -109,13 +109,21 @@
     const sc = (rows.scenarios || []).find((s) => s.id === scenarioId);
     const pr = projectsFromRows(rows.initiatives, rows.phases, rows.funding, scenarioId, cfg);
     const stored = leversFromRows(sc, rows.financing);
+    // the scenario's assumption set fills any lever the scenario hasn't saved for itself
+    const set = sc && sc.assumption_set_id ? (rows.assumption_sets || []).find((x) => x.id === sc.assumption_set_id) || null : null;
+    if (set) {
+      [['pg', 'ppel_growth'], ['gy', 'grant_yield'], ['sg', 'save_trend'], ['infl', 'construction_inflation']].forEach(([k, col]) => {
+        if (stored[k] == null && set[col] != null) stored[k] = n(set[col], 0);
+      });
+      if (set.settlement_pct != null) stored.settle = n(set.settlement_pct, 0);
+    }
     const recur = recurFromRows(rows.recurring, scenarioId, rows.initiatives);
     if (recur.length) stored.recur = recur;
     const notes = st.notes.concat(pr.notes);
     const ss = rows.settings || {};
     const tax = { valuation: n(ss.taxable_valuation, 0), homeValue: n(ss.tax_home_value, 150000), agPerAcre: n(ss.ag_value_per_acre, 0) };
-    if (recur.some((r) => r.grows === 'settlement')) notes.push('Yearly costs set to grow with salary settlements stay flat until assumption sets provide a settlement rate.');
-    return { cfg, projects: pr.projects, stored, levers: E.leversOf(stored, cfg), notes, tax };
+    if (recur.some((r) => r.grows === 'settlement') && !(stored.settle > 0)) notes.push('Yearly costs set to grow with salary settlements stay flat until the scenario uses an assumption set with a settlement rate.');
+    return { cfg, projects: pr.projects, stored, levers: E.leversOf(stored, cfg), notes, tax, set };
   }
 
   /* ------------------------------------------------ demo data → database rows */
@@ -210,5 +218,19 @@
     });
   }
 
-  return { settingsFromRows, projectsFromRows, leversFromRows, recurFromRows, buildInputs, demoRows, yearSummary, fundPaths, recurByYear, CAP_FUNDS };
+  /* starting points for Base, Conservative and Growth, from the district's own numbers (meant to be edited) */
+  function starterSets(settings) {
+    const s = settings || {}, r = (v) => Math.round(v * 10000) / 10000;
+    const infl = s.inflation == null ? 0.03 : s.inflation, sg = (s.save && s.save.trend) || 0, pg = (s.ppel && s.ppel.growth) || 0, gy = s.grants && s.grants.yield != null ? s.grants.yield : 0.75;
+    return [
+      { name: 'Base', is_default: true, construction_inflation: r(infl), save_trend: r(sg), ppel_growth: r(pg), grant_yield: r(gy), settlement_pct: 0.03,
+        notes: 'The district’s own starting numbers.' },
+      { name: 'Conservative', is_default: false, construction_inflation: r(infl + 0.015), save_trend: r(sg - 0.01), ppel_growth: r(pg - 0.01), grant_yield: r(gy * 0.67), settlement_pct: 0.04,
+        notes: 'Costs rise faster and revenue grows slower than expected.' },
+      { name: 'Growth', is_default: false, construction_inflation: r(Math.max(0, infl - 0.005)), save_trend: r(sg + 0.01), ppel_growth: r(pg + 0.01), grant_yield: r(Math.min(1, gy + 0.1)), settlement_pct: 0.025,
+        notes: 'Revenue grows faster and costs a little slower than expected.' },
+    ];
+  }
+
+  return { starterSets, settingsFromRows, projectsFromRows, leversFromRows, recurFromRows, buildInputs, demoRows, yearSummary, fundPaths, recurByYear, CAP_FUNDS };
 });

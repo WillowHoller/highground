@@ -148,7 +148,7 @@
       { id: 'general', label: 'General fund', status: 'wip', phase: 6, lede: 'Five-year general-fund forecast, staffing and settlements.', render: vGeneralFund },
       { id: 'funds', label: 'All funds', status: 'live', lede: 'Balances, receipts, spending, debt and rules for each capital fund.', render: vFunds },
       { id: 'capital', label: 'Capital plan', status: 'partial', phase: 1, lede: 'Projects by year, split across Iowa’s capital funds, with the gap to close.', render: vCapital },
-      { id: 'assumptions', label: 'Assumption sets', status: 'wip', phase: 2, lede: 'Base, Conservative and Growth: the world the plan has to survive.', render: vAssumptions },
+      { id: 'assumptions', label: 'Assumption sets', status: 'live', lede: 'Base, Conservative and Growth: the world the plan has to survive.', render: vAssumptions },
     ] },
     { id: 'progress', label: 'Progress', tabs: [
       { id: 'initiatives', label: 'Initiatives', status: 'wip', phase: 3, lede: 'Status, budget against actual, schedule and owner.', render: vProgInitiatives },
@@ -439,6 +439,7 @@
     return `<div class="card"><h3>Side by side</h3><div class="scroll"><table class="data cmp">
       <thead><tr><th></th>${cols.map((k) => `<th class="num">${esc(k.sc.name)}${k.sc.is_board_version ? '<br><span class="small muted">board version</span>' : ''}</th>`).join('')}</tr></thead>
       <tbody>
+        ${line('Assumptions', (m, k) => { const set = (CMP.rows.assumption_sets || []).find((x) => x.id === k.sc.assumption_set_id); return esc(set ? set.name : 'Starting numbers'); })}
         ${line('10-year need', (m) => fmtK(m.need))}
         ${line('Paid by levies and grants', (m) => fmtK(m.levyFunded))}
         ${line('Boosters', (m) => fmtK(m.boosters))}
@@ -594,10 +595,10 @@
   ];
   async function loadCapitalRows(d) {
     const q = (t, extra) => HG.db.select(t, `select=*&district_id=eq.${d.id}${extra || ''}`);
-    const [settings, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenarioInitiatives] = await Promise.all([
+    const [settings, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenarioInitiatives, assumptionSets] = await Promise.all([
       q('district_settings'), q('fund_balance'), q('debt_obligation'), q('scenario', '&order=name'),
-      q('initiative', '&order=name'), q('phase'), q('phase_funding'), q('financing'), q('recurring_cost'), q('priority', '&order=position'), q('scenario_initiative')]);
-    return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenario_initiative: scenarioInitiatives };
+      q('initiative', '&order=name'), q('phase'), q('phase_funding'), q('financing'), q('recurring_cost'), q('priority', '&order=position'), q('scenario_initiative'), q('assumption_set', '&order=name')]);
+    return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenario_initiative: scenarioInitiatives, assumption_sets: assumptionSets };
   }
   function capCompute() { return HGEngine.compute(CAP.inputs.projects, CAP.levers, CAP.inputs.cfg); }
 
@@ -635,11 +636,12 @@
         <div class="card" id="cap-fin">${capFinHtml()}</div>
       </div>
       <div class="card" id="cap-tax">${capTaxHtml()}</div>
+      <div id="cap-filters">${capFiltersHtml()}</div>
       <div id="cap-years">${capYearsHtml()}</div>
       ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add an initiative</button></div>' : ''}
       <div id="cap-yearly">${capYearlyHtml()}</div>
       ${(() => { if (CAP.openEditor && CAP.editable) { const id = CAP.openEditor; setTimeout(() => openProjectEditor(id), 0); } CAP.openEditor = null; return ''; })()}
-      ${wip({ title: 'Still to come on this screen', phase: 2, items: ['Table view and filters'] })}`;
+`;
   }
   function capLoadScenario() {
     CAP.sc = CAP.rows.scenarios.find((x) => x.id === CAP.scenarioId);
@@ -676,8 +678,13 @@
   }
   function capLeversHtml() {
     const cfg = CAP.inputs.cfg;
-    return `<h3>What-if</h3>
-          <p class="small muted">${CAP.editable ? 'Try a change here. Nothing is saved unless you click Save.' : 'Try a change here; nothing is saved.'} Reset returns to ${CAP.pub ? 'the published plan' : 'the scenario’s own settings'}.</p>
+    const sets = (!CAP.pub && CAP.rows && CAP.rows.assumption_sets) || [], cur = CAP.inputs.set;
+    const setLine = CAP.pub ? '' : sets.length
+      ? (CAP.editable ? `<label class="field">Assumptions<select data-cap-set aria-label="Assumption set"><option value="">Starting numbers</option>${sets.map((x) => `<option value="${esc(x.id)}" ${cur && cur.id === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>`
+        : `<p class="small">Assumptions: <b>${esc(cur ? cur.name : 'Starting numbers')}</b></p>`)
+      : `<p class="small muted">Assumptions: starting numbers. <a href="#/d/${enc(S.district.slug)}/resources/assumptions">Make assumption sets</a> to stress-test the plan.</p>`;
+    return `<h3>What-if</h3>${setLine}
+          <p class="small muted">${CAP.editable ? 'Try a change here. Nothing is saved unless you click Save.' : 'Try a change here; nothing is saved.'} Reset returns to ${CAP.pub ? 'the published plan' : cur ? `the “${esc(cur.name)}” set` : 'the scenario’s own settings'}.</p>
           <div class="stack">
           ${LEVERS.map((l) => `<label class="lever"><span>${esc(l.label)} <b data-lever-val="${l.k}">${esc(l.show(CAP.levers[l.k]))}</b></span>
              <input type="range" data-lever="${l.k}" min="${l.min}" max="${l.max}" step="${l.step}" value="${CAP.levers[l.k]}"></label>`).join('')}
@@ -702,17 +709,61 @@
       ${go != null ? ` The general-obligation debt limit (5% of actual valuation) leaves about <b>${fmtK(go)}</b>.` : ' Add the district’s actual (100%) valuation to see the general-obligation limit.'}</p>
       ${CAP.editable ? '<div><button type="button" class="btn small" data-action="editFinancing" data-id="">Add a bond, lease or campaign</button></div>' : ''}`;
   }
-  function capYearsHtml() {
-    const cfg = CAP.inputs.cfg, L = CAP.levers, r = capCompute(), yrs = HGCapital.yearSummary(r, cfg);
-    const cards = yrs.map((y, i) => {
-      const items = [];
-      CAP.inputs.projects.forEach((p) => p.phases.forEach((ph, k) => {
-        if (ph.year !== i) return;
+  /* every phase, with what the filters and the table need */
+  function capItems() {
+    const cfg = CAP.inputs.cfg, L = CAP.levers;
+    const INIT = new Map(((CAP.rows && CAP.rows.initiatives) || []).map((i) => [String(i.id), i]));
+    const out = [];
+    CAP.inputs.projects.forEach((p) => {
+      const init = INIT.get(String(p.id)) || { engine_priority: p.pri };
+      const tier = HGRanking.tierOf(init).tier;
+      p.phases.forEach((ph, k) => {
         const cost = ph.status === 'done' && ph.actual != null ? ph.actual : ph.cost * Math.pow(1 + L.infl, ph.year);
-        items.push(`<li><span>${CAP.editable ? `<a href="#" data-action="editProject" data-id="${esc(p.id)}">${esc(p.name)}</a>` : esc(p.name)}${ph.label ? ` <span class="muted">· ${esc(ph.label)}</span>` : p.phases.length > 1 ? ` <span class="muted">${k + 1}/${p.phases.length}</span>` : ''}
-          ${ph.status === 'done' ? '<b class="ok">Done</b>' : ph.status === 'underway' ? '<span class="muted">underway</span>' : ''}
-          <span class="chips">${ph.funding.map((f) => `<span class="fchip f-${f.b}">${FUND_LABEL[f.b]}${f.p !== 100 ? ' ' + f.p + '%' : ''}</span>`).join('')}</span></span><b>${fmtK(cost)}</b></li>`);
-      }));
+        out.push({ p, ph, k, tier, area: p.area || init.focus_area || '', fy: cfg.start + ph.year, today: ph.cost, cost });
+      });
+    });
+    return out;
+  }
+  const capFiltering = () => { const f = CAP.filter || {}; return !!(f.tier || f.fund || f.area || f.q); };
+  function capMatch(x) {
+    const f = CAP.filter || {};
+    if (f.tier && x.tier !== f.tier) return false;
+    if (f.fund && !x.ph.funding.some((g) => g.b === f.fund)) return false;
+    if (f.area && x.area !== f.area) return false;
+    if (f.q && !(x.p.name + ' ' + (x.ph.label || '')).toLowerCase().includes(f.q.toLowerCase())) return false;
+    return true;
+  }
+  function capFiltersHtml() {
+    const f = CAP.filter || {}, items = capItems(), areas = [...new Set(items.map((x) => x.area).filter(Boolean))].sort();
+    const usedFunds = HGCapital.CAP_FUNDS.concat(['boost', 'camp']).filter((b) => items.some((x) => x.ph.funding.some((g) => g.b === b)));
+    const view = CAP.view || 'cards';
+    return `<div class="row capfilters">
+      <div class="seg" role="group" aria-label="View"><button type="button" class="btn small ${view === 'cards' ? 'on' : ''}" data-action="capView" data-v="cards" aria-pressed="${view === 'cards'}">Cards</button><button type="button" class="btn small ${view === 'table' ? 'on' : ''}" data-action="capView" data-v="table" aria-pressed="${view === 'table'}">Table</button></div>
+      <label class="chip"><span class="small muted">Priority</span><select data-cap-filter="tier" aria-label="Priority"><option value="">All</option>${[['must', 'Must-have'], ['strategic', 'Strategic'], ['nice', 'Nice to have']].map(([k, v]) => `<option value="${k}" ${f.tier === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="chip"><span class="small muted">Paid from</span><select data-cap-filter="fund" aria-label="Paid from"><option value="">Any fund</option>${usedFunds.map((b) => `<option value="${b}" ${f.fund === b ? 'selected' : ''}>${FUND_LABEL[b]}</option>`).join('')}</select></label>
+      ${areas.length ? `<label class="chip"><span class="small muted">Focus area</span><select data-cap-filter="area" aria-label="Focus area"><option value="">All</option>${areas.map((a) => `<option value="${esc(a)}" ${f.area === a ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>` : ''}
+      <input type="search" data-cap-filter="q" placeholder="Search projects" value="${esc(f.q || '')}" aria-label="Search projects" class="capsearch">
+    </div>`;
+  }
+  function capYearsHtml() {
+    const cfg = CAP.inputs.cfg, r = capCompute(), yrs = HGCapital.yearSummary(r, cfg), all = capItems(), shown = all.filter(capMatch);
+    const note = capFiltering() ? `<p class="small">Showing ${shown.length} of ${all.length} phases (${fmtK(shown.reduce((a, x) => a + x.cost, 0))}). <a href="#" data-action="capClearFilters">Clear filters</a>${(CAP.view || 'cards') === 'cards' ? ' <span class="muted">Year totals still include everything.</span>' : ''}</p>` : '';
+    const chips = (ph) => `<span class="chips">${ph.funding.map((f) => `<span class="fchip f-${f.b}">${FUND_LABEL[f.b]}${f.p !== 100 ? ' ' + f.p + '%' : ''}</span>`).join('')}</span>`;
+    const nameLink = (p) => (CAP.editable ? `<a href="#" data-action="editProject" data-id="${esc(p.id)}">${esc(p.name)}</a>` : esc(p.name));
+    if ((CAP.view || 'cards') === 'table') {
+      const list = shown.slice().sort((a, b) => a.fy - b.fy || a.p.name.localeCompare(b.p.name));
+      const TN = { must: 'Must-have', strategic: 'Strategic', nice: 'Nice to have', '': '' };
+      return `<h2 style="margin-top:6px">Projects by year</h2>${note}
+        <div class="card"><div class="scroll"><table class="data captable"><thead><tr><th>Year</th><th>Initiative</th><th>Phase</th><th>Priority</th><th>Focus area</th><th>Paid from</th><th>Status</th><th class="num">Today’s $</th><th class="num">That year’s $</th></tr></thead><tbody>
+          ${list.map((x) => `<tr><td>FY${x.fy}</td><td>${nameLink(x.p)}</td><td>${esc(x.ph.label || (x.p.phases.length > 1 ? `${x.k + 1} of ${x.p.phases.length}` : ''))}</td><td>${TN[x.tier] || ''}</td><td>${esc(x.area)}</td><td>${chips(x.ph)}</td>
+            <td>${x.ph.status === 'done' ? '<b class="ok">Done</b>' : x.ph.status === 'underway' ? 'Underway' : 'Planned'}</td><td class="num">${fmtK(x.today)}</td><td class="num">${fmtK(x.cost)}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">Nothing matches these filters.</td></tr>'}
+          </tbody>${list.length ? `<tfoot><tr><th colspan="7">${list.length} phase${list.length === 1 ? '' : 's'}</th><th class="num">${fmtK(list.reduce((a, x) => a + x.today, 0))}</th><th class="num">${fmtK(list.reduce((a, x) => a + x.cost, 0))}</th></tr></tfoot>` : ''}</table></div>
+          <div style="margin-top:10px"><button type="button" class="btn small" data-action="capDownload">Download this table (.csv)</button></div></div>`;
+    }
+    const cards = yrs.map((y, i) => {
+      const items = shown.filter((x) => x.ph.year === i).map((x) => `<li><span>${nameLink(x.p)}${x.ph.label ? ` <span class="muted">· ${esc(x.ph.label)}</span>` : x.p.phases.length > 1 ? ` <span class="muted">${x.k + 1}/${x.p.phases.length}</span>` : ''}
+          ${x.ph.status === 'done' ? '<b class="ok">Done</b>' : x.ph.status === 'underway' ? '<span class="muted">underway</span>' : ''}
+          ${chips(x.ph)}</span><b>${fmtK(x.cost)}</b></li>`);
       const spend = HGCapital.CAP_FUNDS.reduce((a, b) => a + r.res[i].spend[b], 0);
       return `<div class="card ycard ${y.campNeeded > 0.5 || y.over > 0.5 ? 'warn' : ''}">
         <div class="row" style="justify-content:space-between"><h3>FY${y.fy}${i === 0 && cfg.f0 < 1 ? ` <span class="small muted">from ${esc(day(cfg.settings.balances.asOf))}</span>` : ''}</h3><b>${fmtK(y.total)}</b></div>
@@ -721,10 +772,20 @@
         ${y.financed > 0.5 ? `<div class="small">Financed ${fmtK(y.financed)}</div>` : ''}
         ${y.over > 0.5 ? `<div class="small gaptext">Over what the funds can pay by ${fmtK(y.over)}</div>` : ''}
         ${y.boost > 0.5 ? `<div class="small">Boosters ${fmtK(y.boost)}</div>` : ''}
-        <ul class="ylist">${items.join('') || '<li class="muted">Nothing planned</li>'}</ul></div>`;
+        <ul class="ylist">${items.join('') || `<li class="muted">${capFiltering() ? 'Nothing matching' : 'Nothing planned'}</li>`}</ul></div>`;
     }).join('');
-    return `<h2 style="margin-top:6px">Projects by year</h2><div class="ygrid">${cards}</div>`;
+    return `<h2 style="margin-top:6px">Projects by year</h2>${note}<div class="ygrid">${cards}</div>`;
   }
+  function capDownload() {
+    const TN = { must: 'Must-have', strategic: 'Strategic', nice: 'Nice to have', '': '' };
+    const list = capItems().filter(capMatch).sort((a, b) => a.fy - b.fy || a.p.name.localeCompare(b.p.name));
+    const out = [['FY', 'Initiative', 'Phase', 'Priority', 'Focus area', 'Paid from', 'Status', 'Cost (today’s $)', 'Cost (that year’s $)']];
+    list.forEach((x) => out.push([x.fy, x.p.name, x.ph.label || '', TN[x.tier] || '', x.area, x.ph.funding.map((f) => FUND_LABEL[f.b] + (f.p !== 100 ? ' ' + f.p + '%' : '')).join(' + '),
+      x.ph.status || 'planned', Math.round(x.today), Math.round(x.cost)]));
+    const name = ((CAP.sc && CAP.sc.name) || 'plan').replace(/[^A-Za-z0-9]+/g, '-').toLowerCase();
+    saveFile(`${(S.district && S.district.slug) || 'district'}-${name}-projects.csv`, HGUploads.toCSV(out));
+  }
+
   function capTaxHtml() {
     const cfg = CAP.inputs.cfg, imp = HGTax.impact(cfg, CAP.levers, CAP.inputs.tax || {}), R = HGTax.RULES;
     const dollars = (v) => (v == null ? '' : v < 100 ? '$' + v.toFixed(2) : '$' + Math.round(v).toLocaleString('en-US'));
@@ -772,8 +833,71 @@
     const tx = document.getElementById('cap-tax'); if (tx) tx.innerHTML = capTaxHtml();
     LEVERS.forEach((l) => { const el = document.querySelector(`[data-lever-val="${l.k}"]`); if (el) el.textContent = l.show(CAP.levers[l.k]); });
   }
-  async function vAssumptions() {
-    return wip({ phase: 2, items: ['Base, Conservative and Growth assumption sets', 'Stress-test one decision across all three', 'Keeps “the world” (assumptions) apart from “our choices” (scenarios)'], uses: 'assumption_set, scenario' });
+  const SET_FIELDS = [
+    ['construction_inflation', 'Construction inflation', 'How fast project costs rise each year'],
+    ['save_trend', 'SAVE receipts trend', 'Negative if SAVE is expected to fall (enrollment, sales tax)'],
+    ['ppel_growth', 'PPEL valuation growth', 'Growth in taxable valuation, which drives PPEL and tax rates'],
+    ['grant_yield', 'Grant yield to capital', 'Share of grants and gifts that goes to capital projects'],
+    ['settlement_pct', 'Salary settlements', 'How fast yearly staff costs grow'],
+  ];
+  const pctTxt = (v) => (v == null ? '' : (Number(v) * 100).toFixed(1).replace(/\.0$/, '') + '%');
+  async function vAssumptions(c) {
+    const rows = await loadCapitalRows(c.district);
+    AS.rows = rows;
+    const sets = rows.assumption_sets || [];
+    const usedBy = (id) => rows.scenarios.filter((x) => x.assumption_set_id === id);
+    const intro = `<p class="small muted">Assumptions describe the world the plan has to survive: inflation, revenue growth, salary settlements. Scenarios are the district’s choices. Each scenario on the capital plan uses one set; a lever saved on a scenario still wins over its set.</p>`;
+    if (!sets.length) return `<div class="card"><h3>No assumption sets yet</h3>${intro}
+      ${rows.settings ? (c.plan ? '<div class="row"><button type="button" class="btn primary" data-action="starterSets">Create Base, Conservative and Growth</button><button type="button" class="btn" data-action="editSet" data-id="">Add a set</button></div><p class="small muted" style="margin-top:8px">Base starts from the district’s starting numbers; Conservative and Growth are tougher and easier versions of it. Edit any of them.</p>' : '')
+        : `<p>Set up the starting numbers first.</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/settings/setup">Starting numbers</a>`}</div>`;
+    return `${intro}
+      <div class="row">${c.plan ? '<button type="button" class="btn primary" data-action="editSet" data-id="">Add a set</button>' : ''}<a class="btn" href="#/d/${enc(c.district.slug)}/resources/capital">Choose a set for a scenario on the capital plan</a></div>
+      <div class="card"><div class="scroll"><table class="data"><thead><tr><th>Set</th>${SET_FIELDS.map(([, l]) => `<th class="num">${l}</th>`).join('')}<th>Used by</th><th></th></tr></thead><tbody>
+        ${sets.map((x) => `<tr><td><b>${esc(x.name)}</b>${x.is_default ? ' <span class="st st-approved">Default</span>' : ''}${x.notes ? `<br><span class="small muted">${esc(x.notes)}</span>` : ''}</td>
+          ${SET_FIELDS.map(([k]) => `<td class="num">${pctTxt(x[k])}</td>`).join('')}
+          <td>${usedBy(x.id).map((sc) => esc(sc.name)).join('<br>') || '<span class="muted">No scenario yet</span>'}</td>
+          <td>${c.plan ? `<a href="#" data-action="editSet" data-id="${esc(x.id)}">Edit</a>` : ''}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="small muted" style="margin-top:8px">New scenarios use the default set. Scenarios without a set use the starting numbers directly.</p></div>
+      ${wip({ title: 'Still to come', phase: 6, items: ['Enrollment, state aid and health-insurance growth, for the general-fund forecast'] })}`;
+  }
+  const AS = { rows: null };
+  function openSetEditor(id) {
+    const x = id ? AS.rows.assumption_sets.find((s) => s.id === id) : { name: '', construction_inflation: 0.03, save_trend: 0, ppel_growth: 0.03, grant_yield: 0.75, settlement_pct: 0.03 };
+    const used = id ? AS.rows.scenarios.filter((sc) => sc.assumption_set_id === id) : [];
+    modal(`<form class="stack" data-form="saveSet" data-id="${esc(id || '')}" novalidate>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${id ? 'Edit ' + esc(x.name) : 'Add an assumption set'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      ${used.length ? `<p class="small muted">Used by ${used.map((sc) => `“${esc(sc.name)}”`).join(', ')}. Changes apply to them straight away, except levers saved on a scenario.</p>` : ''}
+      <div class="fgrid">
+        <label class="field">Name<input name="name" maxlength="40" value="${esc(x.name || '')}" required></label>
+        ${SET_FIELDS.map(([k, l, h]) => `<label class="field">${l}, % a year<input name="${k}" inputmode="decimal" value="${x[k] == null ? '' : +(Number(x[k]) * 100).toFixed(2)}"><span class="hint">${h}</span></label>`).join('')}
+        <label class="row" style="align-self:end"><input type="checkbox" name="is_default" ${x.is_default ? 'checked' : ''}> Default for new scenarios</label>
+      </div>
+      <label class="field">Notes<textarea name="notes" maxlength="500">${esc(x.notes || '')}</textarea></label>
+      <div class="notice error" data-form-errors hidden></div>
+      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
+        ${id ? `<span style="flex:1"></span><button type="button" class="btn danger" data-action="deleteSet" data-id="${esc(id)}">Delete</button>` : ''}</div></form>`);
+  }
+  async function saveSet(f, form) {
+    const box = form.querySelector('[data-form-errors]'), errs = [], row = { name: (f.name || '').trim().slice(0, 40), notes: (f.notes || '').trim() || null, is_default: !!f.is_default };
+    if (!row.name) errs.push('Give the set a name.');
+    SET_FIELDS.forEach(([k, l]) => {
+      const v = toNum(f[k]);
+      if (v === null) { row[k] = null; return; }
+      if (isNaN(v) || v < -20 || v > (k === 'grant_yield' ? 100 : 25)) errs.push(`${l}: enter a percentage.`);
+      row[k] = +(v / 100).toFixed(4);
+    });
+    if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return; }
+    const id = form.dataset.id, d = S.district.id;
+    if (row.is_default) { const old = AS.rows.assumption_sets.find((x) => x.is_default && x.id !== id); if (old) await HG.db.update('assumption_set', `id=eq.${old.id}`, { is_default: false }); }
+    if (id) await HG.db.update('assumption_set', `id=eq.${enc(id)}`, row);
+    else await HG.db.insert('assumption_set', Object.assign({ district_id: d }, row));
+    closeModal(); toast('Saved', row.name); here();
+  }
+  async function starterSets() {
+    const rows = AS.rows, st = HGCapital.settingsFromRows(rows.district, rows.settings, rows.balances, rows.debts).settings;
+    await HG.db.insert('assumption_set', HGCapital.starterSets(st).map((x) => Object.assign({ district_id: S.district.id }, x)));
+    toast('Three sets made', 'Base, Conservative and Growth. Edit them to match the district’s outlook.'); here();
   }
 
   // ------------------------------------------------------------------ views: Progress
@@ -1847,7 +1971,8 @@
         <div id="cap-results">${capResultsHtml()}</div>
         <div class="cap-grid"><div class="card" id="cap-levers">${capLeversHtml()}</div><div class="card" id="cap-fin">${capFinHtml()}</div></div>
         <div class="card" id="cap-tax">${capTaxHtml()}</div>
-        <div id="cap-years">${capYearsHtml()}</div>
+        <div id="cap-filters">${capFiltersHtml()}</div>
+      <div id="cap-years">${capYearsHtml()}</div>
         <p class="small muted">This is the version the district published. Moving the levers shows what would change; it doesn’t change the district’s plan.</p>`;
     }
     app.innerHTML = `
@@ -1940,6 +2065,12 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async editSet(el) { openSetEditor(el.dataset.id || null); },
+    async starterSets() { await starterSets(); },
+    async deleteSet(el) { if (!confirm('Delete this assumption set? Scenarios using it go back to the starting numbers.')) return; await HG.db.remove('assumption_set', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Deleted'); here(); },
+    async capView(el) { CAP.view = el.dataset.v; document.getElementById('cap-filters').innerHTML = capFiltersHtml(); document.getElementById('cap-years').innerHTML = capYearsHtml(); },
+    async capClearFilters() { CAP.filter = {}; document.getElementById('cap-filters').innerHTML = capFiltersHtml(); document.getElementById('cap-years').innerHTML = capYearsHtml(); },
+    async capDownload() { capDownload(); },
     async openScenario(el) { CAP.key = S.district.id; CAP.scenarioId = el.dataset.id; go(`#/d/${enc(S.district.slug)}/resources/capital`); },
     async exportProjects() { await exportProjects(); },
     async exportPhases() { await exportPhases(); },
@@ -2031,6 +2162,7 @@
     },
   };
   const FORMS = {
+    async saveSet(f, form) { await saveSet(f, form); },
     async twoStep(f) { await HG.auth.mfa.verify(S.mfaFactor, f.code); S.mfaFactor = null; S.loaded = false; document.getElementById('toasts').innerHTML = ''; go('#/'); },
     async mfaConfirm(f, form) { await HG.auth.mfa.verify(form.dataset.id, f.code); closeModal(); await loadContext(true); toast('Two-step sign-in is on', 'From now on you’ll enter a code after your password.'); here(); },
     async requestAccess(f, form) {
@@ -2098,6 +2230,8 @@
     run(() => FORMS[form.dataset.form](data, form), form.querySelector('[type=submit]'));
   });
   document.addEventListener('input', (e) => {
+    const cq = e.target.closest('[data-cap-filter=q]');
+    if (cq) { CAP.filter = Object.assign({}, CAP.filter, { q: cq.value }); document.getElementById('cap-years').innerHTML = capYearsHtml(); return; }
     const sf = e.target.closest('form[data-form=saveSetup]');
     if (sf) renderSetupChecks(sf);
     const pc = e.target.closest('[data-srcs] [name=pct]');
@@ -2133,6 +2267,18 @@
     if (it) { INI.type = it.value; return here(); }
     const wy = e.target.closest('[data-why]');
     if (wy) { CMP[wy.dataset.why] = wy.value; document.getElementById('cmp-why').innerHTML = whyHtml(); return; }
+    const cset = e.target.closest('[data-cap-set]');
+    if (cset) {
+      const name = cset.value ? cset.options[cset.selectedIndex].text : 'the starting numbers';
+      if (!confirm(`Use ${name} for “${CAP.sc.name}”? Its levers will follow ${cset.value ? 'the set' : 'the starting numbers'} (any levers saved on this scenario are cleared).`)) { cset.value = CAP.inputs.set ? CAP.inputs.set.id : ''; return; }
+      run(async () => {
+        await HG.db.update('scenario', `id=eq.${CAP.scenarioId}`, { assumption_set_id: cset.value || null, lever_ppel_growth: null, lever_grant_yield: null, lever_save_trend: null, lever_inflation: null });
+        toast('Assumptions changed', `“${CAP.sc.name}” now uses ${name}.`); here();
+      }, cset);
+      return;
+    }
+    const cf = e.target.closest('select[data-cap-filter]');   // the search box updates as you type, not on change
+    if (cf) { CAP.filter = Object.assign({}, CAP.filter, { [cf.dataset.capFilter]: cf.value }); document.getElementById('cap-years').innerHTML = capYearsHtml(); return; }
     const cs = e.target.closest('[data-cap-scenario]');
     if (cs) { CAP.scenarioId = cs.value; return here(); }
     const sw = e.target.closest('[data-switch]');
