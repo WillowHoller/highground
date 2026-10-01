@@ -6,10 +6,11 @@
 (function (root, factory) {
   const E = root.HGEngine || (typeof require === 'function' ? require('./engine.js') : null);
   const C = root.HGCapital || (typeof require === 'function' ? require('./capital.js') : null);
-  const api = factory(E, C);
+  const T = root.HGTax || (typeof require === 'function' ? require('./tax.js') : null);
+  const api = factory(E, C, T);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.HGCompare = api;
-})(typeof self !== 'undefined' ? self : this, function (E, C) {
+})(typeof self !== 'undefined' ? self : this, function (E, C, T) {
   'use strict';
   const fmt = (v) => { const s = v < 0 ? '−' : ''; v = Math.abs(v); return s + (v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + Math.round(v)); };
   const pct = (v) => (v * 100).toFixed(1).replace(/\.0$/, '') + '%';
@@ -46,6 +47,7 @@
       unfunded: r.unfunded, overflow: r.overflow, gap: r.gap, busiestFY: busiest.fy, busiest: busiest.total,
       saveLow: P.save.low, saveLowFY: P.save.lowFY, ppelLow: P.ppel.low, ppelLowFY: P.ppel.lowFY,
       bondRoom: cap.pv, goRoom: go, asks, levers: L, projects: inp.projects.length,
+      tax: T ? T.impact(cfg, L, inp.tax) : null,
       ...(() => { const by = C.recurByYear(L, cfg), y = by.find((k) => k.total > 0.5) || by[0];
         return { yearlyFY: y.fy, yearlyCapital: y.capital, yearlyOther: y.other }; })(),
     };

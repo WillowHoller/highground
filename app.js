@@ -451,6 +451,8 @@
         ${line('Lowest PPEL balance', (m) => lowest(m.ppelLow, m.ppelLowFY))}
         ${line('SAVE bond room', (m) => fmtK(m.bondRoom))}
         ${line('General-obligation debt room', (m) => (m.goRoom == null ? '<span class="small muted">needs valuation</span>' : fmtK(m.goRoom)))}
+        ${line('Added tax, example home (highest year)', (m) => (!m.tax || !m.tax.taxed.length ? '$0' : !m.tax.hasValuation ? '<span class="small muted">needs valuation</span>'
+          : `$${Math.round(m.tax.peak.home).toLocaleString('en-US')}/yr <span class="small muted">FY${m.tax.peak.fy}</span><br><span class="small muted">$${Math.round(m.tax.homeValue).toLocaleString('en-US')} home</span>`))}
         <tr><th scope="row">What it asks of the community</th>${cols.map((k) => `<td class="asks">${k.m.asks.length ? `<ul>${k.m.asks.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : '<span class="muted">Nothing beyond current levies and grants</span>'}</td>`).join('')}</tr>
       </tbody></table></div>
       <p class="small muted" style="margin-top:8px">Bond room assumes 1.20 coverage, 20 years at 4.5%. A general-obligation bond needs a public vote; confirm requirements with bond counsel.</p></div>`;
@@ -632,6 +634,7 @@
         <div class="card" id="cap-levers">${capLeversHtml()}</div>
         <div class="card" id="cap-fin">${capFinHtml()}</div>
       </div>
+      <div class="card" id="cap-tax">${capTaxHtml()}</div>
       <div id="cap-years">${capYearsHtml()}</div>
       ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add an initiative</button></div>' : ''}
       <div id="cap-yearly">${capYearlyHtml()}</div>
@@ -722,6 +725,28 @@
     }).join('');
     return `<h2 style="margin-top:6px">Projects by year</h2><div class="ygrid">${cards}</div>`;
   }
+  function capTaxHtml() {
+    const cfg = CAP.inputs.cfg, imp = HGTax.impact(cfg, CAP.levers, CAP.inputs.tax || {}), R = HGTax.RULES;
+    const dollars = (v) => (v == null ? '' : v < 100 ? '$' + v.toFixed(2) : '$' + Math.round(v).toLocaleString('en-US'));
+    const homeTxt = '$' + Math.round(imp.homeValue).toLocaleString('en-US') + ' home';
+    const head = '<h3>What it means for taxpayers</h3>';
+    if (!imp.taxed.length) return head + `<p>This scenario adds <b>no property tax</b>: it has no general-obligation bond, and no new V-PPEL.</p>
+      <p class="small muted">SAVE revenue bonds, leases paid from PPEL, and campaigns or gifts don’t add a levy.</p>`;
+    const first = imp.taxed[0].fy, last = imp.taxed[imp.taxed.length - 1].fy;
+    const sources = [imp.hasGO ? 'the debt service levy for a general-obligation bond' : '', imp.newVppel ? 'a new V-PPEL' : ''].filter(Boolean).join(' and ');
+    if (!imp.hasValuation) return head + `<p>Adds about <b>${fmtK(imp.taxed[0].added)} a year</b> in property tax from FY${first} (${sources}).</p>
+      <p class="small muted">Enter the district’s taxable valuation in Settings, Starting numbers to see the levy rate and what it costs a homeowner and a farmer.</p>`;
+    const pk = imp.peak, farmCol = imp.agPerAcre ? 'Farmland, per acre' : 'Farmland, per $100,000 assessed';
+    return head + `<p>Adds ${sources}, FY${first}–FY${last}. At its highest (FY${pk.fy}), about <b>${dollars(pk.home)} a year</b> (${dollars(pk.home / 12)} a month) for a ${homeTxt}${imp.agPerAcre ? `, and <b>${dollars(pk.acre)} an acre</b> of farmland` : `, and <b>${dollars(pk.farm100k)}</b> per $100,000 of assessed farmland`}.</p>
+      <div class="scroll"><table class="data"><thead><tr><th>Year</th><th class="num">Added levy</th><th class="num">Rate per $1,000</th><th class="num">${esc(homeTxt)}</th><th class="num">Same home, owner 65+</th><th class="num">${farmCol}</th></tr></thead><tbody>
+        ${imp.taxed.map((x) => `<tr><td>FY${x.fy}${x.held ? ' <span class="small muted">*</span>' : ''}</td><td class="num">${fmtK(x.added)}</td><td class="num">$${x.rate.toFixed(4)}</td><td class="num">${dollars(x.home)}</td><td class="num">${dollars(x.home65)}</td><td class="num">${dollars(imp.agPerAcre ? x.acre : x.farm100k)}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${(() => { const endFY = Math.max(0, ...(CAP.levers.fin || []).filter((f) => f.repay === 'levy').map((f) => f.fy + f.years)); const planEnd = cfg.start + cfg.n - 1;
+        return endFY > planEnd ? `<p class="small" style="margin-top:8px">The bond’s levy continues past the plan’s last year, through FY${endFY}.</p>` : ''; })()}
+      <p class="small muted" style="margin-top:8px">The added cost only, not anyone’s whole tax bill. Rate = added levy ÷ the district’s taxable valuation per $1,000, with valuation growing at the PPEL growth lever.
+        Homes: value × the residential rollback, less the homestead credit (the tax on $${R.homesteadCreditValue.toLocaleString()} of value, through FY${R.homesteadCreditLastFY}) or, from FY${R.homesteadCreditLastFY + 1}, the 10% homestead exemption ($${R.homesteadMin.toLocaleString()} to $${R.homesteadMax.toLocaleString()}); owners 65 and older get $${R.seniorExemption.toLocaleString()} more.
+        * Rollbacks after FY2027 aren’t set yet; these use FY2027’s (44.5345% residential, 59.4401% farmland). ${imp.hasGO ? 'A general-obligation bond needs a public vote.' : ''} Rules checked ${day(R.checked)}.</p>`;
+  }
   function capYearlyHtml() {
     const list = (CAP.levers.recur || []), cfg = CAP.inputs.cfg;
     if (!list.length) return '';
@@ -744,6 +769,7 @@
     if (b) b.innerHTML = capYearsHtml();
     if (f) f.innerHTML = capFinHtml();
     const yc = document.getElementById('cap-yearly'); if (yc) yc.innerHTML = capYearlyHtml();
+    const tx = document.getElementById('cap-tax'); if (tx) tx.innerHTML = capTaxHtml();
     LEVERS.forEach((l) => { const el = document.querySelector(`[data-lever-val="${l.k}"]`); if (el) el.textContent = l.show(CAP.levers[l.k]); });
   }
   async function vAssumptions() {
@@ -1544,9 +1570,14 @@
           ${f('ppel_ongoing', 'Ongoing PPEL commitments per year, $', moneyIn(s.ppel_ongoing || 0))}
           ${f('ppel_growth', 'Taxable valuation growth, % a year', pctIn(s.ppel_growth == null ? 0.03 : s.ppel_growth))}
           ${f('ppel_rate', 'PPEL rate, $ per $1,000', s.ppel_rate == null ? '' : s.ppel_rate, 'Optional')}
-          ${f('taxable_valuation', 'Taxable valuation, $', moneyIn(s.taxable_valuation), 'Optional; used for tax-rate estimates')}
+          ${f('taxable_valuation', 'Taxable valuation, $', moneyIn(s.taxable_valuation), 'For tax estimates: the valuation the county auditor certifies for the debt service levy')}
           ${f('actual_valuation', 'Actual (100%) valuation, $', moneyIn(s.actual_valuation), 'Optional; used for the 5% debt limit')}
           ${f('go_outstanding', 'General-obligation debt outstanding, $', moneyIn(s.go_outstanding), 'Optional')}</div></div>
+
+        <div class="card"><h3>Tax estimates</h3>
+          <p class="small muted">Used for “what it means for taxpayers.” Farmland is taxed on its productivity value, which the county assessor sets; it is much lower than the market price.</p><div class="fgrid">
+          ${f('tax_home_value', 'Example home value, $', moneyIn(s.tax_home_value == null ? 150000 : s.tax_home_value), 'Assessed value of a typical home in the district')}
+          ${f('ag_value_per_acre', 'Assessed farmland value per acre, $', moneyIn(s.ag_value_per_acre), 'Optional; from the county assessor (productivity value)')}</div></div>
 
         <div class="card"><h3>V-PPEL (voter-approved PPEL)</h3><div class="fgrid">
           <label class="field">Status<select name="vppel_status" ${dis}>${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s.vppel_status || 'none') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
@@ -1592,6 +1623,8 @@
       ppel_growth: pctv('ppel_growth', 'Valuation growth', -25, 25),
       ppel_rate: (() => { const x = toNum(v('ppel_rate')); if (x === null) return null; if (isNaN(x) || x < 0 || x > 5) { errs.push('PPEL rate must be dollars per $1,000, like 0.33.'); return null; } return x; })(),
       taxable_valuation: money('taxable_valuation', 'Taxable valuation'),
+      tax_home_value: money('tax_home_value', 'Example home value') || 150000,
+      ag_value_per_acre: money('ag_value_per_acre', 'Assessed farmland value per acre'),
       actual_valuation: money('actual_valuation', 'Actual valuation'),
       go_outstanding: money('go_outstanding', 'General-obligation debt outstanding'),
       vppel_status: v('vppel_status') || 'none',
@@ -1651,7 +1684,7 @@
     const inp = HGCapital.buildInputs(rows, board.id);
     return { board, payload: {
       v: 1, engine: HGEngine.VERSION, scenario: { name: board.name },
-      settings: inp.cfg.settings, stored: inp.stored, notes: inp.notes,
+      settings: inp.cfg.settings, stored: inp.stored, notes: inp.notes, tax: inp.tax,
       projects: inp.projects.map((p) => ({ id: p.id, name: p.name, pri: p.pri, est: p.est, area: p.area, cond: p.cond, life: p.life,
         phases: p.phases.map((ph) => ({ cost: ph.cost, year: ph.year, funding: ph.funding, status: ph.status, actual: ph.actual })) })),
     } };
@@ -1735,7 +1768,7 @@
       const cfg = HGEngine.makeConfig(p.payload.settings);
       const stored = p.payload.stored || {};
       CAP.pub = true; CAP.key = null; CAP.editable = false; CAP.sc = null;
-      CAP.inputs = { cfg, projects: HGEngine.cleanList(p.payload.projects || [], cfg), stored, levers: HGEngine.leversOf(stored, cfg), notes: [] };
+      CAP.inputs = { cfg, projects: HGEngine.cleanList(p.payload.projects || [], cfg), stored, levers: HGEngine.leversOf(stored, cfg), notes: [], tax: p.payload.tax || {} };
       CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
       body = `
         <div class="page-head"><div><h1>${esc(d.name)}</h1>
@@ -1743,6 +1776,7 @@
         ${d.is_demo ? '<div class="notice">Demo district: every name and figure is made up.</div>' : ''}
         <div id="cap-results">${capResultsHtml()}</div>
         <div class="cap-grid"><div class="card" id="cap-levers">${capLeversHtml()}</div><div class="card" id="cap-fin">${capFinHtml()}</div></div>
+        <div class="card" id="cap-tax">${capTaxHtml()}</div>
         <div id="cap-years">${capYearsHtml()}</div>
         <p class="small muted">This is the version the district published. Moving the levers shows what would change; it doesn’t change the district’s plan.</p>`;
     }

@@ -19,6 +19,7 @@ demo_data.js          three FICTIONAL demo districts (Harvest Plains, Ironwood V
 uploads.js            reads project and balance spreadsheets (.csv, .xlsx); templates
 compare.js            compares scenarios and explains why their gaps differ
 ranking.js            tiers, rank order, the funding line, flags, fund in rank order
+tax.js                what a scenario adds to property taxes (Iowa rules, sourced; update rollbacks each November)
 styles.css            HighGround design tokens
 01_tables.sql         database: tables                       (run in the Supabase SQL editor, in order)
 02_security.sql       database: access rules, invitations, audit log, app functions
@@ -29,11 +30,13 @@ styles.css            HighGround design tokens
 07_signin.sql         database: access requests, email-domain allow-list, invitation email tracking (5 rows PASS)
 08_phase_names.sql    database: phase names, and copying them with a scenario (2 rows PASS)
 09_priority_tiers.sql database: one priority (Must-have / Strategic / Nice to have), converted from High/Med/Low (1 row PASS)
+10_tax_impact.sql     database: tax estimate settings and the Iowa rules they use (1 row PASS)
 send-invitation.ts    Supabase Edge Function: emails invitations through Postmark
 send_invitation_test.mjs  node --experimental-strip-types send_invitation_test.mjs
 test_ui.py            browser test against a simulated Supabase (Playwright)
 engine_test.js        node engine_test.js: engine vs. the working planner, 32 cases
 capital_test.js       node capital_test.js: demo data through database-shaped rows and back, 32 cases
+tax_test.js           node tax_test.js: homestead, rollback and levy arithmetic, worked by hand
 ranking_test.js       node ranking_test.js: the funding line and flags on the demo
 yearly_test.js        node yearly_test.js: yearly costs (programs, hires), including the FFA case
 compare_test.js       node compare_test.js: comparison and "why the gap differs" on the demo

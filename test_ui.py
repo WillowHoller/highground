@@ -195,11 +195,23 @@ async def main():
     ph=gold("phased",None); t=await pg.inner_text("#view")
     check("capital plan: phased-bond scenario matches ($1.15M gap)", fmtK(ph["gap"])=="$1.15M" and "$1.15M" in t and "Bond" in t, fmtK(ph["gap"]))
     check("capital plan: unfinished parts still marked", "Still to come on this screen" in t)
+    TAXEXP=json.loads(subprocess.check_output(["node","-e","""
+      const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js'),T=require('./tax.js');let i=0;
+      const R=C.demoRows(D['ironwood-valley'],'d1',()=>'00000000-0000-4000-8000-'+String(++i).padStart(12,'0'));
+      const rows={district:{name:'x'},settings:R.district_settings[0],balances:R.fund_balance,debts:R.debt_obligation,scenarios:R.scenario,initiatives:R.initiative,phases:R.phase,funding:R.phase_funding,financing:R.financing,recurring:[]};
+      const sc=R.scenario.find(s=>!s.is_board_version);const inp=C.buildInputs(rows,sc.id);const m=T.impact(inp.cfg,inp.levers,inp.tax);
+      process.stdout.write(JSON.stringify({home:m.peak.home,fy:m.peak.fy,acre:m.peak.acre,rate:m.peak.rate}));"""],cwd=os.path.dirname(os.path.abspath(__file__))))
+    tx=await pg.inner_text("#cap-tax")
+    check("taxpayers: the phased-bond scenario's added cost for a $150,000 home and an acre", ("$%.2f a year"%TAXEXP["home"]) in tx and ("$%.2f an acre"%TAXEXP["acre"]) in tx and ("FY%d"%TAXEXP["fy"]) in tx and ("$%.4f"%TAXEXP["rate"]) in tx, tx[:300])
+    await pg.locator("#cap-tax").screenshot(path=SHOTS+"/tax.png")
+    check("taxpayers: says when a bond's levy ends, past the plan", "continues past the plan’s last year, through FY2050" in tx)
+    check("taxpayers: says it's the added cost, and that a bond needs a vote", "added cost only" in tx.lower() and "needs a public vote" in tx)
     # scenario work
     board_id=next(sc["id"] for sc in TABLES["scenario"] if sc["is_board_version"]); phased_id=sid
     await pg.select_option("select[data-cap-scenario]",board_id); await pg.wait_for_timeout(400)
     t=await pg.inner_text("#view")
     check("phase names: shown on the year cards", "· Unit ventilators" in t)
+    check("taxpayers: no bond, no new levy, says so", "adds no property tax" in await pg.inner_text("#cap-tax"))
     check("locked scenario: read-only, admin can unlock", "This scenario is locked" in t and await pg.locator(".ylist a").count()==0
           and await pg.locator("button[data-action=unlockScenario]").count()==1 and await pg.locator("button[data-action=deleteScenario]").count()==0
           and await pg.locator("button[data-action=saveLevers]").count()==0)
@@ -415,6 +427,7 @@ async def main():
       ok1=(sb["save_receipts"]==1420000 and sb["ppel_growth"]==0.035 and sb["construction_inflation"]==0.03 and sb["plan_start_fy"]==2027
            and sb["grants_yield"]==0.75 and sb["vppel_status"]=="active" and "merge-duplicates" in st[0][3])
     check("setup: saves settings with % converted and plan start derived", ok1, st[0][2][:200] if st else "no settings POST")
+    check("setup: tax estimate settings saved", st and json.loads(st[0][2])[0].get("tax_home_value")==150000 and json.loads(st[0][2])[0].get("ag_value_per_acre")==2400, st[0][2][-200:] if st else "")
     fbb=json.loads(fb[0][2]) if fb else []
     check("setup: saves all four balances for the date", len(fbb)==4 and all(x["as_of"]=="2026-07-01" for x in fbb) and next(x for x in fbb if x["fund"]=="save")["amount"]==2150000)
     check("setup: updates the existing debt and adds the new one", len(dp)==1 and len(di)==1 and json.loads(di[0][2])["fund"]=="ppel" and json.loads(di[0][2])["annual_payment"]==45000)
@@ -433,6 +446,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/scenarios"); await pg.wait_for_timeout(600)
     t=await pg.inner_text("#cmp-table")
     check("compare: both scenarios side by side with their gaps", "$5.35M" in t and "$1.15M" in t and "smallest" in t, t[:200])
+    check("compare: added tax row", "Added tax, example home" in t and "/yr" in t)
     check("compare: yearly costs row", "Yearly costs (first year they start)" in t and "FY2028" in t and "$12k capital" in t, t[t.find("Yearly"):t.find("Yearly")+120])
     check("compare: what each asks of the community", "general-obligation bond of $4.20M in FY2030, which needs a public vote" in t and "not yet paid for" in t)
     w=await pg.inner_text("#cmp-why")
@@ -624,6 +638,7 @@ async def main():
     check("public link: only the public function is called", not authed, str(authed[:2]))
     check("public link: nothing to edit or publish", await pub.locator("[data-notbuilt], [data-action=publishBoard], form").count()==0)
     await pub.click("input[data-lever=sf]"); await pub.wait_for_timeout(200)
+    check("public link: shows what it means for taxpayers", "What it means for taxpayers" in await pub.inner_text("body"))
     check("public link: visitors can move levers", fmtK(gold("orig",{"sf":False})["gap"]) in await pub.inner_text("#cap-results"))
     await pub.screenshot(path=SHOTS+"/public.png",full_page=True)
     await pub.goto("http://localhost:8765/#/p/nowhere"); await pub.wait_for_timeout(400)

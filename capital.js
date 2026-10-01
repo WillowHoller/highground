@@ -112,8 +112,10 @@
     const recur = recurFromRows(rows.recurring, scenarioId, rows.initiatives);
     if (recur.length) stored.recur = recur;
     const notes = st.notes.concat(pr.notes);
+    const ss = rows.settings || {};
+    const tax = { valuation: n(ss.taxable_valuation, 0), homeValue: n(ss.tax_home_value, 150000), agPerAcre: n(ss.ag_value_per_acre, 0) };
     if (recur.some((r) => r.grows === 'settlement')) notes.push('Yearly costs set to grow with salary settlements stay flat until assumption sets provide a settlement rate.');
-    return { cfg, projects: pr.projects, stored, levers: E.leversOf(stored, cfg), notes };
+    return { cfg, projects: pr.projects, stored, levers: E.leversOf(stored, cfg), notes, tax };
   }
 
   /* ------------------------------------------------ demo data → database rows */
@@ -130,6 +132,7 @@
       taxable_valuation: s.ppel.valuation, actual_valuation: s.ppel.actualValuation, go_outstanding: s.ppel.goOutstanding,
       vppel_status: s.vppel.status, vppel_annual: s.vppel.annual, vppel_first_fy: s.vppel.firstFY, vppel_last_fy: s.vppel.lastFY,
       grants_avg: s.grants.avg, grants_yield: s.grants.yield, construction_inflation: s.inflation,
+      ...(s.tax ? { tax_home_value: s.tax.homeValue, ag_value_per_acre: s.tax.agPerAcre } : {}),
     });
     CAP_FUNDS.forEach((f) => out.fund_balance.push({ district_id: districtId, fund: f, as_of: s.balances.asOf, amount: s.balances[f] || 0, source: 'manual' }));
     (s.debt || []).forEach((d) => out.debt_obligation.push({ district_id: districtId, name: d.name, fund: d.fund, annual_payment: d.annual, final_fy: d.lastFY }));
