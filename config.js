@@ -3,6 +3,6 @@
    ONLY the publishable key (sb_publishable_…) belongs here. It is designed to be public;
    the database's access rules protect the data. Never put the secret key or database password here. */
 window.HG_CONFIG = {
-  supabaseUrl: 'https://hkcljszbfgyqxxutiwvc.supabase.co',
-  publishableKey: 'sb_publishable_rVGxy9iPL1dMLvFmp4a3IA_IIrhYQDh',
+  supabaseUrl: 'https://YOUR-PROJECT-ID.supabase.co',
+  publishableKey: 'YOUR-PUBLISHABLE-KEY',
 };

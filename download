@@ -1,0 +1,7 @@
+.env
+.env.*
+*.local.sql
+supabase/.temp/
+node_modules/
+.DS_Store
+tests/ui/shots/

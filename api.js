@@ -145,6 +145,9 @@
     insert: (table, row) => call(`/rest/v1/${table}`, { method: 'POST', body: row, headers: { Prefer: 'return=representation' } }),
     update: async (table, filter, patch) => changed(await call(`/rest/v1/${table}?${filter}`, { method: 'PATCH', body: patch, headers: { Prefer: 'return=representation' } }), 'changed'),
     remove: async (table, filter) => changed(await call(`/rest/v1/${table}?${filter}`, { method: 'DELETE', headers: { Prefer: 'return=representation' } }), 'removed'),
+    /** Insert, or update the existing row with the same key columns (e.g. 'district_id' or 'district_id,fund,as_of'). */
+    upsert: (table, rows, onConflict) => call(`/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`,
+      { method: 'POST', body: rows, headers: { Prefer: 'resolution=merge-duplicates,return=representation' } }),
     rpc: (fn, args = {}, opts = {}) => call(`/rest/v1/rpc/${fn}`, { method: 'POST', body: args, auth: opts.auth !== false }),
   };
 })();

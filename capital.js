@@ -1,0 +1,168 @@
+/* HighGround — capital plan bridge.
+   Turns database rows into engine inputs (settings, projects, levers) and back.
+   Pure functions: no network, no page. Tested by capital_test.js, which loads each demo district
+   through demoRows() and checks the engine gives the same answers as the working planner. */
+(function (root, factory) {
+  const E = root.HGEngine || (typeof require === 'function' ? require('./engine.js') : null);
+  const api = factory(E);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.HGCapital = api;
+})(typeof self !== 'undefined' ? self : this, function (E) {
+  'use strict';
+  const n = (v, d) => { const x = Number(v); return v === null || v === undefined || v === '' || !isFinite(x) ? d : x; };
+  const CAP_FUNDS = ['save', 'ppel', 'vppel', 'grants'];
+  const COND = { good: 'Good', fair: 'Fair', poor: 'Poor', critical: 'Critical' };
+
+  /** district_settings row + fund_balance rows + debt_obligation rows → engine settings (+ notes to show). */
+  function settingsFromRows(district, s, balances, debts) {
+    const notes = [];
+    s = s || {};
+    // latest balance per capital fund
+    const latest = {};
+    (balances || []).forEach((b) => {
+      if (!CAP_FUNDS.includes(b.fund)) return;
+      if (!latest[b.fund] || b.as_of > latest[b.fund].as_of) latest[b.fund] = b;
+    });
+    const dates = [...new Set(Object.values(latest).map((b) => b.as_of))].sort();
+    const asOf = dates.length ? dates[dates.length - 1] : '';
+    if (dates.length > 1) notes.push(`Fund balances have different dates (${dates.join(', ')}). The plan starts from ${asOf}.`);
+    const bal = (f) => (latest[f] ? n(latest[f].amount, 0) : (f === 'save' || f === 'ppel' ? null : 0));
+    const capDebts = (debts || []).filter((d) => d.fund === 'save' || d.fund === 'ppel');
+    if ((debts || []).some((d) => d.fund === 'debt_levy')) notes.push('Debt paid from the debt service levy is left out: it doesn’t draw on SAVE or PPEL.');
+    return {
+      settings: {
+        district: { name: district ? district.name : '', short: district ? district.short_name : '', enrollment: n(s.enrollment, null) },
+        plan: Object.assign({ years: n(s.plan_years, 10) }, s.plan_start_fy != null ? { startFY: n(s.plan_start_fy, undefined) } : {}),
+        balances: { asOf: asOf, save: bal('save'), ppel: bal('ppel'), vppel: bal('vppel'), grants: bal('grants') },
+        save: { receipts: n(s.save_receipts, null), ongoing: n(s.save_ongoing, 0), trend: n(s.save_trend, 0), sf2472: s.sf2472 !== false, receiptsFY: n(s.save_receipts_fy, null) },
+        ppel: { receipts: n(s.ppel_receipts, null), ongoing: n(s.ppel_ongoing, 0), growth: n(s.ppel_growth, 0.03), valuation: n(s.taxable_valuation, null),
+                rate: n(s.ppel_rate, null), actualValuation: n(s.actual_valuation, null), goOutstanding: n(s.go_outstanding, null) },
+        vppel: { status: s.vppel_status || 'none', annual: n(s.vppel_annual, 0), firstFY: n(s.vppel_first_fy, null), lastFY: n(s.vppel_last_fy, null) },
+        grants: { avg: n(s.grants_avg, 0), yield: n(s.grants_yield, 0.75) },
+        debt: capDebts.map((d) => ({ name: d.name, fund: d.fund, annual: n(d.annual_payment, 0), lastFY: n(d.final_fy, null) })),
+        inflation: n(s.construction_inflation, 0),
+      },
+      notes,
+    };
+  }
+
+  /** initiative + phase + phase_funding rows for one scenario → engine projects (+ notes). */
+  function projectsFromRows(initiatives, phases, funding, scenarioId, cfg) {
+    const notes = [];
+    const byInit = new Map();
+    const fundBy = new Map();
+    (funding || []).forEach((f) => { if (!fundBy.has(f.phase_id)) fundBy.set(f.phase_id, []); fundBy.get(f.phase_id).push({ b: f.fund === 'general' ? 'save' : f.fund, p: n(f.pct, 0) }); });
+    if ((funding || []).some((f) => f.fund === 'general')) notes.push('Some phases are paid from the general fund; the capital plan counts them against SAVE for now.');
+    let outside = 0;
+    (phases || []).filter((p) => p.scenario_id === scenarioId)
+      .sort((a, b) => (a.fy - b.fy) || (a.seq - b.seq))
+      .forEach((p) => {
+        const y = n(p.fy, cfg.start) - cfg.start;
+        if (y < 0 || y >= cfg.n) outside++;
+        if (!byInit.has(p.initiative_id)) byInit.set(p.initiative_id, []);
+        byInit.get(p.initiative_id).push({
+          cost: n(p.cost, 0), year: y, funding: fundBy.get(p.id) || [],
+          status: p.status === 'planned' ? undefined : p.status, actual: p.actual_cost == null ? undefined : n(p.actual_cost, undefined),
+          phaseId: p.id,
+        });
+      });
+    if (outside) notes.push(`${outside} phase${outside === 1 ? '' : 's'} fall outside FY${cfg.start}–FY${cfg.start + cfg.n - 1} and are counted in the nearest plan year.`);
+    const INIT = new Map((initiatives || []).map((i) => [i.id, i]));
+    const raw = [];
+    byInit.forEach((ph, id) => {
+      const i = INIT.get(id) || {};
+      raw.push({ id: id, name: i.name, pri: i.engine_priority || '', est: i.cost_confidence !== 'firm', area: i.focus_area || '',
+                 cond: COND[i.condition] || '', life: i.remaining_life, phases: ph });
+    });
+    return { projects: E.cleanList(raw, cfg), notes };
+  }
+
+  /** scenario row + its financing rows → stored levers (null lever = district default). */
+  function leversFromRows(sc, financing) {
+    const o = {};
+    if (sc) {
+      if (sc.lever_vppel != null) o.vppel = !!sc.lever_vppel;
+      if (sc.lever_sf2472 != null) o.sf = !!sc.lever_sf2472;
+      if (sc.lever_ppel_growth != null) o.pg = n(sc.lever_ppel_growth, 0);
+      if (sc.lever_grant_yield != null) o.gy = n(sc.lever_grant_yield, 0);
+      if (sc.lever_save_trend != null) o.sg = n(sc.lever_save_trend, 0);
+      if (sc.lever_inflation != null) o.infl = n(sc.lever_inflation, 0);
+    }
+    const fin = (financing || []).filter((f) => !sc || f.scenario_id === sc.id)
+      .map((f) => ({ name: f.name, kind: f.kind, fy: n(f.issue_fy, 0), amount: n(f.amount, 0), rate: n(f.rate, 0), years: n(f.years, 0), repay: f.repay_from }));
+    if (fin.length) o.fin = fin;
+    return o;
+  }
+
+  /** Everything for one scenario, ready for HGEngine.compute. */
+  function buildInputs(rows, scenarioId) {
+    const st = settingsFromRows(rows.district, rows.settings, rows.balances, rows.debts);
+    const cfg = E.makeConfig(st.settings);
+    const sc = (rows.scenarios || []).find((s) => s.id === scenarioId);
+    const pr = projectsFromRows(rows.initiatives, rows.phases, rows.funding, scenarioId, cfg);
+    const stored = leversFromRows(sc, rows.financing);
+    return { cfg, projects: pr.projects, stored, levers: E.leversOf(stored, cfg), notes: st.notes.concat(pr.notes) };
+  }
+
+  /* ------------------------------------------------ demo data → database rows */
+  /** Rows for every table, in the order they must be inserted. ids come from newId() (crypto.randomUUID in the browser). */
+  function demoRows(demo, districtId, newId) {
+    const s = demo.settings;
+    const startFY = E.fyOfDate(s.balances.asOf);
+    const out = { district_settings: [], fund_balance: [], debt_obligation: [], initiative: [], scenario: [],
+                  scenario_initiative: [], phase: [], phase_funding: [], financing: [], lock: [] };
+    out.district_settings.push({
+      district_id: districtId, plan_start_fy: startFY, plan_years: s.plan.years, enrollment: demo.enrollment,
+      save_receipts: s.save.receipts, save_receipts_fy: s.save.receiptsFY, save_ongoing: s.save.ongoing, save_trend: s.save.trend, sf2472: s.save.sf2472 !== false,
+      ppel_receipts: s.ppel.receipts, ppel_ongoing: s.ppel.ongoing, ppel_growth: s.ppel.growth, ppel_rate: s.ppel.rate,
+      taxable_valuation: s.ppel.valuation, actual_valuation: s.ppel.actualValuation, go_outstanding: s.ppel.goOutstanding,
+      vppel_status: s.vppel.status, vppel_annual: s.vppel.annual, vppel_first_fy: s.vppel.firstFY, vppel_last_fy: s.vppel.lastFY,
+      grants_avg: s.grants.avg, grants_yield: s.grants.yield, construction_inflation: s.inflation,
+    });
+    CAP_FUNDS.forEach((f) => out.fund_balance.push({ district_id: districtId, fund: f, as_of: s.balances.asOf, amount: s.balances[f] || 0, source: 'manual' }));
+    (s.debt || []).forEach((d) => out.debt_obligation.push({ district_id: districtId, name: d.name, fund: d.fund, annual_payment: d.annual, final_fy: d.lastFY }));
+    const initId = new Map();
+    demo.scenarios.forEach((sc) => sc.projects.forEach((p) => {
+      if (initId.has(p.id)) return;
+      const id = newId(); initId.set(p.id, id);
+      out.initiative.push({ id: id, district_id: districtId, name: p.name, type: 'capital', status: 'proposed', engine_priority: p.pri || null,
+        focus_area: p.area || null, cost_confidence: p.est === false ? 'firm' : 'estimate', condition: p.cond ? p.cond.toLowerCase() : null,
+        remaining_life: p.life == null ? null : p.life });
+    }));
+    demo.scenarios.forEach((sc, si) => {
+      const sid = newId();
+      const L = sc.levers || {};
+      out.scenario.push({ id: sid, district_id: districtId, name: sc.name, is_board_version: !!sc.board, is_locked: false,
+        lever_vppel: L.vppel == null ? null : !!L.vppel, lever_sf2472: L.sf == null ? null : !!L.sf,
+        lever_ppel_growth: L.pg == null ? null : L.pg, lever_grant_yield: L.gy == null ? null : L.gy,
+        lever_save_trend: L.sg == null ? null : L.sg, lever_inflation: L.infl == null ? null : L.infl });
+      if (sc.locked) out.lock.push(sid);   // locked only after its contents are in
+      sc.projects.forEach((p, rank) => {
+        out.scenario_initiative.push({ scenario_id: sid, initiative_id: initId.get(p.id), district_id: districtId, rank: rank + 1, included: true });
+        p.phases.forEach((ph, k) => {
+          const pid = newId();
+          out.phase.push({ id: pid, district_id: districtId, scenario_id: sid, initiative_id: initId.get(p.id), seq: k + 1,
+            fy: startFY + ph.year, cost: ph.cost, status: ph.status || 'planned', actual_cost: ph.actual == null ? null : ph.actual });
+          (ph.funding || []).forEach((f) => out.phase_funding.push({ phase_id: pid, district_id: districtId, fund: f.b, pct: f.p }));
+        });
+      });
+      (L.fin || []).forEach((f) => out.financing.push({ district_id: districtId, scenario_id: sid, name: f.name, kind: f.kind, issue_fy: f.fy,
+        amount: f.amount, rate: f.rate || 0, years: f.years || 0,
+        repay_from: f.kind === 'rev' ? 'save' : f.kind === 'lease' ? (f.repay === 'save' ? 'save' : 'ppel') : f.kind === 'gift' ? 'none' : 'levy' }));
+    });
+    return out;
+  }
+
+  /* ------------------------------------------------ summaries for the screen */
+  function yearSummary(r, cfg) {
+    return r.res.map((m) => {
+      const capacity = CAP_FUNDS.reduce((a, b) => a + m.avail[b], 0);
+      const banks = CAP_FUNDS.reduce((a, b) => a + Math.max(0, m.avail[b] - m.spend[b]), 0);
+      const over = CAP_FUNDS.reduce((a, b) => a + m.over[b], 0);
+      const fromFunds = CAP_FUNDS.reduce((a, b) => a + m.spend[b], 0) - over;
+      return { fy: m.fy, total: m.total, capacity, banks, over, fromFunds, boost: m.ext.boost, financed: m.fin.used, campNeeded: m.fin.unfunded };
+    });
+  }
+
+  return { settingsFromRows, projectsFromRows, leversFromRows, buildInputs, demoRows, yearSummary, CAP_FUNDS };
+});

@@ -139,7 +139,7 @@
       { id: 'summary', label: 'Summary', status: 'wip', phase: 1, lede: 'Every fund at a glance.', render: vResSummary },
       { id: 'general', label: 'General fund', status: 'wip', phase: 6, lede: 'Five-year general-fund forecast, staffing and settlements.', render: vGeneralFund },
       { id: 'funds', label: 'All funds', status: 'partial', phase: 1, lede: 'Balances, receipts, debt and rules for each capital fund.', render: vFunds },
-      { id: 'capital', label: 'Capital plan', status: 'wip', phase: 1, lede: 'Projects by year, split across Iowa’s capital funds, with the gap to close.', render: vCapital },
+      { id: 'capital', label: 'Capital plan', status: 'partial', phase: 1, lede: 'Projects by year, split across Iowa’s capital funds, with the gap to close.', render: vCapital },
       { id: 'assumptions', label: 'Assumption sets', status: 'wip', phase: 2, lede: 'Base, Conservative and Growth: the world the plan has to survive.', render: vAssumptions },
     ] },
     { id: 'progress', label: 'Progress', tabs: [
@@ -157,6 +157,7 @@
   const FOOT = [
     { id: 'settings', label: 'Settings', tabs: [
       { id: 'district', label: 'District', status: 'partial', phase: 1, lede: 'Name, link and look, and the numbers the plan starts from.', render: vDistrict },
+      { id: 'setup', label: 'Starting numbers', status: 'live', lede: 'What the capital plan starts from: receipts, balances and existing debt.', render: vSetup },
       { id: 'people', label: 'People', status: 'live', lede: 'Who can see and change this district.', render: vPeople },
       { id: 'account', label: 'Your account', status: 'partial', phase: 1, lede: 'Your name, password and sign-in security.', render: vAccount },
     ] },
@@ -292,7 +293,7 @@
   async function vInitiatives(c) {
     const rows = await HG.db.select('initiative', `select=name,type,status,focus_area,tier,cost_confidence,condition&district_id=eq.${c.district.id}&order=name`);
     return `
-      <div class="row">${nb('Add an initiative', 'Adding initiatives', 1)}${nb('Upload projects', 'Project upload', 1)}</div>
+      <div class="row">${nb('Add an initiative', 'Adding initiatives', 1)}${nb('Upload projects', 'Project upload', 2)}</div>
       <div class="card">${table([
         { label: 'Initiative', get: (r) => r.name },
         { label: 'Type', get: (r) => r.type },
@@ -301,7 +302,7 @@
         { label: 'Tier', get: (r) => r.tier },
         { label: 'Cost', get: (r) => r.cost_confidence },
         { label: 'Condition', get: (r) => r.condition },
-      ], rows, 'No initiatives yet. The project upload arrives in Phase 1.')}</div>
+      ], rows, 'No initiatives yet. Projects are entered by hand on the capital plan (coming in Phase 1); upload arrives in Phase 2.')}</div>
       ${wip({ phase: 2, items: ['Status pipeline from idea to done', 'Side panel: one-time costs, yearly costs, effect on the gap and on solvency', 'Programs and hires with yearly costs (the FFA-program case)'], uses: 'initiative, phase, phase_funding, recurring_cost' })}`;
   }
   async function vRanking() {
@@ -350,7 +351,7 @@
     bal.forEach((b) => { if (!seen.has(b.fund)) { seen.add(b.fund); latest.push(b); } });
     const s = set[0];
     return `
-      <div class="row">${c.finance ? nb('Enter balances', 'Entering balances', 1) + nb('Upload balances', 'Balances upload', 1) : ''}</div>
+      <div class="row">${c.finance ? `<a class="btn" href="#/d/${enc(c.district.slug)}/settings/setup">Enter balances</a>` + nb('Upload balances', 'Balances upload', 2) : ''}</div>
       <div class="card"><h3>Latest balances</h3>${table([
         { label: 'Fund', get: (r) => r.fund.toUpperCase() },
         { label: 'As of', get: (r) => day(r.as_of) },
@@ -368,14 +369,144 @@
       ], [{ f: 'SAVE', v: s.save_receipts }, { f: 'PPEL', v: s.ppel_receipts }, { f: 'V-PPEL', v: s.vppel_status === 'none' ? null : s.vppel_annual }], '') : '<div class="empty">Not set up yet. The setup wizard arrives in Phase 1.</div>'}</div>
       ${wip({ phase: 1, items: ['What each fund may legally pay for', 'Year-by-year receipts, spending and low point, from the engine', 'SAVE revenue-bond room and the GO debt limit'], uses: 'district_settings, fund_balance, debt_obligation, rule_value, the engine' })}`;
   }
-  async function vCapital() {
-    return wip({ title: 'Today’s capital planner moves here: not built yet', phase: 1, items: [
-      'Capital spending by year: levies and grants, boosters, campaign or bond needed',
-      'What-if levers: valuation growth, grant yield, SAVE trend, inflation, SF 2472, V-PPEL',
-      'Financing: bonds, leases, campaigns',
-      'Projects by year as cards or a table',
-      'Same engine and same numbers as the working planner, proved by its regression tests',
-    ], uses: 'scenario, phase, phase_funding, financing, district_settings, fund_balance, debt_obligation, the engine' });
+  // ---------------------------------------------------------------- capital plan (live engine)
+  const CAP = { key: null, rows: null, scenarioId: null, inputs: null, levers: null, pub: false };
+  const fmtK = (v) => { const sgn = v < 0 ? '-' : ''; v = Math.abs(v); if (v >= 1e6) return sgn + '$' + (v / 1e6).toFixed(2) + 'M'; if (v >= 1000) return sgn + '$' + Math.round(v / 1000) + 'k'; return sgn + '$' + Math.round(v); };
+  const pct = (v, dp) => (v * 100).toFixed(dp) + '%';
+  const FUND_LABEL = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants', boost: 'Boosters', camp: 'Campaign/bond' };
+  const LEVERS = [
+    { k: 'pg', label: 'PPEL valuation growth', min: 0, max: 0.08, step: 0.005, show: (v) => pct(v, 1) },
+    { k: 'gy', label: 'Grant yield to capital', min: 0, max: 1, step: 0.05, show: (v) => pct(v, 0) },
+    { k: 'sg', label: 'SAVE receipts trend', min: -0.05, max: 0.05, step: 0.005, show: (v) => (v > 0 ? '+' : '') + pct(v, 1) },
+    { k: 'infl', label: 'Construction inflation', min: 0, max: 0.08, step: 0.005, show: (v) => pct(v, 1) },
+  ];
+  async function loadCapitalRows(d) {
+    const q = (t, extra) => HG.db.select(t, `select=*&district_id=eq.${d.id}${extra || ''}`);
+    const [settings, balances, debts, scenarios, initiatives, phases, funding, financing] = await Promise.all([
+      q('district_settings'), q('fund_balance'), q('debt_obligation'), q('scenario', '&order=name'),
+      q('initiative'), q('phase'), q('phase_funding'), q('financing')]);
+    return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing };
+  }
+  function capCompute() { return HGEngine.compute(CAP.inputs.projects, CAP.levers, CAP.inputs.cfg); }
+
+  async function vCapital(c) {
+    const rows = await loadCapitalRows(c.district);
+    CAP.rows = rows; CAP.pub = false;
+    if (!rows.settings) {
+      return `<div class="card"><h3>Starting numbers aren’t set up yet</h3>
+        <p>The capital plan needs this district’s SAVE and PPEL receipts, fund balances and existing debt before it can run.</p>
+        <div class="row">${c.finance ? `<a class="btn primary" href="#/d/${enc(c.district.slug)}/settings/setup">Set up starting numbers</a>` : '<span class="small muted">A business manager or admin can set these up.</span>'}</div>
+        ${S.isStaff && c.district.is_demo ? '<p class="small muted" style="margin-top:10px">This is a demo district: you can fill it with fictional data from the Willow Holler page.</p>' : ''}</div>`;
+    }
+    if (!rows.scenarios.length) {
+      return `<div class="card"><h3>No scenarios yet</h3><p>Adding projects by hand arrives later in Phase 1; uploading a project spreadsheet arrives in Phase 2.</p>${nb('Add projects', 'Adding projects by hand', 1)}</div>`;
+    }
+    const key = c.district.id;
+    if (CAP.key !== key || !rows.scenarios.some((x) => x.id === CAP.scenarioId)) {
+      CAP.key = key;
+      CAP.scenarioId = (rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0]).id;
+    }
+    capLoadScenario();
+    const cfg = CAP.inputs.cfg;
+    const opts = rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === CAP.scenarioId ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}${x.is_locked ? ' (locked)' : ''}</option>`).join('');
+    return `
+      <div class="row cap-bar">
+        <label class="chip"><span class="small muted">Scenario</span><select data-cap-scenario aria-label="Scenario">${opts}</select></label>
+        ${nb('Edit projects', 'Editing projects and phases', 1)}${nb('Save levers to this scenario', 'Saving what-if levers', 1)}
+        ${c.admin && (rows.scenarios.find((x) => x.id === CAP.scenarioId) || {}).is_board_version ? '<button type="button" class="btn primary" data-action="publishBoard">Publish to the public link</button>' : ''}
+      </div>
+      ${CAP.inputs.notes.length ? `<div class="notice">${CAP.inputs.notes.map(esc).join('<br>')}</div>` : ''}
+      <div id="cap-results">${capResultsHtml()}</div>
+      <div class="cap-grid">
+        <div class="card" id="cap-levers">${capLeversHtml()}</div>
+        <div class="card" id="cap-fin">${capFinHtml()}</div>
+      </div>
+      <div id="cap-years">${capYearsHtml()}</div>
+      ${wip({ title: 'Still to come on this screen', phase: 1, items: ['Editing projects, phases and funding splits', 'Saving levers and financing to a scenario', 'New scenarios, and making one the board version', 'Table view, filters, and “why the gap changed”'] })}`;
+  }
+  function capLoadScenario() {
+    CAP.inputs = HGCapital.buildInputs(CAP.rows, CAP.scenarioId);
+    CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
+  }
+  function capResultsHtml() {
+    const cfg = CAP.inputs.cfg, r = capCompute(), yrs = HGCapital.yearSummary(r, cfg);
+    const busiest = yrs.reduce((a, y) => (y.total > a.total ? y : a), yrs[0]);
+    const enr = cfg.settings.district.enrollment;
+    const tiles = [
+      ['10-year need', fmtK(r.need), `FY${cfg.start}–FY${cfg.start + cfg.n - 1}`],
+      ['Levies & grants', fmtK(r.levyFunded), 'SAVE, PPEL, V-PPEL, grants'],
+      ['Campaign / bond', fmtK(r.spentByBucket.camp), r.spentByBucket.boost ? `plus ${fmtK(r.spentByBucket.boost)} boosters` : (r.financed ? `${fmtK(r.financed)} financed` : 'none planned')],
+      ['Gap to close', fmtK(r.gap), r.gap > 0.5 ? [r.unfunded > 0.5 ? `${fmtK(r.unfunded)} campaign or bond not yet financed` : '', r.overflow > 0.5 ? `${fmtK(r.overflow)} over what the funds can pay` : ''].filter(Boolean).join('; ') : 'Fully paid for in this scenario'],
+      ['Busiest year', 'FY' + busiest.fy, fmtK(busiest.total)],
+      enr ? ['Per pupil', '$' + Math.round(r.need / enr).toLocaleString('en-US'), `${enr.toLocaleString('en-US')} enrolled`] : null,
+    ].filter(Boolean);
+    const max = Math.max(1, ...yrs.map((y) => y.total));
+    const W = 64, H = 170, top = 24, base = top + H;
+    const bars = yrs.map((y, i) => {
+      const x = i * W + 12, w = W - 24; let yy = base;
+      const seg = (v, cls) => { if (v <= 0.5) return ''; const h = v / max * H; yy -= h; return `<rect class="${cls}" x="${x}" y="${yy.toFixed(1)}" width="${w}" height="${h.toFixed(1)}"></rect>`; };
+      const parts = seg(y.fromFunds, 'b-funds') + seg(y.over, 'b-over') + seg(y.boost, 'b-boost') + seg(y.financed, 'b-fin') + seg(y.campNeeded, 'b-camp');
+      return `<g><title>FY${y.fy}: ${fmtK(y.total)}${y.campNeeded > 0.5 ? `, campaign or bond needed ${fmtK(y.campNeeded)}` : ''}${y.over > 0.5 ? `, over capacity ${fmtK(y.over)}` : ''}</title>${parts}
+        ${y.total > 0.5 ? `<text x="${x + w / 2}" y="${(yy - 6).toFixed(1)}" class="b-lab ${y.campNeeded > 0.5 || y.over > 0.5 ? 'warn' : ''}">${fmtK(y.total)}</text>` : ''}
+        <text x="${x + w / 2}" y="${base + 16}" class="b-fy">${y.fy}</text></g>`;
+    }).join('');
+    return `<div class="grid tiles">${tiles.map((t, i) => `<div class="card tile-card ${i === 3 && r.gap > 0.5 ? 'gap' : ''}"><div class="small muted">${esc(t[0])}</div><div class="stat">${esc(t[1])}</div><div class="small muted">${esc(t[2])}</div></div>`).join('')}</div>
+      <div class="card"><div class="row" style="justify-content:space-between"><h3>Capital spending by year</h3>
+        <div class="legend small"><span><i class="b-funds"></i>Levies &amp; grants</span><span><i class="b-boost"></i>Boosters</span><span><i class="b-fin"></i>Financed</span><span><i class="b-camp"></i>Campaign / bond needed</span><span><i class="b-over"></i>Over capacity</span></div></div>
+        <div class="scroll"><svg class="capchart" viewBox="0 0 ${yrs.length * W} ${base + 24}" role="img" aria-label="Capital spending by year">${bars}</svg></div></div>`;
+  }
+  function capLeversHtml() {
+    const cfg = CAP.inputs.cfg;
+    return `<h3>What-if</h3>
+          <p class="small muted">Try a change here; nothing is saved. Reset returns to ${CAP.pub ? 'the published plan' : 'the scenario’s own settings'}.</p>
+          <div class="stack">
+          ${LEVERS.map((l) => `<label class="lever"><span>${esc(l.label)} <b data-lever-val="${l.k}">${esc(l.show(CAP.levers[l.k]))}</b></span>
+             <input type="range" data-lever="${l.k}" min="${l.min}" max="${l.max}" step="${l.step}" value="${CAP.levers[l.k]}"></label>`).join('')}
+          <label class="row"><input type="checkbox" data-lever="sf" ${CAP.levers.sf ? 'checked' : ''}> SF 2472 SAVE cut</label>
+          ${cfg.vStatus !== 'none' ? `<label class="row"><input type="checkbox" data-lever="vppel" ${CAP.levers.vppel ? 'checked' : ''}> V-PPEL through FY${cfg.vLast}${cfg.vStatus === 'proposed' ? ' (proposed; needs a vote)' : ''}</label>` : ''}
+          <div><button type="button" class="btn small" data-action="capReset">Reset</button></div></div>`;
+  }
+  function capFinHtml() {
+    const cfg = CAP.inputs.cfg, L = CAP.levers;
+    const cap = HGEngine.saveBondCapacity(cfg, L, 0.045, 20, 1.2), go = HGEngine.goDebtRoom(cfg, L);
+    const KIND = { go: 'General-obligation bond', rev: 'SAVE revenue bond', lease: 'Lease-purchase', gift: 'Campaign or gift' };
+    const REPAY = { levy: 'debt service levy', save: 'SAVE', ppel: 'PPEL', none: 'nothing (gift)' };
+    return `<h3>Financing</h3>
+      ${(L.fin || []).length ? `<div class="stack">${L.fin.map((f) => `<div><b>${esc(f.name)}</b>: ${esc(KIND[f.kind] || f.kind)}, ${fmtK(f.amount)} in FY${f.fy}${f.years ? `, ${f.years} years at ${pct(f.rate, 2)}` : ''}, repaid from ${esc(REPAY[f.repay] || f.repay)}.</div>`).join('')}</div>`
+        : '<p class="muted">None in this scenario.</p>'}
+      <p class="small">SAVE revenue-bond room is about <b>${fmtK(cap.pv)}</b> (lowest year FY${cap.fy}, 1.20 coverage, 20 years at 4.5%).
+      ${go != null ? ` The general-obligation debt limit (5% of actual valuation) leaves about <b>${fmtK(go)}</b>.` : ' Add the district’s actual (100%) valuation to see the general-obligation limit.'}</p>
+      ${CAP.pub ? '' : `<div>${nb('Add a bond, lease or campaign', 'Adding financing', 1)}</div>`}`;
+  }
+  function capYearsHtml() {
+    const cfg = CAP.inputs.cfg, L = CAP.levers, r = capCompute(), yrs = HGCapital.yearSummary(r, cfg);
+    const cards = yrs.map((y, i) => {
+      const items = [];
+      CAP.inputs.projects.forEach((p) => p.phases.forEach((ph, k) => {
+        if (ph.year !== i) return;
+        const cost = ph.status === 'done' && ph.actual != null ? ph.actual : ph.cost * Math.pow(1 + L.infl, ph.year);
+        items.push(`<li><span>${esc(p.name)}${p.phases.length > 1 ? ` <span class="muted">${k + 1}/${p.phases.length}</span>` : ''}
+          ${ph.status === 'done' ? '<b class="ok">Done</b>' : ph.status === 'underway' ? '<span class="muted">underway</span>' : ''}
+          <span class="chips">${ph.funding.map((f) => `<span class="fchip f-${f.b}">${FUND_LABEL[f.b]}${f.p !== 100 ? ' ' + f.p + '%' : ''}</span>`).join('')}</span></span><b>${fmtK(cost)}</b></li>`);
+      }));
+      const spend = HGCapital.CAP_FUNDS.reduce((a, b) => a + r.res[i].spend[b], 0);
+      return `<div class="card ycard ${y.campNeeded > 0.5 || y.over > 0.5 ? 'warn' : ''}">
+        <div class="row" style="justify-content:space-between"><h3>FY${y.fy}${i === 0 && cfg.f0 < 1 ? ` <span class="small muted">from ${esc(day(cfg.settings.balances.asOf))}</span>` : ''}</h3><b>${fmtK(y.total)}</b></div>
+        <div class="small muted">${fmtK(spend)} of ${fmtK(y.capacity)} capacity; banks ${fmtK(y.banks)}</div>
+        ${y.campNeeded > 0.5 ? `<div class="small gaptext">Campaign / bond needed ${fmtK(y.campNeeded)}</div>` : ''}
+        ${y.financed > 0.5 ? `<div class="small">Financed ${fmtK(y.financed)}</div>` : ''}
+        ${y.over > 0.5 ? `<div class="small gaptext">Over what the funds can pay by ${fmtK(y.over)}</div>` : ''}
+        ${y.boost > 0.5 ? `<div class="small">Boosters ${fmtK(y.boost)}</div>` : ''}
+        <ul class="ylist">${items.join('') || '<li class="muted">Nothing planned</li>'}</ul></div>`;
+    }).join('');
+    return `<h2 style="margin-top:6px">Projects by year</h2><div class="ygrid">${cards}</div>`;
+  }
+  function capRefresh() {
+    const a = document.getElementById('cap-results'), b = document.getElementById('cap-years'), f = document.getElementById('cap-fin');
+    if (a) a.innerHTML = capResultsHtml();
+    if (b) b.innerHTML = capYearsHtml();
+    if (f) f.innerHTML = capFinHtml();
+    LEVERS.forEach((l) => { const el = document.querySelector(`[data-lever-val="${l.k}"]`); if (el) el.textContent = l.show(CAP.levers[l.k]); });
   }
   async function vAssumptions() {
     return wip({ phase: 2, items: ['Base, Conservative and Growth assumption sets', 'Stress-test one decision across all three', 'Keeps “the world” (assumptions) apart from “our choices” (scenarios)'], uses: 'assumption_set, scenario' });
@@ -401,8 +532,8 @@
     const buttons = [
       c.finance && nb('Monthly GL export', 'Monthly GL upload', 3),
       c.finance && nb('Budget', 'Budget upload', 3),
-      c.finance && nb('Fund balances', 'Balances upload', 1),
-      c.plan && nb('Projects', 'Project upload', 1),
+      c.finance && nb('Fund balances', 'Balances upload', 2),
+      c.plan && nb('Projects', 'Project upload', 2),
       c.plan && nb('Goals', 'Goals upload', 5),
       (c.plan || c.finance) && nb('Measure results', 'Measure results upload', 5),
       c.plan && nb('Survey results', 'Survey upload', 5),
@@ -432,15 +563,29 @@
     ], uses: 'report_snapshot' });
   }
   async function vCommunityPage(c) {
-    const pubs = await HG.db.select('publication', `select=kind,title,published_at,is_current&district_id=eq.${c.district.id}&order=published_at.desc&limit=20`);
+    const pubs = await HG.db.select('publication', `select=id,kind,title,published_at,is_current,withdrawn_at&district_id=eq.${c.district.id}&order=published_at.desc&limit=20`);
     const link = `${HG.appUrl()}#/p/${enc(c.district.slug)}`;
-    const current = pubs.find((p) => p.kind === 'board_plan' && p.is_current);
+    const current = pubs.find((p) => p.kind === 'board_plan' && p.is_current && !p.withdrawn_at);
+    const history = pubs.filter((p) => p.kind === 'board_plan');
     return `
       <div class="card"><h3>Public link</h3>
-        <p>${c.district.public_link_enabled ? `Anyone with this link sees what you publish, and nothing else: <a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a>` : 'The public link is turned off for this district (Settings, District).'}</p>
-        <p class="small muted">${current ? `Board version published ${esc(day(current.published_at))}.` : 'Nothing published yet.'}</p>
-        <div class="row">${c.admin ? nb('Publish the board version', 'Publishing the board version', 1) + nb('Publish the community page', 'Publishing the community page', 4) : ''}</div></div>
-      ${wip({ phase: 4, items: ['Choose what’s public: what you told us, what we planned, what we delivered', 'Changes since the last publish', 'Unapproved proposals held back automatically', 'Publish log'], uses: 'publication, public_publication()' })}`;
+        ${c.district.public_link_enabled
+          ? `<p>Anyone with this link sees the published board version, with what-if levers they can move. They can’t change anything, and they see nothing else: <a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a></p>`
+          : '<p>The public link is turned off for this district (Settings, District).</p>'}
+        <p>${current ? `Showing <b>${esc(current.title)}</b>, published ${esc(day(current.published_at))}.` : '<b>Nothing is published.</b> The link says so.'}</p>
+        <div class="row">
+          ${c.admin && c.district.public_link_enabled ? '<button type="button" class="btn primary" data-action="publishBoard">Publish the board version</button>' : ''}
+          ${c.admin && current ? `<button type="button" class="btn danger" data-action="withdrawBoard" data-id="${esc(current.id)}">Take it down</button>` : ''}
+          ${current ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open the public page</a>` : ''}
+        </div>
+        ${c.admin ? '' : '<p class="small muted">Only a district admin can publish.</p>'}</div>
+      <div class="card"><h3>Publish history</h3>${table([
+        { label: 'Version', get: (p) => p.title },
+        { label: 'Published', get: (p) => day(p.published_at) },
+        { label: 'Status', get: (p) => (p.withdrawn_at ? 'Taken down' : p.is_current ? 'On the link now' : 'Replaced') },
+      ], history, 'Nothing published yet.')}</div>
+      <div class="row">${c.admin ? nb('Publish the community page', 'Publishing the community page', 4) : ''}</div>
+      ${wip({ title: 'Community page: not built yet', phase: 4, items: ['Choose what’s public: what you told us, what we planned, what we delivered', 'Changes since the last publish', 'Unapproved proposals held back automatically'], uses: 'publication, public_publication()' })}`;
   }
   async function vExports() {
     return `<div class="row">${nb('Download all data', 'Data export', 4)}</div>` + wip({ phase: 4, items: ['Every table as a spreadsheet', 'Uploads use the same layouts, so an export can be edited and uploaded back'], uses: 'every district table' });
@@ -462,8 +607,8 @@
           <p class="small muted">Link id: <b>${esc(d.slug)}</b> (set when the district is created)</p>
           ${c.admin ? '<div><button class="btn primary" type="submit">Save changes</button></div>' : '<p class="small muted">Only a district admin can change these.</p>'}
         </form></div>
-      <div class="row">${c.admin ? nb('Upload a logo', 'Logo upload', 1) : ''}${c.finance ? nb('Set up the plan’s starting numbers', 'Setup wizard (revenue, levies, debt, balances)', 1) : ''}</div>
-      ${wip({ phase: 1, items: ['Setup wizard: plan years, SAVE and PPEL receipts, V-PPEL, grants, valuation, debt', 'Logo'], uses: 'district_settings, debt_obligation, storage bucket district-public' })}`;
+      <div class="row">${c.admin ? nb('Upload a logo', 'Logo upload', 1) : ''}${c.finance ? `<a class="btn" href="#/d/${enc(d.slug)}/settings/setup">Starting numbers</a>` : ''}</div>
+      ${wip({ phase: 1, items: ['Logo'], uses: 'storage bucket district-public' })}`;
   }
   async function vPeople(c) {
     const d = c.district.id;
@@ -524,7 +669,7 @@
     const rows = [];
     ALL.forEach((s) => s.tabs.forEach((t) => rows.push({ s: s.label, t: t.label, status: t.status, phase: t.phase })));
     rows.push({ s: 'Sign-in', t: 'Email and password, confirmation, reset', status: 'live' });
-    rows.push({ s: 'Public link', t: 'Read-only page for a district', status: 'partial', phase: 1 });
+    rows.push({ s: 'Public link', t: 'Board version with what-if levers (community page later)', status: 'partial', phase: 4 });
     return `<div class="card">${table([
       { label: 'Section', get: (r) => r.s }, { label: 'Screen', get: (r) => r.t },
       { label: 'Status', html: (r) => badge(r.status) }, { label: 'Rest arrives', get: (r) => (r.status === 'live' ? '' : r.phase ? 'Phase ' + r.phase : '') },
@@ -544,6 +689,7 @@
         { label: 'Link id', get: (r) => r.slug }, { label: 'State', get: (r) => r.state },
         { label: 'Demo', get: (r) => (r.is_demo ? 'Demo' : '') }, { label: 'Created', get: (r) => day(r.created_at) },
       ], rows, 'No districts yet. Add the first one below; start with a fictional demo district.')}</div>
+      ${demoLoaderHtml(rows)}
       <div class="card"><h3>Add a district</h3>
         <form class="stack" data-form="createDistrict">
           <label class="field">District name<input name="name" required maxlength="120" placeholder="Ironwood Valley Community School District"></label>
@@ -554,6 +700,222 @@
           <div><button class="btn primary" type="submit">Add district</button></div>
         </form></div>` });
     flash = null;
+  }
+
+
+  // ---------------------------------------------------------------- starting numbers (district_settings, balances, debt)
+  const toNum = (v) => { if (v == null) return null; const t = String(v).replace(/[$,\s]/g, ''); if (t === '') return null; const x = Number(t); return isFinite(x) ? x : NaN; };
+  const moneyIn = (v) => (v == null || v === '' ? '' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }));
+  const pctIn = (v) => (v == null || v === '' ? '' : +(Number(v) * 100).toFixed(2));
+  async function vSetup(c) {
+    const d = c.district.id;
+    const [set, bal, debts] = await Promise.all([
+      HG.db.select('district_settings', `select=*&district_id=eq.${d}`),
+      HG.db.select('fund_balance', `select=fund,as_of,amount&district_id=eq.${d}&order=as_of.desc`),
+      HG.db.select('debt_obligation', `select=*&district_id=eq.${d}&order=final_fy`),
+    ]);
+    const s = set[0] || {};
+    const asOf = bal.length ? bal[0].as_of : '';
+    const B = {}; bal.filter((b) => b.as_of === asOf).forEach((b) => { B[b.fund] = b.amount; });
+    const dis = c.finance ? '' : 'disabled';
+    const f = (name, label, value, hint, kind) => `<label class="field">${esc(label)}
+      <input name="${name}" ${kind === 'int' ? 'inputmode="numeric"' : 'inputmode="decimal"'} value="${esc(value)}" ${dis} autocomplete="off">${hint ? `<span class="hint">${esc(hint)}</span>` : ''}</label>`;
+    const debtRow = (x) => `<tr data-debt-row data-id="${esc(x.id || '')}">
+      <td><input name="debt_name" value="${esc(x.name || '')}" ${dis} aria-label="Obligation"></td>
+      <td><select name="debt_fund" ${dis} aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}" ${x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+      <td><input name="debt_annual" inputmode="decimal" value="${esc(moneyIn(x.annual_payment))}" ${dis} aria-label="Payment per year"></td>
+      <td><input name="debt_final" inputmode="numeric" value="${esc(x.final_fy || '')}" ${dis} aria-label="Final fiscal year" placeholder="2033"></td>
+      <td>${c.finance ? '<button type="button" class="btn small danger" data-action="removeDebtRow">Remove</button>' : ''}</td></tr>`;
+    return `
+      ${c.finance ? '' : '<div class="notice">Only a business manager or admin can change these numbers.</div>'}
+      <form class="stack setup" data-form="saveSetup" novalidate>
+        <div class="card"><h3>Plan</h3><div class="fgrid">
+          ${f('plan_years', 'Years in the plan', s.plan_years || 10, '5 to 15', 'int')}
+          ${f('enrollment', 'Certified enrollment', s.enrollment == null ? '' : s.enrollment, 'Used for per-pupil figures', 'int')}
+          ${f('enrollment_year', 'Enrollment year', s.enrollment_year || '', 'For example 2025-26')}
+          ${f('construction_inflation', 'Construction inflation, % a year', pctIn(s.construction_inflation || 0), 'Applied to future phases')}</div></div>
+
+        <div class="card"><h3>Fund balances</h3><div class="fgrid">
+          <label class="field">Balances as of<input name="as_of" type="date" value="${esc(asOf)}" ${dis}><span class="hint">Use 30 June for a year-end close. The plan starts in the fiscal year this date belongs to.</span></label>
+          ${f('bal_save', 'SAVE balance, $', moneyIn(B.save))}${f('bal_ppel', 'PPEL balance, $', moneyIn(B.ppel))}
+          ${f('bal_vppel', 'V-PPEL balance, $', moneyIn(B.vppel))}${f('bal_grants', 'Grants and donations on hand, $', moneyIn(B.grants))}</div>
+          <p class="small muted">Saving with a new date adds a new set of balances and keeps the earlier ones.</p></div>
+
+        <div class="card"><h3>SAVE (Secure an Advanced Vision for Education)</h3><div class="fgrid">
+          ${f('save_receipts', 'SAVE receipts per year, $', moneyIn(s.save_receipts))}
+          ${f('save_receipts_fy', 'Those receipts are for fiscal year', s.save_receipts_fy || '', 'For example 2026', 'int')}
+          ${f('save_ongoing', 'Ongoing SAVE commitments per year, $', moneyIn(s.save_ongoing || 0), 'Yearly costs already paid from SAVE, not debt')}
+          ${f('save_trend', 'SAVE receipts trend, % a year', pctIn(s.save_trend || 0), 'Negative if receipts are falling')}
+          <label class="row"><input type="checkbox" name="sf2472" ${s.sf2472 === false ? '' : 'checked'} ${dis}> Apply the SF 2472 SAVE reduction</label></div></div>
+
+        <div class="card"><h3>PPEL (Physical Plant and Equipment Levy)</h3><div class="fgrid">
+          ${f('ppel_receipts', 'PPEL receipts per year, $', moneyIn(s.ppel_receipts))}
+          ${f('ppel_ongoing', 'Ongoing PPEL commitments per year, $', moneyIn(s.ppel_ongoing || 0))}
+          ${f('ppel_growth', 'Taxable valuation growth, % a year', pctIn(s.ppel_growth == null ? 0.03 : s.ppel_growth))}
+          ${f('ppel_rate', 'PPEL rate, $ per $1,000', s.ppel_rate == null ? '' : s.ppel_rate, 'Optional')}
+          ${f('taxable_valuation', 'Taxable valuation, $', moneyIn(s.taxable_valuation), 'Optional; used for tax-rate estimates')}
+          ${f('actual_valuation', 'Actual (100%) valuation, $', moneyIn(s.actual_valuation), 'Optional; used for the 5% debt limit')}
+          ${f('go_outstanding', 'General-obligation debt outstanding, $', moneyIn(s.go_outstanding), 'Optional')}</div></div>
+
+        <div class="card"><h3>V-PPEL (voter-approved PPEL)</h3><div class="fgrid">
+          <label class="field">Status<select name="vppel_status" ${dis}>${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s.vppel_status || 'none') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+          ${f('vppel_annual', 'V-PPEL receipts per year, $', moneyIn(s.vppel_annual))}
+          ${f('vppel_first_fy', 'First fiscal year', s.vppel_first_fy || '', '', 'int')}
+          ${f('vppel_last_fy', 'Last fiscal year', s.vppel_last_fy || '', 'Up to 10 years after the first', 'int')}</div></div>
+
+        <div class="card"><h3>Grants and donations</h3><div class="fgrid">
+          ${f('grants_avg', 'Average received per year, $', moneyIn(s.grants_avg || 0))}
+          ${f('grants_yield', 'Share that goes to capital projects, %', pctIn(s.grants_yield == null ? 0.75 : s.grants_yield))}</div></div>
+
+        <div class="card"><h3>Existing debt</h3>
+          <p class="small muted">Payments already committed. SAVE and PPEL payments come out of those funds; debt service levy payments don’t affect the capital plan.</p>
+          <div class="scroll"><table class="data debt"><thead><tr><th>Obligation</th><th>Paid from</th><th>Payment per year, $</th><th>Final fiscal year</th><th></th></tr></thead>
+          <tbody data-debt-body>${debts.map(debtRow).join('')}</tbody></table></div>
+          ${c.finance ? '<div style="margin-top:10px"><button type="button" class="btn small" data-action="addDebtRow">Add an obligation</button></div>' : ''}
+          <template data-debt-template>${debtRow({ fund: 'save' })}</template></div>
+
+        <div class="notice error" data-setup-errors hidden></div>
+        ${c.finance ? '<div class="row"><button class="btn primary" type="submit">Save starting numbers</button><span class="small muted">The capital plan updates as soon as these are saved.</span></div>' : ''}
+      </form>`;
+  }
+  function readSetup(form) {
+    const errs = [];
+    const v = (n) => { const el = form.querySelector(`[name="${n}"]`); return el ? el.value : ''; };
+    const money = (n, label, required) => { const x = toNum(v(n)); if (x === null) { if (required) errs.push(`${label} is needed.`); return null; } if (isNaN(x) || x < 0) { errs.push(`${label} must be a number of dollars.`); return null; } return x; };
+    const pctv = (n, label, lo, hi) => { const x = toNum(v(n)); if (x === null) return null; if (isNaN(x) || x < lo || x > hi) { errs.push(`${label} must be between ${lo}% and ${hi}%.`); return null; } return +(x / 100).toFixed(4); };
+    const intv = (n, label, lo, hi) => { const x = toNum(v(n)); if (x === null) return null; if (isNaN(x) || !Number.isInteger(x) || x < lo || x > hi) { errs.push(`${label} must be a whole number from ${lo} to ${hi}.`); return null; } return x; };
+    const asOf = v('as_of');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) errs.push('Choose the date the balances are as of.');
+    const settings = {
+      plan_years: intv('plan_years', 'Years in the plan', 5, 15) || 10,
+      enrollment: intv('enrollment', 'Enrollment', 0, 100000),
+      enrollment_year: v('enrollment_year').trim() || null,
+      construction_inflation: pctv('construction_inflation', 'Construction inflation', 0, 25) || 0,
+      save_receipts: money('save_receipts', 'SAVE receipts', true),
+      save_receipts_fy: intv('save_receipts_fy', 'The SAVE receipts year', 2000, 2100),
+      save_ongoing: money('save_ongoing', 'Ongoing SAVE commitments') || 0,
+      save_trend: pctv('save_trend', 'SAVE trend', -25, 25) || 0,
+      sf2472: !!form.querySelector('[name="sf2472"]').checked,
+      ppel_receipts: money('ppel_receipts', 'PPEL receipts', true),
+      ppel_ongoing: money('ppel_ongoing', 'Ongoing PPEL commitments') || 0,
+      ppel_growth: pctv('ppel_growth', 'Valuation growth', -25, 25),
+      ppel_rate: (() => { const x = toNum(v('ppel_rate')); if (x === null) return null; if (isNaN(x) || x < 0 || x > 5) { errs.push('PPEL rate must be dollars per $1,000, like 0.33.'); return null; } return x; })(),
+      taxable_valuation: money('taxable_valuation', 'Taxable valuation'),
+      actual_valuation: money('actual_valuation', 'Actual valuation'),
+      go_outstanding: money('go_outstanding', 'General-obligation debt outstanding'),
+      vppel_status: v('vppel_status') || 'none',
+      vppel_annual: money('vppel_annual', 'V-PPEL receipts'),
+      vppel_first_fy: intv('vppel_first_fy', 'V-PPEL first year', 2000, 2100),
+      vppel_last_fy: intv('vppel_last_fy', 'V-PPEL last year', 2000, 2100),
+      grants_avg: money('grants_avg', 'Average grants') || 0,
+      grants_yield: pctv('grants_yield', 'Share of grants to capital', 0, 100),
+    };
+    if (settings.ppel_growth == null) settings.ppel_growth = 0.03;
+    if (settings.grants_yield == null) settings.grants_yield = 0.75;
+    if (settings.vppel_status !== 'none') {
+      if (!settings.vppel_annual) errs.push('Enter V-PPEL receipts per year, or set the status to None.');
+      if (!settings.vppel_first_fy || !settings.vppel_last_fy) errs.push('Enter the first and last V-PPEL years.');
+      else if (settings.vppel_last_fy < settings.vppel_first_fy) errs.push('The last V-PPEL year is before the first.');
+    }
+    const startFY = HGEngine.fyOfDate(asOf);
+    if (startFY) settings.plan_start_fy = startFY;
+    const balances = ['save', 'ppel', 'vppel', 'grants'].map((fund) => ({ fund, amount: money('bal_' + fund, { save: 'SAVE balance', ppel: 'PPEL balance', vppel: 'V-PPEL balance', grants: 'Grants on hand' }[fund], fund === 'save' || fund === 'ppel') }));
+    const debts = [...form.querySelectorAll('[data-debt-body] [data-debt-row]')].map((tr, i) => {
+      const g = (n) => tr.querySelector(`[name="${n}"]`).value;
+      const name = g('debt_name').trim(), annual = toNum(g('debt_annual')), fy = toNum(g('debt_final'));
+      if (!name && annual === null && fy === null) return null;   // empty row: ignore
+      if (!name) errs.push(`Debt row ${i + 1}: give it a name.`);
+      if (annual === null || isNaN(annual) || annual < 0) errs.push(`Debt row ${i + 1}: enter the payment per year.`);
+      if (fy === null || isNaN(fy) || !Number.isInteger(fy) || fy < 2000 || fy > 2100) errs.push(`Debt row ${i + 1}: enter the final fiscal year, like 2033.`);
+      return { id: tr.dataset.id || null, name, fund: g('debt_fund'), annual_payment: annual, final_fy: fy };
+    }).filter(Boolean);
+    return { errs, asOf, settings, balances, debts };
+  }
+  async function saveSetup(form) {
+    const box = form.querySelector('[data-setup-errors]');
+    const r = readSetup(form);
+    if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); box.scrollIntoView({ block: 'center' }); return; }
+    box.hidden = true;
+    const d = S.district.id;
+    await HG.db.upsert('district_settings', [Object.assign({ district_id: d }, r.settings)], 'district_id');
+    await HG.db.upsert('fund_balance', r.balances.map((b) => ({ district_id: d, fund: b.fund, as_of: r.asOf, amount: b.amount || 0, source: 'manual' })), 'district_id,fund,as_of');
+    const existing = await HG.db.select('debt_obligation', `select=id&district_id=eq.${d}`);
+    const keep = new Set(r.debts.filter((x) => x.id).map((x) => x.id));
+    for (const x of existing) if (!keep.has(x.id)) await HG.db.remove('debt_obligation', `id=eq.${enc(x.id)}`);
+    for (const x of r.debts) {
+      const row = { name: x.name, fund: x.fund, annual_payment: x.annual_payment, final_fy: x.final_fy };
+      if (x.id) await HG.db.update('debt_obligation', `id=eq.${enc(x.id)}`, row);
+      else await HG.db.insert('debt_obligation', Object.assign({ district_id: d }, row));
+    }
+    toast('Starting numbers saved', 'The capital plan now uses them.');
+    here();
+  }
+
+  // ---------------------------------------------------------------- publishing the board version
+  async function publicationPayload(d) {
+    const rows = await loadCapitalRows(d);
+    const board = rows.scenarios.find((x) => x.is_board_version);
+    if (!rows.settings) throw new UserError('Set up the starting numbers first (Settings, Starting numbers).');
+    if (!board) throw new UserError('Choose a board version first. Making a scenario the board version arrives with scenario editing.');
+    const inp = HGCapital.buildInputs(rows, board.id);
+    return { board, payload: {
+      v: 1, engine: HGEngine.VERSION, scenario: { name: board.name },
+      settings: inp.cfg.settings, stored: inp.stored, notes: inp.notes,
+      projects: inp.projects.map((p) => ({ id: p.id, name: p.name, pri: p.pri, est: p.est, area: p.area, cond: p.cond, life: p.life,
+        phases: p.phases.map((ph) => ({ cost: ph.cost, year: ph.year, funding: ph.funding, status: ph.status, actual: ph.actual })) })),
+    } };
+  }
+  async function publishBoard() {
+    const d = S.district;
+    if (!d.public_link_enabled) throw new UserError('The public link is turned off for this district. Turn it on in Settings, District.');
+    const { board, payload } = await publicationPayload(d);
+    if (!confirm(`Publish “${board.name}” to the public link? Anyone with the link will see it.`)) return;
+    await HG.db.insert('publication', { district_id: d.id, kind: 'board_plan', title: board.name, scenario_id: board.id, payload });
+    toast('Published', 'The public link now shows this version.');
+    here();
+  }
+  async function withdrawBoard(el) {
+    if (!confirm('Take the plan off the public link? The link will say nothing is published.')) return;
+    await HG.db.update('publication', `id=eq.${enc(el.dataset.id)}`, { withdrawn_at: new Date().toISOString(), is_current: false });
+    toast('Taken down', 'The public link no longer shows a plan.');
+    here();
+  }
+
+  // ---------------------------------------------------------------- demo data (fictional)
+  function demoLoaderHtml(rows) {
+    const demos = rows.filter((r) => r.is_demo);
+    if (!demos.length || !window.HG_DEMOS) return '';
+    return `<div class="card"><h3>Fill a demo district with fictional data</h3>
+      <p class="small muted">Loads starting numbers, balances, debt, projects and scenarios. Only for demo districts that have no plan data yet.</p>
+      <div class="inline-form">
+        <label class="field">Demo district<select data-demo-district>${demos.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></label>
+        <label class="field">Data set<select data-demo-set>${Object.entries(window.HG_DEMOS).map(([k, v]) => `<option value="${esc(k)}">${esc(v.name)} (${v.enrollment.toLocaleString()} students)</option>`).join('')}</select></label>
+        <button type="button" class="btn primary" data-action="loadDemo">Load demo data</button></div></div>`;
+  }
+  async function loadDemo(el) {
+    const card = el.closest('.card');
+    const did = card.querySelector('[data-demo-district]').value, set = card.querySelector('[data-demo-set]').value;
+    const d = S.districts.find((x) => x.id === did) || { id: did };
+    if (!d.is_demo) throw new UserError('Demo data can only go into a demo district.');
+    const [a, b, c2] = await Promise.all([
+      HG.db.select('district_settings', `select=district_id&district_id=eq.${did}`),
+      HG.db.select('scenario', `select=id&district_id=eq.${did}&limit=1`),
+      HG.db.select('initiative', `select=id&district_id=eq.${did}&limit=1`)]);
+    if (a.length || b.length || c2.length) throw new UserError('That district already has plan data. Demo data only goes into an empty demo district.');
+    const R = HGCapital.demoRows(window.HG_DEMOS[set], did, () => crypto.randomUUID());
+    const order = ['district_settings', 'fund_balance', 'debt_obligation', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'financing'];
+    try {
+      for (const t of order) if (R[t].length) await HG.db.insert(t, R[t]);
+      for (const sid of R.lock) await HG.db.update('scenario', `id=eq.${sid}`, { is_locked: true });
+    } catch (err) {
+      // undo what went in, so the district is empty again
+      for (const t of ['scenario', 'initiative', 'debt_obligation', 'fund_balance', 'district_settings']) {
+        try { await HG.db.remove(t, `district_id=eq.${did}`); } catch (e) { /* nothing to remove */ }
+      }
+      throw err;
+    }
+    toast('Demo data loaded', `${window.HG_DEMOS[set].name} figures are in ${d.name || 'the district'}.`);
+    go(`#/d/${enc(d.slug)}/resources/capital`);
   }
 
   function renderNoDistrict() {
@@ -571,16 +933,27 @@
   async function renderPublic(slug) {
     const p = await HG.db.rpc('public_publication', { p_slug: slug, p_kind: 'board_plan' }, { auth: false });
     const d = p && p.district;
+    let body = `<div class="card"><h2>Nothing published here yet</h2><p>This link doesn’t have a published plan. If you expected one, ask the district.</p></div>`;
+    if (p && p.payload && p.payload.settings) {
+      const cfg = HGEngine.makeConfig(p.payload.settings);
+      const stored = p.payload.stored || {};
+      CAP.pub = true; CAP.key = null;
+      CAP.inputs = { cfg, projects: HGEngine.cleanList(p.payload.projects || [], cfg), stored, levers: HGEngine.leversOf(stored, cfg), notes: [] };
+      CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
+      body = `
+        <div class="page-head"><div><h1>${esc(d.name)}</h1>
+          <div class="lede">Capital plan: ${esc(p.payload.scenario ? p.payload.scenario.name : p.title || 'board version')}, published ${esc(day(p.published_at))}</div></div></div>
+        ${d.is_demo ? '<div class="notice">Demo district: every name and figure is made up.</div>' : ''}
+        <div id="cap-results">${capResultsHtml()}</div>
+        <div class="cap-grid"><div class="card" id="cap-levers">${capLeversHtml()}</div><div class="card" id="cap-fin">${capFinHtml()}</div></div>
+        <div id="cap-years">${capYearsHtml()}</div>
+        <p class="small muted">This is the version the district published. Moving the levers shows what would change; it doesn’t change the district’s plan.</p>`;
+    }
     app.innerHTML = `
       <div class="main">
         <header class="topbar"><span class="brand" style="flex-direction:row;gap:10px">${LOGO.replace('#F7F5EF', '#1E3A2F')}<b style="font-family:var(--serif)">HighGround</b></span>
           <span class="spacer"></span><a class="btn small" href="#/signin">Sign in</a></header>
-        <main class="content">
-          ${p ? `<div class="page-head"><div><h1>${esc(d.name)}</h1><div class="lede">${esc(p.title || 'Capital plan')}, published ${esc(day(p.published_at))}</div></div><div class="right">${badge('partial')}</div></div>
-            ${d.is_demo ? '<div class="notice">Demo district: made-up figures.</div>' : ''}
-            ${wip({ title: 'Showing the published plan: not built yet', phase: 1, items: ['The board version’s chart, projects by year and gap to close', 'What-if levers that visitors can move without saving anything'] })}`
-          : `<div class="card"><h2>Nothing published here yet</h2><p>This link doesn’t have a published plan. If you expected one, ask the district.</p></div>`}
-        </main>
+        <main class="content">${body}</main>
       </div>`;
   }
 
@@ -658,6 +1031,12 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async publishBoard() { await publishBoard(); },
+    async withdrawBoard(el) { await withdrawBoard(el); },
+    async addDebtRow() { const t = document.querySelector('[data-debt-template]'); document.querySelector('[data-debt-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
+    async removeDebtRow(el) { el.closest('[data-debt-row]').remove(); },
+    async capReset() { if (CAP.pub) { CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers)); const el = document.getElementById('cap-levers'); if (el) el.innerHTML = capLeversHtml(); capRefresh(); } else { capLoadScenario(); here(); } },
+    async loadDemo(el) { await loadDemo(el); },
     async signOut() { await HG.auth.signOut(); S.loaded = false; go('#/signin', 'You’re signed out.'); },
     async recheck() { await loadContext(true); go('#/'); },
     async reload() { S.loaded = false; route(); },
@@ -673,6 +1052,7 @@
     },
   };
   const FORMS = {
+    async saveSetup(f, form) { await saveSetup(form); },
     async signIn(f) { await HG.auth.signIn(f.email.trim(), f.password); document.getElementById('toasts').innerHTML = ''; S.loaded = false; go('#/'); },
     async signUp(f) {
       pwOk(f);
@@ -726,7 +1106,15 @@
     const data = Object.fromEntries(new FormData(form));
     run(() => FORMS[form.dataset.form](data, form), form.querySelector('[type=submit]'));
   });
+  document.addEventListener('input', (e) => {
+    const lv = e.target.closest('input[type=range][data-lever]');
+    if (lv && CAP.inputs) { CAP.levers[lv.dataset.lever] = Number(lv.value); capRefresh(); }
+  });
   document.addEventListener('change', (e) => {
+    const lc = e.target.closest('input[type=checkbox][data-lever]');
+    if (lc && CAP.inputs) { CAP.levers[lc.dataset.lever] = lc.checked; capRefresh(); return; }
+    const cs = e.target.closest('[data-cap-scenario]');
+    if (cs) { CAP.scenarioId = cs.value; return here(); }
     const sw = e.target.closest('[data-switch]');
     if (sw && sw.value) {
       const parts = location.hash.replace(/^#\/?/, '').split('/');

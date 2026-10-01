@@ -130,3 +130,44 @@ form.stack{max-width:420px}
   h1{font-size:26px}
 }
 @media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto!important} }
+
+/* ---------- capital plan ---------- */
+.cap-bar{justify-content:flex-start}
+.tiles{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.tile-card .stat{font-size:26px;margin:2px 0}
+.tile-card.gap{border-color:#E9C98A;background:#FDF6E7}
+.tile-card.gap .stat{color:#8A5A00}
+.legend{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.capchart{width:100%;min-width:560px;height:auto;display:block}
+.capchart .b-lab{font:600 11px var(--sans);fill:var(--muted);text-anchor:middle}
+.capchart .b-lab.warn{fill:var(--gap)}
+.capchart .b-fy{font:500 11px var(--sans);fill:var(--muted);text-anchor:middle}
+.b-funds{fill:#5B7FAE;background:#5B7FAE}
+.b-boost{fill:#A0692A;background:#A0692A}
+.b-fin{fill:#2F6B4F;background:#2F6B4F}
+.b-camp{fill:#B42318;background:#B42318}
+.b-over{fill:#E8A29B;background:#E8A29B}
+.cap-grid{display:grid;gap:14px;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.lever{display:flex;flex-direction:column;gap:4px;font-size:14px}
+.lever span{display:flex;justify-content:space-between}
+.lever input{width:100%;accent-color:var(--action)}
+.ygrid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.ycard{padding:14px 16px}
+.ycard h3{font-size:17px;margin:0}
+.ycard.warn{border-color:#F1C5C0}
+.gaptext{color:var(--gap);font-weight:600}
+.ylist{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.ylist li{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #EFEBE2;padding-top:8px}
+.ylist .ok{color:var(--action);font-size:12px;margin-left:4px}
+.chips{display:inline-flex;gap:4px;flex-wrap:wrap;margin-left:4px}
+.fchip{font-size:11px;font-weight:600;padding:1px 6px;border-radius:8px;color:#fff;white-space:nowrap}
+.f-save{background:#3E6190}.f-ppel{background:#2F6B4F}.f-vppel{background:#6A4C93}.f-grants{background:#8A6D1E}.f-boost{background:#A0692A}.f-camp{background:#B42318}
+@media (max-width: 820px){ .cap-grid{grid-template-columns:1fr} }
+
+/* ---------- starting numbers ---------- */
+form.stack.setup{max-width:none}
+.setup .fgrid{display:grid;gap:12px 16px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));align-items:start}
+.setup .fgrid > label.row{align-self:center}
+table.debt input,table.debt select{height:34px;border:1px solid var(--border);border-radius:6px;padding:0 8px;background:#fff;width:100%;min-width:90px}
+input:disabled,select:disabled{background:#F4F2EC;color:var(--muted)}

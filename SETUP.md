@@ -10,7 +10,7 @@ About an hour. You click; nothing here needs code. Supabase and GitHub menu name
 
 1. Go to github.com → the **WillowHoller** organization → **New repository**.
 2. Name **HighGround**. Visibility **Private** (the engine is the valuable part; don't publish it). Don't add a README; this package has one.
-3. On the empty repo page choose **uploading an existing file**. Drag in everything from this package, including the hidden files `.gitignore` and `.nojekyll` (on a Mac, press Cmd+Shift+. in Finder to see them). Commit to `main`.
+3. On the empty repo page choose **uploading an existing file**. Drag in every file from this package. There are no folders. `.gitignore` and `.nojekyll` are optional; skip them if they don't come through. Commit to `main`.
 
 ## 2. Supabase: create the project
 
@@ -22,16 +22,16 @@ About an hour. You click; nothing here needs code. Supabase and GitHub menu name
 
 ## 3. Build the database
 
-In the project: **SQL Editor → New query**. For each file below, open it from `supabase/`, copy everything, paste, press **Run**, and wait for "Success". Run them in order, once.
+In the project: **SQL Editor → New query**. For each file below, copy everything, paste, press **Run**, and wait for "Success". Run them in order, once.
 
 | Order | File | What it does |
 |---|---|---|
-| 1 | `sql/01_tables.sql` | All 36 tables |
-| 2 | `sql/02_security.sql` | Who can see and change what; invitations; audit log |
-| 3 | `sql/03_storage.sql` | File storage for uploads, attachments, logos |
-| 4 | `sql/04_iowa_rules.sql` | SF 2472 and other Iowa values, each marked verified / recalled / assumed |
-| 5 | `tests/05_verify_setup.sql` | Checks the structure. **All 9 rows should say PASS.** |
-| 6 | `tests/06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 13 rows should say PASS.** |
+| 1 | `01_tables.sql` | All 36 tables |
+| 2 | `02_security.sql` | Who can see and change what; invitations; audit log |
+| 3 | `03_storage.sql` | File storage for uploads, attachments, logos |
+| 4 | `04_iowa_rules.sql` | SF 2472 and other Iowa values, each marked verified / recalled / assumed |
+| 5 | `05_verify_setup.sql` | Checks the structure. **All 9 rows should say PASS.** |
+| 6 | `06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 13 rows should say PASS.** |
 
 If step 1–4 shows an error, stop and send Claude the full message. If 5 or 6 shows a FAIL or an error, send a screenshot of the result.
 
