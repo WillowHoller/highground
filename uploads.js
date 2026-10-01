@@ -130,6 +130,16 @@
     if (/campaign|bond|referend|\bgo\b|general obligation|fundrais/.test(s)) return 'camp';
     return undefined;
   }
+  /* the single priority: must | strategic | nice (old High/Med/Low still accepted) */
+  function tierKey(s) {
+    s = String(s || '').toLowerCase().trim(); if (!s) return '';
+    if (/must|essential|required|critical|^high|^h$|^1$/.test(s)) return 'must';
+    if (/strateg|^med|^m$|^2$/.test(s)) return 'strategic';
+    if (/nice|optional|^low|^l$|^3$|10/.test(s)) return 'nice';
+    return '';
+  }
+  const TIER_WORD = { must: 'Must-have', strategic: 'Strategic', nice: 'Nice to have' };
+  const TIER_PRI = { must: 'High', strategic: 'Med', nice: 'Low' };
   function priKey(s) {
     s = String(s || '').toLowerCase().trim(); if (!s) return '';
     if (/10/.test(s)) return '10-yr';
@@ -199,7 +209,7 @@
       const key = name.toLowerCase().replace(/\s+/g, ' ');
       let p = byName[key];
       if (!p) {
-        p = { id: id++, life: null, cond: '', name: name.slice(0, 90), pri: priKey(cell(c.pri)), est: !/^f|firm|bid|contract|actual/.test(conf) || mon.range,
+        p = { id: id++, life: null, cond: '', name: name.slice(0, 90), tier: tierKey(cell(c.pri)), pri: TIER_PRI[tierKey(cell(c.pri))] || '', est: !/^f|firm|bid|contract|actual/.test(conf) || mon.range,
               area: cell(c.area).slice(0, 40), phases: [] };
         byName[key] = p; out.push(p);
       } else if (mon.range) p.est = true;
@@ -252,11 +262,11 @@
   function projectTemplate(startFY) {
     const f = startFY || 2027;
     return toCSV([PROJECT_HEAD,
-      ['Secure entry vestibule', '', 'FY' + f, '185000', 'SAVE', '100', '', '', '', '', 'High', 'Safety & security', 'Estimate'],
-      ['Roof replacement — north wing', 'Sections A–B', 'FY' + (f + 1), '160000', 'SAVE', '60', 'PPEL', '40', '', '', 'High', 'Facilities', 'Estimate', '', '', 'Poor', '2'],
-      ['Roof replacement — north wing', 'Sections C–D', 'FY' + (f + 3), '175000', 'SAVE', '100', '', '', '', '', 'High', 'Facilities', 'Estimate'],
-      ['Replace route bus', '', 'FY' + (f + 1), '135000', 'PPEL', '100', '', '', '', '', 'Med', 'Transportation', 'Firm'],
-      ['Track resurface', '', 'FY' + (f + 4), '250000-300000', 'Campaign/Bond', '70', 'Boosters', '30', '', '', 'Low', 'Activities', 'Estimate'],
+      ['Secure entry vestibule', '', 'FY' + f, '185000', 'SAVE', '100', '', '', '', '', 'Must-have', 'Safety & security', 'Estimate'],
+      ['Roof replacement — north wing', 'Sections A–B', 'FY' + (f + 1), '160000', 'SAVE', '60', 'PPEL', '40', '', '', 'Must-have', 'Facilities', 'Estimate', '', '', 'Poor', '2'],
+      ['Roof replacement — north wing', 'Sections C–D', 'FY' + (f + 3), '175000', 'SAVE', '100', '', '', '', '', 'Must-have', 'Facilities', 'Estimate'],
+      ['Replace route bus', '', 'FY' + (f + 1), '135000', 'PPEL', '100', '', '', '', '', 'Strategic', 'Transportation', 'Firm'],
+      ['Track resurface', '', 'FY' + (f + 4), '250000-300000', 'Campaign/Bond', '70', 'Boosters', '30', '', '', 'Nice to have', 'Activities', 'Estimate'],
     ]);
   }
   /* engine projects → the same spreadsheet layout, so an export can be edited and uploaded back */
@@ -265,7 +275,7 @@
     projects.forEach((p) => p.phases.forEach((ph) => {
       const r = [p.name, ph.label || '', 'FY' + (startFY + ph.year), ph.cost];
       for (let i = 0; i < 3; i++) { const f = ph.funding[i]; r.push(f ? NAMES[f.b] : '', f ? f.p : ''); }
-      r.push(p.pri || '', p.area || '', p.est ? 'Estimate' : 'Firm', ph.status === 'done' ? 'Complete' : ph.status === 'underway' ? 'Underway' : '',
+      r.push(TIER_WORD[p.tier || tierKey(p.pri)] || '', p.area || '', p.est ? 'Estimate' : 'Firm', ph.status === 'done' ? 'Complete' : ph.status === 'underway' ? 'Underway' : '',
              ph.actual != null ? ph.actual : '', p.cond || '', p.life != null ? p.life : '');
       rows.push(r);
     }));
@@ -279,6 +289,6 @@
       ['Grants / donations restricted to capital', '', '', '']]);
   }
 
-  return { parseCSV, readXlsx, readTable, parseMoney, parseFY, parseDate, srcKey, priKey, findCols, parseProjects, parseBalances,
+  return { tierKey, TIER_WORD, parseCSV, readXlsx, readTable, parseMoney, parseFY, parseDate, srcKey, priKey, findCols, parseProjects, parseBalances,
            projectTemplate, projectsToCSV, balanceTemplate, toCSV, MAX_PH };
 });

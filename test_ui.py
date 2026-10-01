@@ -457,7 +457,8 @@ async def main():
     t2=await pg.inner_text("#view")
     check("initiatives: costs from any scenario, including yearly costs from the capital plan", "$12k" in t2 and "Costs are from Addition phased" in t2, t2[-300:])
     await pg.select_option("select[data-ini-sid]", label="District baseline (board version)"); await pg.wait_for_timeout(400)
-    check("initiatives: Priority shows High/Med/Low", "High" in await pg.inner_text("#view"))
+    tv=await pg.inner_text("#view")
+    check("initiatives: one priority, in the funding line's words", "Must-have" in tv and "Strategic" in tv and "\tHigh\t" not in tv)
     await pg.click("button[data-action=iniStatus][data-v=approved]"); await pg.wait_for_timeout(300)
     t=await pg.inner_text("#view")
     check("initiatives: filter by status, and approved-but-not-planned is flagged", "FFA program" in t and "Middle school HVAC" not in t and "Approved, but not in the board version yet" in t)
@@ -497,6 +498,24 @@ async def main():
     await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(500)
     check("initiatives: edit details", any(c[0]=="PATCH" and "/rest/v1/initiative?" in c[1] and '"approved"' in (c[2] or "") for c in calls[n0:]))
     await pg.screenshot(path=SHOTS+"/initiatives.png",full_page=True)
+    # Phase 2C: ranking and the funding line
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/ranking"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view")
+    check("ranking: one list, must-have first, with the funding-line verdict", "Everything fits" in t and "#1" in t and t.find("Must-have")<t.find("Strategic")<t.find("Nice to have"), t[:300])
+    check("ranking: campaign/bond and boosters called out separately, matching the gap", "$5.35M depends on a campaign or bond" in t and "$260k on boosters" in t and "Campaign or bond" in t, t[:500])
+    check("ranking: priorities are the initiatives' own (no separate tier)", "Priority" in t and "from the old High/Med/Low" not in t)
+    check("ranking: locked scenario can't be reordered", await pg.locator("button[data-action=rankMove]").count()==0 and "This scenario is locked" in t)
+    await pg.screenshot(path=SHOTS+"/ranking.png",full_page=True)
+    await pg.select_option("select[data-rank-sid]", _ph_sid); await pg.wait_for_timeout(600)
+    check("ranking: unlocked scenario has move buttons", await pg.locator("button[data-action=rankMove]").count()>0)
+    first_down=pg.locator("button[data-action=rankMove][data-d='1']").first
+    moved_id=await first_down.get_attribute("data-id")
+    n0=len(calls); await first_down.click(); await pg.wait_for_timeout(600)
+    up=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "/rest/v1/scenario_initiative?on_conflict=" in c[1]]
+    check("ranking: moving saves the new order for the scenario", up and up[0][1]["initiative_id"]==moved_id and up[0][0]["rank"]==1 and up[0][1]["rank"]==2 and all(r["scenario_id"]==_ph_sid for r in up[0]), str(up[0][:2]) if up else "none")
+    n0=len(calls); await pg.select_option("select[data-rank-tier] >> nth=0", "strategic"); await pg.wait_for_timeout(600)
+    check("ranking: changing a tier saves it on the initiative", any(c[0]=="PATCH" and "/rest/v1/initiative?" in c[1] and '"strategic"' in (c[2] or "") for c in calls[n0:]))
+    check("ranking: nothing to defer when everything fits", "Nothing needs deferring" in await pg.inner_text("#view") and await pg.locator("button[data-action=rankScenario]").count()==0)
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;

@@ -140,7 +140,7 @@
     ] },
     { id: 'decisions', label: 'Decisions', tabs: [
       { id: 'initiatives', label: 'All initiatives', status: 'live', lede: 'Everything that costs money: projects, programs, hires.', render: vInitiatives },
-      { id: 'ranking', label: 'Ranking & funding line', status: 'wip', phase: 2, lede: 'Force-rank initiatives and see where the money runs out.', render: vRanking },
+      { id: 'ranking', label: 'Ranking & funding line', status: 'live', lede: 'Force-rank initiatives and see where the money runs out.', render: vRanking },
       { id: 'scenarios', label: 'Scenarios', status: 'live', lede: 'Different ways to pay for the plan, side by side.', render: vScenarios },
     ] },
     { id: 'resources', label: 'Resources', tabs: [
@@ -336,7 +336,7 @@
         { label: 'In plans', html: (i) => { const pl = plansOf(i.id); const inBoard = board && pl.some((x) => x.id === board.id);
           const warn = (i.status === 'approved' || i.status === 'underway') && board && !inBoard ? `<br><span class="small gaptext">Approved, but not in the board version yet</span>` : '';
           return (pl.length ? pl.map((x) => esc(x.name) + (x.is_board_version ? ' <span class="small muted">(board)</span>' : '')).join('<br>') : '<span class="muted">Not in a plan yet</span>') + warn; } },
-        { label: 'Priority', get: (i) => i.engine_priority || '' },
+        { label: 'Priority', get: (i) => (HGUploads.TIER_WORD[HGRanking.tierOf(i).tier] || '') },
         ...((rows.priorities || []).length ? [{ label: 'Strategic priority', get: (i) => P[i.priority_id] || '' }] : []),
         { label: 'Owner', get: (i) => i.owner_name || '' },
         { label: 'One-time cost', num: true, get: (i) => (oneTime[i.id] ? fmtK(oneTime[i.id]) : '') },
@@ -344,13 +344,68 @@
       ], list, rows.initiatives.length ? 'Nothing matches these filters.' : 'No initiatives yet. Add one, or upload a project spreadsheet.')}
       ${costSc ? `<p class="small muted" style="margin-top:8px">Costs are from ${esc(costSc.name)}${costSc.is_board_version ? ', the board version' : ''}, in today’s dollars (yearly costs at their starting amount). Change them here or on the capital plan; both edit the same plan.</p>` : ''}</div>`;
   }
-  async function vRanking() {
-    return wip({ phase: 2, items: [
-      'Force-ranked tiers: must-have, strategic, nice-to-have',
-      'The funding line: where the money runs out, in rank order',
-      'Flags where a lower-ranked item spends money a higher one needs',
-      '“Fund in rank order” as a what-if',
-    ], uses: 'scenario_initiative (rank), the engine' });
+  const RK = { key: null, sid: null };
+  async function vRanking(c) {
+    const rows = await loadCapitalRows(c.district);
+    RK.rows = rows;
+    if (!rows.settings || !rows.scenarios.length) return notReady(c, { rows });
+    if (RK.key !== c.district.id || !rows.scenarios.some((x) => x.id === RK.sid)) { RK.key = c.district.id; RK.sid = (rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0]).id; }
+    const sc = rows.scenarios.find((x) => x.id === RK.sid), k = HGRanking.build(rows, RK.sid);
+    RK.k = k;
+    const canMove = c.plan && !sc.is_locked, TN = HGRanking.TIER_NAME;
+    const outside = k.items.filter((x) => x.outside > 0.5);
+    const campTotal = outside.reduce((a, x) => a + x.camp, 0), boostTotal = outside.reduce((a, x) => a + x.boost, 0);
+    const summary = k.line >= k.items.length
+      ? `<b>Everything fits</b> within SAVE, PPEL, V-PPEL and grants, in rank order.`
+      : `<b>The money runs out at #${k.line + 1}.</b> The first ${k.line} initiative${k.line === 1 ? '' : 's'} (${fmtK(k.aboveCost)}) fit within SAVE, PPEL, V-PPEL and grants; ${k.items.length - k.line} fall below the line.`;
+    const tierSel = (x) => c.plan ? `<select data-rank-tier="${esc(x.id)}" aria-label="Priority for ${esc(x.name)}">${HGRanking.TIERS.map((t) => `<option value="${t}" ${x.tier === t ? 'selected' : ''}>${TN[t]}</option>`).join('')}</select>${x.suggested ? '<br><span class="small muted">from the old High/Med/Low</span>' : ''}`
+      : `${TN[x.tier]}${x.suggested ? ' <span class="small muted">(suggested)</span>' : ''}`;
+    const sameTier = (x, d) => { const j = k.items.indexOf(x) + d; return j >= 0 && j < k.items.length && k.items[j].tier === x.tier; };
+    const row = (x) => `<tr class="${x.above ? '' : 'below'}">
+      <td class="num"><b>#${x.position}</b></td>
+      <td>${tierSel(x)}</td>
+      <td>${esc(x.name)}${x.camp > 0.5 ? `<br><span class="small muted">${fmtK(x.camp)} from a campaign or bond</span>` : ''}${x.boost > 0.5 ? `<br><span class="small muted">${fmtK(x.boost)} from boosters</span>` : ''}</td>
+      <td>${x.years.length ? 'FY' + x.years.join(', ') : '<span class="muted">yearly only</span>'}</td>
+      <td class="num">${x.oneTime ? fmtK(x.oneTime) : ''}</td>
+      <td class="num">${x.yearly ? fmtK(x.yearly) + '/yr' : ''}</td>
+      <td>${x.above && x.outsideOnly ? `<span class="st st-proposed">${x.camp > 0.5 ? 'Campaign or bond' : 'Boosters'}</span>` : x.above ? '<span class="st st-approved">Fits</span>' : x.fitsAlone ? '<span class="st st-proposed">Below the line, but would fit on its own</span>' : '<span class="st st-declined">Below the line</span>'}</td>
+      <td class="moves">${canMove ? `<button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="-1" ${sameTier(x, -1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} up">▲</button><button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="1" ${sameTier(x, 1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} down">▼</button>` : ''}</td></tr>`;
+    const body = k.items.map((x, j) => (j === k.line ? `<tr class="fline"><td colspan="8">Funding line: the money runs out here</td></tr>` : '') + row(x)).join('');
+    const ro = k.rankOrder;
+    return `
+      <div class="row">
+        <label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}${x.is_locked ? ' (locked)' : ''}</option>`).join('')}</select></label>
+      </div>
+      <div class="card"><p>${summary}</p>
+        ${outside.length ? `<p class="small">Separately, ${[campTotal > 0.5 ? `<b>${fmtK(campTotal)}</b> depends on a campaign or bond` : '', boostTotal > 0.5 ? `<b>${fmtK(boostTotal)}</b> on boosters` : ''].filter(Boolean).join(' and ')}: ${outside.map((x) => `#${x.position} ${esc(x.name)}`).join(', ')}.</p>` : ''}
+        <p class="small muted">Priorities say why something matters: <b>must-have</b> (safety, law, failing systems), <b>strategic</b> (moves the strategic plan forward), <b>nice to have</b> (worth doing when money allows). The list runs from #1 must-have to the last nice-to-have; ▲ ▼ change the order within a priority.${sc.is_locked ? ' This scenario is locked, so its order can’t change; priorities can, because they belong to the initiative.' : ''}</p></div>
+      <div class="card"><div class="scroll"><table class="data ranktable"><thead><tr><th>#</th><th>Priority</th><th>Initiative</th><th>Years</th><th class="num">One-time</th><th class="num">Yearly</th><th>Funding line</th><th></th></tr></thead>
+        <tbody>${body}</tbody></table></div></div>
+      ${k.flags.length ? `<div class="card"><h3>Spent before a higher-ranked need</h3><ul class="flags">${k.flags.slice(0, 12).map((f) => `<li>${esc(f.text)}</li>`).join('')}</ul>
+        ${k.flags.length > 12 ? `<p class="small muted">and ${k.flags.length - 12} more.</p>` : ''}
+        <p class="small muted">Moving the lower-ranked item to a later year, or to another fund, usually fixes this.</p></div>` : ''}
+      <div class="card"><h3>Fund in rank order</h3>
+        ${ro.deferred.length ? `<p>Keep the ${k.line} initiatives above the line and defer the rest (${fmtK(ro.deferredCost)} one-time${ro.deferredYearly ? `, ${fmtK(ro.deferredYearly)} a year` : ''}): the gap goes from <b>${fmtK(k.current.gap)}</b> to <b>${fmtK(ro.gap)}</b>.</p>
+          <p class="small">Deferred: ${ro.deferred.map((x) => esc(x.name)).join(', ')}.</p>
+          ${c.plan ? '<button type="button" class="btn primary" data-action="rankScenario">Make a scenario with only what fits</button>' : ''}`
+        : `<p>Nothing needs deferring: every initiative fits in rank order.${outside.length ? ` The gap of ${fmtK(k.current.gap)} is the campaign or bond share above that isn’t paid for yet.` : ''}</p>`}</div>`;
+  }
+  async function rankMove(el) {
+    const k = RK.k, x = k.items.find((i) => i.id === el.dataset.id), j = k.items.indexOf(x), d = Number(el.dataset.d), y = k.items[j + d];
+    if (!y || y.tier !== x.tier) return;
+    const order = k.items.map((i) => i.id); order[j] = y.id; order[j + d] = x.id;
+    await HG.db.upsert('scenario_initiative', order.map((id, n) => ({ scenario_id: RK.sid, initiative_id: id, district_id: S.district.id, rank: n + 1, included: true })), 'scenario_id,initiative_id');
+    here();
+  }
+  async function rankScenario() {
+    const k = RK.k, sc = RK.rows.scenarios.find((x) => x.id === RK.sid);
+    const name = (prompt('Name the new scenario', `${sc.name}: only what fits`) || '').trim(); if (!name) return;
+    const id = await HG.db.rpc('copy_scenario', { p_source: RK.sid, p_name: name.slice(0, 80) });
+    const nid = typeof id === 'string' ? id : (id && id.copy_scenario);
+    const ids = k.rankOrder.deferred.map((x) => enc(x.id)).join(',');
+    for (const t of ['phase', 'recurring_cost', 'scenario_initiative']) await HG.db.removeAll(t, `scenario_id=eq.${nid}&initiative_id=in.(${ids})`);
+    toast('Scenario made', `“${name}” keeps the ${k.line} initiatives above the line.`);
+    CAP.key = S.district.id; CAP.scenarioId = nid; go(`#/d/${enc(S.district.slug)}/resources/capital`);
   }
   const CMP = { key: null, ids: [], a: null, b: null };
   async function vScenarios(c) {
@@ -537,10 +592,10 @@
   ];
   async function loadCapitalRows(d) {
     const q = (t, extra) => HG.db.select(t, `select=*&district_id=eq.${d.id}${extra || ''}`);
-    const [settings, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities] = await Promise.all([
+    const [settings, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenarioInitiatives] = await Promise.all([
       q('district_settings'), q('fund_balance'), q('debt_obligation'), q('scenario', '&order=name'),
-      q('initiative', '&order=name'), q('phase'), q('phase_funding'), q('financing'), q('recurring_cost'), q('priority', '&order=position')]);
-    return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities };
+      q('initiative', '&order=name'), q('phase'), q('phase_funding'), q('financing'), q('recurring_cost'), q('priority', '&order=position'), q('scenario_initiative')]);
+    return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenario_initiative: scenarioInitiatives };
   }
   function capCompute() { return HGEngine.compute(CAP.inputs.projects, CAP.levers, CAP.inputs.cfg); }
 
@@ -837,14 +892,13 @@
         <label class="field">Name<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
         <label class="field">Type<select name="type">${opt(INIT_TYPES, i.type || 'capital')}</select></label>
         <label class="field">Status<select name="status">${opt(INIT_STATUS, i.status || 'proposed')}</select></label>
-        <label class="field">Priority<select name="pri">${['', 'High', 'Med', 'Low', '10-yr'].map((v) => `<option value="${v}" ${(i.engine_priority || '') === v ? 'selected' : ''}>${v || 'None'}</option>`).join('')}</select></label>
+        <label class="field">Priority<select name="tier">${opt([['', 'Not set'], ['must', 'Must-have'], ['strategic', 'Strategic'], ['nice', 'Nice to have']], HGRanking.tierOf(i).tier)}</select></label>
         <label class="field">Focus area<input name="area" maxlength="40" value="${esc(i.focus_area || '')}" placeholder="Facilities, Safety & security …"></label>
         <label class="field">Cost<select name="conf"><option value="estimate" ${i.cost_confidence !== 'firm' ? 'selected' : ''}>Estimate</option><option value="firm" ${i.cost_confidence === 'firm' ? 'selected' : ''}>Firm (bid or quote)</option></select></label>
         <label class="field">Condition<select name="cond">${['', 'good', 'fair', 'poor', 'critical'].map((v) => `<option value="${v}" ${(i.condition || '') === v ? 'selected' : ''}>${v ? v[0].toUpperCase() + v.slice(1) : 'Not rated'}</option>`).join('')}</select></label>
         <label class="field">Remaining life, years<input name="life" inputmode="numeric" value="${i.remaining_life == null ? '' : i.remaining_life}"></label>
         ${dec ? `
         <label class="field">Owner<input name="owner_name" maxlength="80" value="${esc(i.owner_name || '')}" placeholder="Name or role"></label>
-        <label class="field">Tier<select name="tier"><option value="">Not ranked</option>${opt([['must', 'Must-have'], ['strategic', 'Strategic'], ['nice', 'Nice to have']], i.tier || '')}</select></label>
         <label class="field">Strategic priority<select name="priority_id"><option value="">None</option>${(rows.priorities || []).map((p) => `<option value="${esc(p.id)}" ${i.priority_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
           ${(rows.priorities || []).length ? '' : '<span class="hint">Strategic priorities come from Direction (Phase 5).</span>'}</label>
         <label class="field">Board approved it on<input name="approved_on" type="date" value="${esc(i.approved_on || '')}"></label>` : ''}
@@ -890,15 +944,15 @@
     if (ED.sid && !phases.length && !yearly.length) errs.push('Add a one-time phase, a yearly cost, or both, or choose “Details only”.');
     if (phases.length > HGUploads.MAX_PH) errs.push(`An initiative can have at most ${HGUploads.MAX_PH} phases.`);
     const extra = {};
-    if (form.querySelector('[name=owner_name]')) Object.assign(extra, { owner_name: v('owner_name').trim() || null, tier: v('tier') || null,
+    if (form.querySelector('[name=owner_name]')) Object.assign(extra, { owner_name: v('owner_name').trim() || null,
       priority_id: v('priority_id') || null, approved_on: v('approved_on') || null, description: v('description').trim() || null });
-    return { errs, name, type: v('type') || 'capital', status: v('status') || 'proposed', pri: v('pri') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, phases, yearly, extra };
+    return { errs, name, type: v('type') || 'capital', status: v('status') || 'proposed', tier: v('tier') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, phases, yearly, extra };
   }
   async function saveProject(form) {
     const box = form.querySelector('[data-form-errors]'), r = readProject(form);
     if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); return; }
     const rows = ED.rows, d = S.district.id, sid = ED.sid, sc = rows.scenarios.find((x) => x.id === sid); let iid = form.dataset.id || null;
-    const fields = Object.assign({ name: r.name.slice(0, 120), type: r.type, status: r.status, engine_priority: r.pri, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life }, r.extra);
+    const fields = Object.assign({ name: r.name.slice(0, 120), type: r.type, status: r.status, tier: r.tier, engine_priority: ({ must: 'High', strategic: 'Med', nice: 'Low' })[r.tier] || null, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life }, r.extra);
     const norm = (t) => t.toLowerCase().replace(/\s+/g, ' ');
     if (!iid) {
       const same = rows.initiatives.find((x) => norm(x.name) === norm(r.name));
@@ -1079,7 +1133,7 @@
         ${table([
           { label: 'Project', get: (x) => x.p.name },
           { label: 'Phases', html: (x) => x.p.phases.map((ph) => `FY${UP.startFY + ph.year}: ${fmt(ph.cost)} <span class="muted">(${ph.funding.map((f) => `${HGEngine.BUCKET_NAMES[f.b]}${f.p !== 100 ? ' ' + f.p + '%' : ''}`).join(', ')})</span>`).join('<br>') },
-          { label: 'Priority', get: (x) => x.p.pri }, { label: 'Focus area', get: (x) => x.p.area },
+          { label: 'Priority', get: (x) => HGUploads.TIER_WORD[x.p.tier] || '' }, { label: 'Focus area', get: (x) => x.p.area },
           { label: 'Cost', get: (x) => (x.p.est ? 'Estimate' : 'Firm') },
           { label: 'Total', num: true, get: (x) => fmt(x.total) },
         ], list, 'No projects found.')}
@@ -1131,7 +1185,7 @@
           const key = p.name.toLowerCase().replace(/\s+/g, ' ');
           let id = byName.get(key);
           if (!id) { id = crypto.randomUUID(); byName.set(key, id);
-            newInits.push({ id, district_id: d.id, name: p.name, type: 'capital', status: 'proposed', engine_priority: p.pri || null, focus_area: p.area || null,
+            newInits.push({ id, district_id: d.id, name: p.name, type: 'capital', status: 'proposed', tier: p.tier || null, engine_priority: p.pri || null, focus_area: p.area || null,
               cost_confidence: p.est ? 'estimate' : 'firm', condition: p.cond ? p.cond.toLowerCase() : null, remaining_life: p.life == null ? null : p.life }); }
           idFor.set(p, id);
         });
@@ -1234,6 +1288,8 @@
     const rows = await loadCapitalRows(S.district);
     const sid = document.querySelector('[data-export-scenario]').value, sc = rows.scenarios.find((x) => x.id === sid);
     const inp = HGCapital.buildInputs(rows, sid);
+    const TIERS = new Map(rows.initiatives.map((i) => [i.id, HGRanking.tierOf(i).tier]));
+    inp.projects.forEach((p) => { p.tier = TIERS.get(String(p.id)) || ''; });
     saveFile(`${fileStem()}-${sc.name.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}.csv`, HGUploads.projectsToCSV(inp.projects, inp.cfg.start));
   }
   async function exportPhases() {
@@ -1245,7 +1301,7 @@
       ...funds.map((k) => (HGEngine.BUCKET_NAMES[k] || 'General fund') + ' $')]];
     rows.phases.slice().sort((a, b) => (SC.get(a.scenario_id).name.localeCompare(SC.get(b.scenario_id).name)) || a.fy - b.fy).forEach((ph) => {
       const sc = SC.get(ph.scenario_id), i = INIT.get(ph.initiative_id) || {}, f = F[ph.id] || {};
-      out.push([sc.name, sc.is_board_version ? 'Yes' : '', sc.is_locked ? 'Yes' : '', i.name, i.engine_priority || '', i.focus_area || '', ph.fy, Number(ph.cost),
+      out.push([sc.name, sc.is_board_version ? 'Yes' : '', sc.is_locked ? 'Yes' : '', i.name, HGUploads.TIER_WORD[HGRanking.tierOf(i).tier] || '', i.focus_area || '', ph.fy, Number(ph.cost),
         ph.status, ph.actual_cost == null ? '' : Number(ph.actual_cost), ...funds.map((k) => (f[k] ? Math.round(Number(ph.cost) * f[k] / 100) : ''))]);
     });
     saveFile(`${fileStem()}-all-phases.csv`, HGUploads.toCSV(out));
@@ -1814,6 +1870,8 @@
       await HG.auth.mfa.unenroll(el.dataset.id); await loadContext(true); toast('Two-step sign-in is off'); here();
     },
     async editProject(el) { openProjectEditor(el.dataset.id || null); },
+    async rankMove(el) { await rankMove(el); },
+    async rankScenario() { await rankScenario(); },
     async addFund(el) {
       const cell = el.parentElement.querySelector('[data-srcs]'), used = [...cell.querySelectorAll('[name=src]')].map((x) => x.value);
       if (used.length >= 3) return;
@@ -1954,6 +2012,10 @@
       if (!on.length) { cp.checked = true; return; }
       CMP.ids = on; document.getElementById('cmp-table').innerHTML = compareTableHtml(); return;
     }
+    const rs2 = e.target.closest('[data-rank-sid]');
+    if (rs2) { RK.sid = rs2.value; return here(); }
+    const rt = e.target.closest('[data-rank-tier]');
+    if (rt) { run(async () => { await HG.db.update('initiative', `id=eq.${enc(rt.dataset.rankTier)}`, { tier: rt.value || null, engine_priority: ({ must: 'High', strategic: 'Med', nice: 'Low' })[rt.value] || null }); here(); }, rt); return; }
     const es = e.target.closest('[data-ed-scenario]');
     if (es) { ED.sid = es.value || null; const f = es.closest('form'); f.querySelector('[data-cost-section]').innerHTML = costSectionHtml(f.dataset.id || null); return; }
     const pk = e.target.closest('[data-pick-init]');

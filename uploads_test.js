@@ -13,6 +13,9 @@ check('template: cost range uses the midpoint, as an estimate', by['Track resurf
 check('template: Firm is read', by['Replace route bus'].est === false);
 check('template: condition and life', by['Roof replacement — north wing'].cond === 'Poor' && by['Roof replacement — north wing'].life === 2);
 check('template: no errors', !t.issues.some((i) => i.l === 'e'));
+check('template: priorities in the new words', by['Secure entry vestibule'].tier === 'must' && by['Replace route bus'].tier === 'strategic' && by['Track resurface'].tier === 'nice');
+check('older spreadsheets with High/Med/Low still work', ['High', 'Med', 'Low', '10-yr', 'Must-have', 'strategic', 'Nice to have'].map(U.tierKey).join() === 'must,strategic,nice,nice,must,strategic,nice');
+check('exports write the new words', U.projectsToCSV([{ name: 'X', tier: 'strategic', est: true, phases: [{ year: 0, cost: 1, funding: [{ b: 'save', p: 100 }] }] }], 2027).includes(',Strategic,'));
 check('template: phase names read', by['Roof replacement — north wing'].phases.map((ph) => ph.label).join('|') === 'Sections A–B|Sections C–D');
 const old = U.parseProjects([['Project', 'FY', 'Estimate', 'Funding source'], ['Boiler', 'FY2028', '90000', 'SAVE']], 2027, 10);
 check('older spreadsheets without a Phase name column still work', old.projects.length === 1 && !old.issues.some((i) => i.l === 'e') && old.projects[0].phases[0].label === undefined);

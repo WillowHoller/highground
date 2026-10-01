@@ -138,6 +138,7 @@
       if (initId.has(p.id)) return;
       const id = newId(); initId.set(p.id, id);
       out.initiative.push({ id: id, district_id: districtId, name: p.name, type: 'capital', status: 'proposed', engine_priority: p.pri || null,
+        tier: ({ High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' })[p.pri] || null,
         focus_area: p.area || null, cost_confidence: p.est === false ? 'firm' : 'estimate', condition: p.cond ? p.cond.toLowerCase() : null,
         remaining_life: p.life == null ? null : p.life });
     }));
