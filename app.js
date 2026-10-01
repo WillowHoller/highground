@@ -316,14 +316,14 @@
   async function vScenarios(c) {
     const rows = await HG.db.select('scenario', `select=name,is_board_version,is_locked,updated_at&district_id=eq.${c.district.id}&order=name`);
     return `
-      <div class="row">${nb('New scenario', 'Creating scenarios', 1)}${nb('Compare side by side', 'Scenario comparison', 2)}</div>
+      <div class="row"><a class="btn" href="#/d/${enc(c.district.slug)}/resources/capital">Open, copy or edit scenarios</a>${nb('Compare side by side', 'Scenario comparison', 2)}</div>
       <div class="card">${table([
         { label: 'Scenario', get: (r) => r.name },
         { label: 'Board version', get: (r) => (r.is_board_version ? 'Yes' : '') },
         { label: 'Locked', get: (r) => (r.is_locked ? 'Locked' : '') },
         { label: 'Last changed', get: (r) => day(r.updated_at) },
       ], rows, 'No scenarios yet.')}</div>
-      ${wip({ phase: 2, items: ['Need, gap and funding by source for each scenario, from the engine', 'What each asks of the community: a vote, a tax change, a delay'], uses: 'scenario, phase, financing, the engine' })}`;
+      ${wip({ phase: 2, items: ['Need, gap and funding by source for each scenario side by side, from the engine', 'What each asks of the community: a vote, a tax change, a delay'], uses: 'scenario, phase, financing, the engine' })}`;
   }
 
   // ------------------------------------------------------------------ views: Resources
@@ -391,7 +391,7 @@
 
   async function vCapital(c) {
     const rows = await loadCapitalRows(c.district);
-    CAP.rows = rows; CAP.pub = false;
+    CAP.rows = rows; CAP.pub = false; CAP.ctx = c;
     if (!rows.settings) {
       return `<div class="card"><h3>Starting numbers aren’t set up yet</h3>
         <p>The capital plan needs this district’s SAVE and PPEL receipts, fund balances and existing debt before it can run.</p>
@@ -412,9 +412,9 @@
     return `
       <div class="row cap-bar">
         <label class="chip"><span class="small muted">Scenario</span><select data-cap-scenario aria-label="Scenario">${opts}</select></label>
-        ${nb('Edit projects', 'Editing projects and phases', 1)}${nb('Save levers to this scenario', 'Saving what-if levers', 1)}
-        ${c.admin && (rows.scenarios.find((x) => x.id === CAP.scenarioId) || {}).is_board_version ? '<button type="button" class="btn primary" data-action="publishBoard">Publish to the public link</button>' : ''}
+        ${scenarioToolbar(c)}
       </div>
+      ${CAP.sc.is_locked ? `<div class="notice">This scenario is locked, so it can’t be changed${c.admin ? '. Unlock it to edit.' : '. A district admin can unlock it.'} Copy it to try changes.</div>` : ''}
       ${CAP.inputs.notes.length ? `<div class="notice">${CAP.inputs.notes.map(esc).join('<br>')}</div>` : ''}
       <div id="cap-results">${capResultsHtml()}</div>
       <div class="cap-grid">
@@ -422,9 +422,12 @@
         <div class="card" id="cap-fin">${capFinHtml()}</div>
       </div>
       <div id="cap-years">${capYearsHtml()}</div>
-      ${wip({ title: 'Still to come on this screen', phase: 1, items: ['Editing projects, phases and funding splits', 'Saving levers and financing to a scenario', 'New scenarios, and making one the board version', 'Table view, filters, and “why the gap changed”'] })}`;
+      ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add a project</button></div>' : ''}
+      ${wip({ title: 'Still to come on this screen', phase: 2, items: ['Table view and filters', '“Why the gap changed” between two scenarios', 'Side-by-side scenario comparison'] })}`;
   }
   function capLoadScenario() {
+    CAP.sc = CAP.rows.scenarios.find((x) => x.id === CAP.scenarioId);
+    CAP.editable = !CAP.pub && !!CAP.ctx && CAP.ctx.plan && !CAP.sc.is_locked;
     CAP.inputs = HGCapital.buildInputs(CAP.rows, CAP.scenarioId);
     CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
   }
@@ -458,13 +461,14 @@
   function capLeversHtml() {
     const cfg = CAP.inputs.cfg;
     return `<h3>What-if</h3>
-          <p class="small muted">Try a change here; nothing is saved. Reset returns to ${CAP.pub ? 'the published plan' : 'the scenario’s own settings'}.</p>
+          <p class="small muted">${CAP.editable ? 'Try a change here. Nothing is saved unless you click Save.' : 'Try a change here; nothing is saved.'} Reset returns to ${CAP.pub ? 'the published plan' : 'the scenario’s own settings'}.</p>
           <div class="stack">
           ${LEVERS.map((l) => `<label class="lever"><span>${esc(l.label)} <b data-lever-val="${l.k}">${esc(l.show(CAP.levers[l.k]))}</b></span>
              <input type="range" data-lever="${l.k}" min="${l.min}" max="${l.max}" step="${l.step}" value="${CAP.levers[l.k]}"></label>`).join('')}
           <label class="row"><input type="checkbox" data-lever="sf" ${CAP.levers.sf ? 'checked' : ''}> SF 2472 SAVE cut</label>
           ${cfg.vStatus !== 'none' ? `<label class="row"><input type="checkbox" data-lever="vppel" ${CAP.levers.vppel ? 'checked' : ''}> V-PPEL through FY${cfg.vLast}${cfg.vStatus === 'proposed' ? ' (proposed; needs a vote)' : ''}</label>` : ''}
-          <div><button type="button" class="btn small" data-action="capReset">Reset</button></div></div>`;
+          <div class="row"><button type="button" class="btn small" data-action="capReset">Reset</button>
+          ${CAP.editable ? '<button type="button" class="btn small primary" data-action="saveLevers">Save these to the scenario</button>' : ''}</div></div>`;
   }
   function capFinHtml() {
     const cfg = CAP.inputs.cfg, L = CAP.levers;
@@ -472,11 +476,15 @@
     const KIND = { go: 'General-obligation bond', rev: 'SAVE revenue bond', lease: 'Lease-purchase', gift: 'Campaign or gift' };
     const REPAY = { levy: 'debt service levy', save: 'SAVE', ppel: 'PPEL', none: 'nothing (gift)' };
     return `<h3>Financing</h3>
-      ${(L.fin || []).length ? `<div class="stack">${L.fin.map((f) => `<div><b>${esc(f.name)}</b>: ${esc(KIND[f.kind] || f.kind)}, ${fmtK(f.amount)} in FY${f.fy}${f.years ? `, ${f.years} years at ${pct(f.rate, 2)}` : ''}, repaid from ${esc(REPAY[f.repay] || f.repay)}.</div>`).join('')}</div>`
-        : '<p class="muted">None in this scenario.</p>'}
+      ${(() => {
+        const list = CAP.pub ? (L.fin || []).map((f) => ({ f })) : (CAP.rows.financing || []).filter((x) => x.scenario_id === CAP.scenarioId)
+          .map((x) => ({ id: x.id, f: { name: x.name, kind: x.kind, fy: x.issue_fy, amount: Number(x.amount), rate: Number(x.rate), years: x.years, repay: x.repay_from } }));
+        return list.length ? `<div class="stack">${list.map(({ id, f }) => `<div><b>${esc(f.name)}</b>: ${esc(KIND[f.kind] || f.kind)}, ${fmtK(f.amount)} in FY${f.fy}${f.years ? `, ${f.years} years at ${pct(f.rate, 2)}` : ''}, repaid from ${esc(REPAY[f.repay] || f.repay)}.
+          ${CAP.editable && id ? `<a href="#" data-action="editFinancing" data-id="${esc(id)}">Edit</a>` : ''}</div>`).join('')}</div>` : '<p class="muted">None in this scenario.</p>';
+      })()}
       <p class="small">SAVE revenue-bond room is about <b>${fmtK(cap.pv)}</b> (lowest year FY${cap.fy}, 1.20 coverage, 20 years at 4.5%).
       ${go != null ? ` The general-obligation debt limit (5% of actual valuation) leaves about <b>${fmtK(go)}</b>.` : ' Add the district’s actual (100%) valuation to see the general-obligation limit.'}</p>
-      ${CAP.pub ? '' : `<div>${nb('Add a bond, lease or campaign', 'Adding financing', 1)}</div>`}`;
+      ${CAP.editable ? '<div><button type="button" class="btn small" data-action="editFinancing" data-id="">Add a bond, lease or campaign</button></div>' : ''}`;
   }
   function capYearsHtml() {
     const cfg = CAP.inputs.cfg, L = CAP.levers, r = capCompute(), yrs = HGCapital.yearSummary(r, cfg);
@@ -485,7 +493,7 @@
       CAP.inputs.projects.forEach((p) => p.phases.forEach((ph, k) => {
         if (ph.year !== i) return;
         const cost = ph.status === 'done' && ph.actual != null ? ph.actual : ph.cost * Math.pow(1 + L.infl, ph.year);
-        items.push(`<li><span>${esc(p.name)}${p.phases.length > 1 ? ` <span class="muted">${k + 1}/${p.phases.length}</span>` : ''}
+        items.push(`<li><span>${CAP.editable ? `<a href="#" data-action="editProject" data-id="${esc(p.id)}">${esc(p.name)}</a>` : esc(p.name)}${p.phases.length > 1 ? ` <span class="muted">${k + 1}/${p.phases.length}</span>` : ''}
           ${ph.status === 'done' ? '<b class="ok">Done</b>' : ph.status === 'underway' ? '<span class="muted">underway</span>' : ''}
           <span class="chips">${ph.funding.map((f) => `<span class="fchip f-${f.b}">${FUND_LABEL[f.b]}${f.p !== 100 ? ' ' + f.p + '%' : ''}</span>`).join('')}</span></span><b>${fmtK(cost)}</b></li>`);
       }));
@@ -527,6 +535,204 @@
       'Budget against actual by fund, compared with any earlier month',
     ], uses: 'import_batch, gl_account, gl_amount, budget_line, apply_import()' });
   }
+  // ---------------------------------------------------------------- scenario work: toolbar, project editor, financing, levers
+  function scenarioToolbar(c) {
+    const sc = CAP.sc || {}, btn = (a, label, cls) => `<button type="button" class="btn ${cls || ''}" data-action="${a}">${label}</button>`;
+    const out = [];
+    if (c.plan) out.push(btn('copyScenario', 'Copy'));
+    if (c.plan && !sc.is_locked) out.push(btn('renameScenario', 'Rename'));
+    if (c.plan && !sc.is_locked) out.push(btn('lockScenario', 'Lock'));
+    if (c.admin && sc.is_locked) out.push(btn('unlockScenario', 'Unlock'));
+    if (c.admin && !sc.is_board_version) out.push(btn('makeBoard', 'Make it the board version'));
+    if (c.plan && !sc.is_locked && !sc.is_board_version) out.push(btn('deleteScenario', 'Delete', 'danger'));
+    if (c.admin && sc.is_board_version) out.push(btn('publishBoard', 'Publish to the public link', 'primary'));
+    return out.join('');
+  }
+  const FUNDS = [['save', 'SAVE'], ['ppel', 'PPEL'], ['vppel', 'V-PPEL'], ['grants', 'Grants/Donations'], ['boost', 'Boosters'], ['camp', 'Campaign/Bond']];
+  function modal(inner) {
+    closeModal();
+    document.body.insertAdjacentHTML('beforeend', `<div class="modal-back" data-modal><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">${inner}</div></div>`);
+    const first = document.querySelector('[data-modal] input, [data-modal] select'); if (first) first.focus();
+  }
+  function closeModal() { document.querySelectorAll('[data-modal]').forEach((m) => m.remove()); }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+  function phaseRowHtml(ph, cfg) {
+    const yr = (v) => cfg.years.map((fy) => `<option value="${fy}" ${fy === v ? 'selected' : ''}>FY${fy}</option>`).join('');
+    const src = (i) => { const f = (ph.funding || [])[i] || {}; return `<select name="src${i}" aria-label="Fund ${i + 1}">${i ? '<option value="">None</option>' : ''}${FUNDS.map(([k, v]) => `<option value="${k}" ${f.b === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <input name="pct${i}" inputmode="decimal" value="${f.p == null ? '' : f.p}" aria-label="Percent ${i + 1}" placeholder="%">`; };
+    return `<tr data-phase-row>
+      <td><select name="fy" aria-label="Fiscal year">${yr(ph.fy || cfg.start)}</select></td>
+      <td><input name="cost" inputmode="decimal" value="${ph.cost == null ? '' : Number(ph.cost).toLocaleString('en-US')}" aria-label="Cost in today’s dollars"></td>
+      <td class="srcs">${src(0)}${src(1)}${src(2)}</td>
+      <td><select name="status" aria-label="Status">${[['planned', 'Planned'], ['underway', 'Underway'], ['done', 'Done']].map(([k, v]) => `<option value="${k}" ${(ph.status || 'planned') === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <input name="actual" inputmode="decimal" value="${ph.actual == null ? '' : Number(ph.actual).toLocaleString('en-US')}" aria-label="Actual cost" placeholder="Actual cost if done"></td>
+      <td><button type="button" class="btn small danger" data-action="removePhaseRow" aria-label="Remove this phase">×</button></td></tr>`;
+  }
+  function openProjectEditor(pid) {
+    const cfg = CAP.inputs.cfg, sid = CAP.scenarioId;
+    const init = pid ? CAP.rows.initiatives.find((x) => x.id === pid) : null;
+    const fundBy = {}; CAP.rows.funding.forEach((f) => { (fundBy[f.phase_id] = fundBy[f.phase_id] || []).push({ b: f.fund, p: Number(f.pct) }); });
+    const phases = pid ? CAP.rows.phases.filter((x) => x.scenario_id === sid && x.initiative_id === pid).sort((a, b) => a.fy - b.fy || a.seq - b.seq)
+      .map((x) => ({ fy: x.fy, cost: Number(x.cost), status: x.status, actual: x.actual_cost == null ? null : Number(x.actual_cost), funding: fundBy[x.id] || [] }))
+      : [{ fy: cfg.start, cost: null, funding: [{ b: 'save', p: 100 }] }];
+    const i = init || {};
+    const others = pid ? CAP.rows.scenarios.filter((x) => x.id !== sid && CAP.rows.phases.some((ph) => ph.scenario_id === x.id && ph.initiative_id === pid)).length : 0;
+    modal(`<form class="stack" data-form="saveProject" data-id="${esc(pid || '')}" novalidate>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${pid ? 'Edit project' : 'Add a project'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <p class="small muted">In “${esc(CAP.sc.name)}”.${others ? ` The details at the top are shared with ${others} other scenario${others === 1 ? '' : 's'}; phases and funding are this scenario’s own.` : ''}</p>
+      <div class="fgrid">
+        <label class="field">Project<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
+        <label class="field">Priority<select name="pri">${['', 'High', 'Med', 'Low', '10-yr'].map((v) => `<option value="${v}" ${(i.engine_priority || '') === v ? 'selected' : ''}>${v || 'None'}</option>`).join('')}</select></label>
+        <label class="field">Focus area<input name="area" maxlength="40" value="${esc(i.focus_area || '')}" placeholder="Facilities, Safety & security …"></label>
+        <label class="field">Cost<select name="conf"><option value="estimate" ${i.cost_confidence !== 'firm' ? 'selected' : ''}>Estimate</option><option value="firm" ${i.cost_confidence === 'firm' ? 'selected' : ''}>Firm (bid or quote)</option></select></label>
+        <label class="field">Condition<select name="cond">${['', 'good', 'fair', 'poor', 'critical'].map((v) => `<option value="${v}" ${(i.condition || '') === v ? 'selected' : ''}>${v ? v[0].toUpperCase() + v.slice(1) : 'Not rated'}</option>`).join('')}</select></label>
+        <label class="field">Remaining life, years<input name="life" inputmode="numeric" value="${i.remaining_life == null ? '' : i.remaining_life}"></label>
+      </div>
+      <h3>Phases</h3>
+      <p class="small muted">Costs in today’s dollars; the plan adds inflation. Split a phase across up to three funds; the percentages must add to 100.</p>
+      <div class="scroll"><table class="data phases"><thead><tr><th>Year</th><th>Cost, $</th><th>Paid from</th><th>Status</th><th></th></tr></thead>
+        <tbody data-phase-body>${phases.map((ph) => phaseRowHtml(ph, cfg)).join('')}</tbody></table></div>
+      <div><button type="button" class="btn small" data-action="addPhaseRow">Add a phase</button></div>
+      <template data-phase-template>${phaseRowHtml({ fy: cfg.start, funding: [{ b: 'save', p: 100 }] }, cfg)}</template>
+      <div class="notice error" data-form-errors hidden></div>
+      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
+        ${pid ? '<span class="spacer" style="flex:1"></span><button type="button" class="btn danger" data-action="removeProject" data-id="' + esc(pid) + '">Remove from this scenario</button>' : ''}</div>
+    </form>`);
+  }
+  function readProject(form) {
+    const errs = [], v = (n) => (form.querySelector(`[name="${n}"]`) || {}).value || '';
+    const name = v('name').trim(); if (!name) errs.push('Give the project a name.');
+    const life = toNum(v('life')); if (life !== null && (isNaN(life) || life < 0 || !Number.isInteger(life))) errs.push('Remaining life must be a whole number of years.');
+    const phases = [...form.querySelectorAll('[data-phase-body] [data-phase-row]')].map((tr, k) => {
+      const g = (n) => tr.querySelector(`[name="${n}"]`).value;
+      const cost = toNum(g('cost')); if (cost === null || isNaN(cost) || cost < 0) errs.push(`Phase ${k + 1}: enter the cost in dollars.`);
+      const funding = [];
+      for (let i = 0; i < 3; i++) {
+        const b = g('src' + i); if (!b) continue;
+        const p = toNum(g('pct' + i));
+        funding.push({ b, p: p === null ? null : p });
+      }
+      if (!funding.length) errs.push(`Phase ${k + 1}: choose at least one fund.`);
+      if (new Set(funding.map((f) => f.b)).size !== funding.length) errs.push(`Phase ${k + 1}: the same fund appears twice.`);
+      if (funding.length === 1 && funding[0].p === null) funding[0].p = 100;
+      if (funding.some((f) => f.p === null || isNaN(f.p) || f.p <= 0)) errs.push(`Phase ${k + 1}: give each fund a percentage.`);
+      else if (Math.abs(funding.reduce((a, f) => a + f.p, 0) - 100) > 0.01) errs.push(`Phase ${k + 1}: the percentages add to ${funding.reduce((a, f) => a + f.p, 0)}%, not 100%.`);
+      const status = g('status'), actual = toNum(g('actual'));
+      if (actual !== null && (isNaN(actual) || actual < 0)) errs.push(`Phase ${k + 1}: actual cost must be a number of dollars.`);
+      return { fy: Number(g('fy')), cost, funding, status, actual: status === 'done' && actual !== null && !isNaN(actual) ? actual : null };
+    });
+    if (!phases.length) errs.push('Add at least one phase.');
+    if (phases.length > HGUploads.MAX_PH) errs.push(`A project can have at most ${HGUploads.MAX_PH} phases.`);
+    return { errs, name, pri: v('pri') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, phases };
+  }
+  async function saveProject(form) {
+    const box = form.querySelector('[data-form-errors]'), r = readProject(form);
+    if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); return; }
+    const d = S.district.id, sid = CAP.scenarioId; let iid = form.dataset.id || null;
+    const fields = { name: r.name.slice(0, 120), engine_priority: r.pri, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life };
+    if (!iid) {
+      const same = CAP.rows.initiatives.find((x) => x.name.toLowerCase().replace(/\s+/g, ' ') === r.name.toLowerCase().replace(/\s+/g, ' '));
+      if (same && CAP.rows.phases.some((ph) => ph.scenario_id === sid && ph.initiative_id === same.id)) {
+        box.hidden = false; box.textContent = `“${same.name}” is already in this scenario. Click it on the plan to edit it.`; return;
+      }
+      if (same) { iid = same.id; await HG.db.update('initiative', `id=eq.${iid}`, fields); }
+      else { iid = crypto.randomUUID(); await HG.db.insert('initiative', Object.assign({ id: iid, district_id: d, type: 'capital', status: 'proposed' }, fields)); }
+      const rank = CAP.rows.phases.filter((ph) => ph.scenario_id === sid).length + 1;
+      await HG.db.upsert('scenario_initiative', [{ scenario_id: sid, initiative_id: iid, district_id: d, rank, included: true }], 'scenario_id,initiative_id');
+    } else {
+      await HG.db.update('initiative', `id=eq.${iid}`, fields);
+    }
+    await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
+    const phases = [], funding = [];
+    r.phases.forEach((ph, k) => {
+      const pid = crypto.randomUUID();
+      phases.push({ id: pid, district_id: d, scenario_id: sid, initiative_id: iid, seq: k + 1, fy: ph.fy, cost: ph.cost, status: ph.status, actual_cost: ph.actual });
+      ph.funding.forEach((f) => funding.push({ phase_id: pid, district_id: d, fund: f.b, pct: f.p }));
+    });
+    await HG.db.insert('phase', phases);
+    await HG.db.insert('phase_funding', funding);
+    closeModal(); toast('Saved', `${r.name} in “${CAP.sc.name}”.`); here();
+  }
+  async function removeProject(el) {
+    const iid = el.dataset.id, sid = CAP.scenarioId, name = (CAP.rows.initiatives.find((x) => x.id === iid) || {}).name || 'this project';
+    if (!confirm(`Remove ${name} from “${CAP.sc.name}”? Other scenarios keep it.`)) return;
+    await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
+    await HG.db.removeAll('scenario_initiative', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
+    closeModal(); toast('Removed', `${name} is no longer in “${CAP.sc.name}”.`); here();
+  }
+
+  function openFinancingEditor(id) {
+    const cfg = CAP.inputs.cfg, x = id ? CAP.rows.financing.find((f) => f.id === id) : null, f = x || { kind: 'go', issue_fy: cfg.start + 1, rate: 0.045, years: 20 };
+    modal(`<form class="stack" data-form="saveFinancing" data-id="${esc(id || '')}" novalidate>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${id ? 'Edit financing' : 'Add a bond, lease or campaign'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <div class="fgrid">
+        <label class="field">Name<input name="name" maxlength="60" value="${esc(f.name || '')}" placeholder="Series 2029 GO bond"></label>
+        <label class="field">Kind<select name="kind">${[['go', 'General-obligation bond (debt service levy; needs a vote)'], ['rev', 'SAVE revenue bond (repaid from SAVE)'], ['lease', 'Lease-purchase'], ['gift', 'Campaign or gift (no repayment)']].map(([k, v]) => `<option value="${k}" ${f.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="field">Money arrives in<select name="fy">${cfg.years.map((fy) => `<option value="${fy}" ${fy === Number(f.issue_fy) ? 'selected' : ''}>FY${fy}</option>`).join('')}</select></label>
+        <label class="field">Amount, $<input name="amount" inputmode="decimal" value="${f.amount == null ? '' : Number(f.amount).toLocaleString('en-US')}"></label>
+        <label class="field">Interest rate, %<input name="rate" inputmode="decimal" value="${+(Number(f.rate || 0) * 100).toFixed(3)}"><span class="hint">Leave 0 for a gift</span></label>
+        <label class="field">Years to repay<input name="years" inputmode="numeric" value="${f.years || 0}"></label>
+        <label class="field">A lease is repaid from<select name="repay"><option value="ppel" ${f.repay_from !== 'save' ? 'selected' : ''}>PPEL</option><option value="save" ${f.repay_from === 'save' ? 'selected' : ''}>SAVE</option></select><span class="hint">Only used for a lease-purchase</span></label>
+      </div>
+      <p class="small muted">Payments start the year after the money arrives. Campaign/bond phases draw on this money first.</p>
+      <div class="notice error" data-form-errors hidden></div>
+      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
+        ${id ? `<span style="flex:1"></span><button type="button" class="btn danger" data-action="removeFinancing" data-id="${esc(id)}">Remove</button>` : ''}</div>
+    </form>`);
+  }
+  async function saveFinancing(form) {
+    const box = form.querySelector('[data-form-errors]'), v = (n) => form.querySelector(`[name="${n}"]`).value, errs = [];
+    const kind = v('kind'), amount = toNum(v('amount')), rate = toNum(v('rate')), years = toNum(v('years'));
+    if (amount === null || isNaN(amount) || amount <= 0) errs.push('Enter the amount in dollars.');
+    if (rate === null || isNaN(rate) || rate < 0 || rate > 20) errs.push('Interest rate must be between 0% and 20%.');
+    if (years === null || isNaN(years) || !Number.isInteger(years) || years < 0 || years > 40) errs.push('Years to repay must be a whole number from 0 to 40.');
+    if (kind !== 'gift' && years === 0) errs.push('A bond or lease needs years to repay.');
+    if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return; }
+    const row = { name: v('name').trim() || ({ go: 'GO bond', rev: 'SAVE revenue bond', lease: 'Lease-purchase', gift: 'Campaign' })[kind], kind,
+      issue_fy: Number(v('fy')), amount, rate: kind === 'gift' ? 0 : +(rate / 100).toFixed(4), years: kind === 'gift' ? 0 : years,
+      repay_from: kind === 'rev' ? 'save' : kind === 'lease' ? v('repay') : kind === 'gift' ? 'none' : 'levy' };
+    const id = form.dataset.id;
+    if (id) await HG.db.update('financing', `id=eq.${enc(id)}`, row);
+    else await HG.db.insert('financing', Object.assign({ district_id: S.district.id, scenario_id: CAP.scenarioId }, row));
+    closeModal(); toast('Saved', row.name); here();
+  }
+
+  async function scenarioAction(kind) {
+    const sc = CAP.sc, filter = `id=eq.${sc.id}`;
+    if (kind === 'copy') {
+      const name = (prompt('Name the copy', `${sc.name} (copy)`) || '').trim(); if (!name) return;
+      const id = await HG.db.rpc('copy_scenario', { p_source: sc.id, p_name: name.slice(0, 80) });
+      CAP.scenarioId = typeof id === 'string' ? id : (id && id.copy_scenario) || CAP.scenarioId;
+      toast('Copied', `“${name}” is a new, unlocked scenario.`);
+    } else if (kind === 'rename') {
+      const name = (prompt('Rename the scenario', sc.name) || '').trim(); if (!name || name === sc.name) return;
+      await HG.db.update('scenario', filter, { name: name.slice(0, 80) });
+    } else if (kind === 'lock') {
+      if (!confirm(`Lock “${sc.name}”? Nobody can change it until an admin unlocks it.`)) return;
+      await HG.db.update('scenario', filter, { is_locked: true });
+    } else if (kind === 'unlock') {
+      await HG.db.update('scenario', filter, { is_locked: false });
+    } else if (kind === 'board') {
+      if (!confirm(`Make “${sc.name}” the board version? The public link keeps showing what was last published until you publish again.`)) return;
+      const old = CAP.rows.scenarios.find((x) => x.is_board_version);
+      if (old) await HG.db.update('scenario', `id=eq.${old.id}`, { is_board_version: false });
+      await HG.db.update('scenario', filter, { is_board_version: true });
+    } else if (kind === 'delete') {
+      if (!confirm(`Delete “${sc.name}” and its phases and financing? Projects stay in other scenarios. This can’t be undone.`)) return;
+      await HG.db.remove('scenario', filter);
+      CAP.scenarioId = null;
+    }
+    here();
+  }
+  async function saveLevers() {
+    const L = CAP.levers;
+    await HG.db.update('scenario', `id=eq.${CAP.scenarioId}`, {
+      lever_vppel: !!L.vppel, lever_sf2472: !!L.sf, lever_ppel_growth: +Number(L.pg).toFixed(4),
+      lever_grant_yield: +Number(L.gy).toFixed(4), lever_save_trend: +Number(L.sg).toFixed(4), lever_inflation: +Number(L.infl).toFixed(4) });
+    toast('Levers saved', `“${CAP.sc.name}” now uses these settings.`); here();
+  }
+
   // ---------------------------------------------------------------- uploads: projects and balances
   const UP = { kind: null, file: null, rows: null, parsed: null, startFY: null, years: null, hasBoard: false, scenarioCount: 0 };
   const STATUS_LABEL = { uploaded: 'Uploaded', review: 'Waiting for review', applied: 'Applied', discarded: 'Discarded', superseded: 'Replaced by a later upload' };
@@ -1069,7 +1275,7 @@
     if (p && p.payload && p.payload.settings) {
       const cfg = HGEngine.makeConfig(p.payload.settings);
       const stored = p.payload.stored || {};
-      CAP.pub = true; CAP.key = null;
+      CAP.pub = true; CAP.key = null; CAP.editable = false; CAP.sc = null;
       CAP.inputs = { cfg, projects: HGEngine.cleanList(p.payload.projects || [], cfg), stored, levers: HGEngine.leversOf(stored, cfg), notes: [] };
       CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
       body = `
@@ -1142,7 +1348,7 @@
       <main class="auth-main"><div class="auth-card"><h1>Not connected yet</h1>
         <p>This copy of HighGround doesn’t know which database to use.</p>
         <p>Open <b>config.js</b> and fill in the Supabase project address and its <b>publishable</b> key (Supabase: Project Settings, API Keys). Never put the secret key there.</p>
-        <p class="small muted">See docs/SETUP.md, step 9.</p></div></main></div>`;
+        <p class="small muted">See SETUP.md, step 8.</p></div></main></div>`;
   }
   function renderFatal(err) {
     console.error(err);
@@ -1163,6 +1369,20 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async editProject(el) { openProjectEditor(el.dataset.id || null); },
+    async removeProject(el) { await removeProject(el); },
+    async addPhaseRow() { const t = document.querySelector('[data-phase-template]'); document.querySelector('[data-phase-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
+    async removePhaseRow(el) { el.closest('[data-phase-row]').remove(); },
+    async closeModal() { closeModal(); },
+    async editFinancing(el) { openFinancingEditor(el.dataset.id || null); },
+    async removeFinancing(el) { if (!confirm('Remove this financing from the scenario?')) return; await HG.db.remove('financing', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Removed'); here(); },
+    async copyScenario() { await scenarioAction('copy'); },
+    async renameScenario() { await scenarioAction('rename'); },
+    async lockScenario() { await scenarioAction('lock'); },
+    async unlockScenario() { await scenarioAction('unlock'); },
+    async makeBoard() { await scenarioAction('board'); },
+    async deleteScenario() { await scenarioAction('delete'); },
+    async saveLevers() { await saveLevers(); },
     async applyUpload() { await applyUpload(); },
     async cancelUpload() { const f = document.querySelector('[data-upload-file]'); if (f) f.value = ''; document.getElementById('upload-review').innerHTML = ''; UP.parsed = null; },
     async downloadTemplate(el) { if (el.dataset.kind === 'projects') saveText('highground-projects-template.csv', HGUploads.projectTemplate(UP.startFY || 2027)); else saveText('highground-balances-template.csv', HGUploads.balanceTemplate()); },
@@ -1188,6 +1408,8 @@
     },
   };
   const FORMS = {
+    async saveProject(f, form) { await saveProject(form); },
+    async saveFinancing(f, form) { await saveFinancing(form); },
     async saveSetup(f, form) { await saveSetup(form); },
     async signIn(f) { await HG.auth.signIn(f.email.trim(), f.password); document.getElementById('toasts').innerHTML = ''; S.loaded = false; go('#/'); },
     async signUp(f) {
@@ -1230,6 +1452,7 @@
     try { await fn(); } catch (err) { showError(err); } finally { if (button && button.isConnected) button.disabled = false; }
   }
   document.addEventListener('click', (e) => {
+    if (e.target.matches && e.target.matches('[data-modal]')) { closeModal(); return; }
     const n = e.target.closest('[data-notbuilt]');
     if (n) { e.preventDefault(); try { HG.notBuilt(n.dataset.notbuilt, n.dataset.phase); } catch (err) { showError(err); } return; }
     const a = e.target.closest('[data-action]');

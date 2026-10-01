@@ -173,3 +173,17 @@ table.debt input,table.debt select{height:34px;border:1px solid var(--border);bo
 input:disabled,select:disabled{background:#F4F2EC;color:var(--muted)}
 
 .notice.warn{border-color:#F3D9A4;background:#FFF8E8;color:#6B4A00}
+
+/* ---------- dialogs and the project editor ---------- */
+.modal-back{position:fixed;inset:0;background:rgba(28,42,36,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;z-index:40}
+.modal{background:var(--card);border-radius:14px;padding:22px 24px;width:100%;max-width:980px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal form.stack{max-width:none}
+.modal .fgrid{display:grid;gap:12px 16px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+table.phases input,table.phases select{height:34px;border:1px solid var(--border);border-radius:6px;padding:0 8px;background:#fff}
+table.phases td{vertical-align:middle}
+table.phases input[name=cost],table.phases input[name=actual]{width:120px}
+table.phases .srcs{display:grid;grid-template-columns:auto 64px;gap:4px 6px;min-width:250px}
+table.phases .srcs input{width:64px}
+table.phases input[name=actual]{display:block;margin-top:4px}
+.ylist a{color:var(--text);text-decoration:underline;text-decoration-color:#C9C3B5;text-underline-offset:3px}
+.ylist a:hover{text-decoration-color:var(--action)}

@@ -25,6 +25,7 @@ for t in ["district_settings","debt_obligation","initiative","scenario","scenari
   TABLES[t]=IRON[t]
 TABLES["fund_balance"]=IRON["fund_balance"]+[{"district_id":"d1","fund":"save","as_of":"2026-06-01","amount":1,"source":"manual"}]
 for i,dbt in enumerate(TABLES["debt_obligation"]): dbt.setdefault("id","debt-%d"%i)
+for i,fn in enumerate(TABLES["financing"]): fn.setdefault("id","fin-%d"%i)
 for sc in TABLES["scenario"]:
   sc["updated_at"]="2026-09-23T12:00:00Z"
   if sc["id"] in IRON["lock"]: sc["is_locked"]=True
@@ -63,6 +64,7 @@ async def handler(route):
   if path=="/auth/v1/logout": return await route.fulfill(status=204,body="")
   if path.startswith("/storage/v1/object/district-files/") and req.method=="POST":
     return await ok({"Key":path.split("/object/")[1]})
+  if path=="/rest/v1/rpc/copy_scenario": return await ok("copied-scenario-id")
   if path=="/rest/v1/rpc/apply_import": return await ok({"status":"applied"})
   if path=="/rest/v1/rpc/public_publication":
     b=json.loads(body)
@@ -108,13 +110,15 @@ async def main():
     b=await p.chromium.launch()
     # 1. not configured
     pg=await b.new_page(); pg.on("pageerror",lambda e:errs.append(str(e)))
-    await pg.route("**/fonts.googleapis.com/**",lambda r:r.abort()); await pg.goto("http://localhost:8765/"); await pg.wait_for_timeout(400)
+    await pg.route("**/fonts.googleapis.com/**",lambda r:r.abort())
+    async def blank(route): await route.fulfill(content_type="application/javascript",body="window.HG_CONFIG={supabaseUrl:'https://YOUR-PROJECT-ID.supabase.co',publishableKey:'YOUR-PUBLISHABLE-KEY'};")
+    await pg.route("**/config.js",blank); await pg.goto("http://localhost:8765/"); await pg.wait_for_timeout(400)
     check("unconfigured shows setup message", "Not connected yet" in await pg.inner_text("body"))
     await pg.close()
     ctx=await b.new_context(viewport={"width":1360,"height":900})
     async def cfg(route): await route.fulfill(content_type="application/javascript",body="window.HG_CONFIG={supabaseUrl:'%s',publishableKey:'sb_publishable_TESTKEY_abcdefghijklmnop'};"%SB)
     await ctx.route("**/config.js",cfg); await ctx.route(SB+"/**",handler); await ctx.route("**/fonts.g*/**",lambda r:r.abort())
-    pg=await ctx.new_page(); pg.on("dialog",lambda dl: asyncio.ensure_future(dl.accept())); pg.on("pageerror",lambda e:errs.append(str(e))); pg.on("console",lambda m: errs.append("console: "+m.text) if m.type=="error" and "fonts" not in m.text and "ERR_FAILED" not in m.text else None)
+    pg=await ctx.new_page(); pg.on("dialog",lambda dl: asyncio.ensure_future(dl.accept(dl.default_value) if dl.type=="prompt" else dl.accept())); pg.on("pageerror",lambda e:errs.append(str(e))); pg.on("console",lambda m: errs.append("console: "+m.text) if m.type=="error" and "fonts" not in m.text and "ERR_FAILED" not in m.text else None)
     await pg.goto("http://localhost:8765/"); await pg.wait_for_timeout(500)
     check("no session goes to sign in", "Sign in" in await pg.inner_text("h1"))
     await pg.screenshot(path=SHOTS+"/signin.png")
@@ -156,6 +160,55 @@ async def main():
     ph=gold("phased",None); t=await pg.inner_text("#view")
     check("capital plan: phased-bond scenario matches ($1.15M gap)", fmtK(ph["gap"])=="$1.15M" and "$1.15M" in t and "Bond" in t, fmtK(ph["gap"]))
     check("capital plan: unfinished parts still marked", "Still to come on this screen" in t)
+    # scenario work
+    board_id=next(sc["id"] for sc in TABLES["scenario"] if sc["is_board_version"]); phased_id=sid
+    await pg.select_option("select[data-cap-scenario]",board_id); await pg.wait_for_timeout(400)
+    t=await pg.inner_text("#view")
+    check("locked scenario: read-only, admin can unlock", "This scenario is locked" in t and await pg.locator(".ylist a").count()==0
+          and await pg.locator("button[data-action=unlockScenario]").count()==1 and await pg.locator("button[data-action=deleteScenario]").count()==0
+          and await pg.locator("button[data-action=saveLevers]").count()==0)
+    await pg.select_option("select[data-cap-scenario]",phased_id); await pg.wait_for_timeout(400)
+    links=pg.locator(".ylist a[data-action=editProject]")
+    check("unlocked scenario: projects open for editing", await links.count()>=15)
+    await pg.click(".ylist a:has-text('Middle school HVAC replacement')"); await pg.wait_for_timeout(300)
+    check("editor: opens with the project's phases", await pg.locator("[data-modal] [data-phase-row]").count()==2 and await pg.input_value("[data-modal] input[name=name]")=="Middle school HVAC replacement")
+    await pg.screenshot(path=SHOTS+"/editor.png")
+    first=pg.locator("[data-modal] [data-phase-row]").first
+    await first.locator("input[name=pct0]").fill("60"); n0=len(calls)
+    await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
+    check("editor: a split that doesn't add to 100% is caught", "add to 60%" in await pg.inner_text("[data-modal] [data-form-errors]") and not any(c[0] in("POST","PATCH","DELETE") for c in calls[n0:]))
+    await first.locator("input[name=pct0]").fill("100"); await first.locator("input[name=cost]").fill("950,000")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(800)
+    new=calls[n0:]; ops=[(c[0],c[1].split("?")[0].replace("/rest/v1/","")) for c in new if c[0] in ("POST","PATCH","DELETE")]
+    phs=json.loads(next(c[2] for c in new if c[0]=="POST" and c[1].startswith("/rest/v1/phase?") or (c[0]=="POST" and c[1]=="/rest/v1/phase?")))
+    delq=next((c[1] for c in new if c[0]=="DELETE" and "/rest/v1/phase?" in c[1]),"")
+    check("editor: save updates details and replaces this scenario's phases", ops==[("PATCH","initiative"),("DELETE","phase"),("POST","phase"),("POST","phase_funding")]
+          and phs[0]["cost"]==950000 and ("scenario_id=eq."+phased_id) in delq, str(ops))
+    await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
+    await pg.fill("[data-modal] input[name=name]","Library HVAC")
+    row=pg.locator("[data-modal] [data-phase-row]").first
+    await row.locator("select[name=fy]").select_option("2029"); await row.locator("input[name=cost]").fill("50000")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(800)
+    ops=[c[1].split("?")[0].replace("/rest/v1/","") for c in calls[n0:] if c[0]=="POST"]
+    newph=json.loads(next(c[2] for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase"))
+    check("add a project: new project joins this scenario", ops==["initiative","scenario_initiative","phase","phase_funding"] and newph[0]["fy"]==2029 and newph[0]["scenario_id"]==phased_id, str(ops))
+    await pg.click("button[data-action=editFinancing][data-id='']"); await pg.wait_for_timeout(300)
+    await pg.select_option("[data-modal] select[name=kind]","lease"); await pg.fill("[data-modal] input[name=amount]","300,000")
+    await pg.fill("[data-modal] input[name=rate]","5"); await pg.fill("[data-modal] input[name=years]","5")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(700)
+    fp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/financing"]
+    check("financing: lease saved, repaid from PPEL", fp and fp[0]["kind"]=="lease" and fp[0]["repay_from"]=="ppel" and fp[0]["rate"]==0.05 and fp[0]["amount"]==300000 and fp[0]["scenario_id"]==phased_id, str(fp))
+    await pg.click("input[data-lever=sf]"); n0=len(calls)
+    await pg.click("button[data-action=saveLevers]"); await pg.wait_for_timeout(600)
+    lp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/scenario?id=eq."+phased_id in c[1]]
+    check("levers: saved to the scenario", lp and lp[0]["lever_sf2472"] is False and lp[0]["lever_ppel_growth"]==0.035, str(lp))
+    n0=len(calls); await pg.click("button[data-action=copyScenario]"); await pg.wait_for_timeout(600)
+    cp=[json.loads(c[2]) for c in calls[n0:] if "rpc/copy_scenario" in c[1]]
+    check("copy: makes a new scenario from this one", cp and cp[0]["p_source"]==phased_id and cp[0]["p_name"].endswith("(copy)"), str(cp))
+    await pg.select_option("select[data-cap-scenario]",phased_id); await pg.wait_for_timeout(400)
+    n0=len(calls); await pg.click("button[data-action=makeBoard]"); await pg.wait_for_timeout(700)
+    bp=[(c[1].split("id=eq.")[1], json.loads(c[2])) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1]]
+    check("board version: old one cleared first, then the new one set", bp==[(board_id,{"is_board_version":False}),(phased_id,{"is_board_version":True})], str(bp))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/community"); await pg.wait_for_timeout(400)
     check("community page: nothing published yet", "Nothing is published" in await pg.inner_text("#view"))
     n0=len(calls); await pg.click("button[data-action=publishBoard]"); await pg.wait_for_timeout(700)

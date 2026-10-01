@@ -156,6 +156,8 @@
     /** Insert, or update the existing row with the same key columns (e.g. 'district_id' or 'district_id,fund,as_of'). */
     upsert: (table, rows, onConflict) => call(`/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`,
       { method: 'POST', body: rows, headers: { Prefer: 'resolution=merge-duplicates,return=representation' } }),
+    /** Delete every row matching the filter; zero rows is fine (unlike remove). */
+    removeAll: (table, filter) => call(`/rest/v1/${table}?${filter}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }),
     rpc: (fn, args = {}, opts = {}) => call(`/rest/v1/rpc/${fn}`, { method: 'POST', body: args, auth: opts.auth !== false }),
   };
 })();
