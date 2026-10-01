@@ -46,6 +46,8 @@
       unfunded: r.unfunded, overflow: r.overflow, gap: r.gap, busiestFY: busiest.fy, busiest: busiest.total,
       saveLow: P.save.low, saveLowFY: P.save.lowFY, ppelLow: P.ppel.low, ppelLowFY: P.ppel.lowFY,
       bondRoom: cap.pv, goRoom: go, asks, levers: L, projects: inp.projects.length,
+      ...(() => { const by = C.recurByYear(L, cfg), y = by.find((k) => k.total > 0.5) || by[0];
+        return { yearlyFY: y.fy, yearlyCapital: y.capital, yearlyOther: y.other }; })(),
     };
   }
 
@@ -100,6 +102,21 @@
       if (pa && pb && JSON.stringify(pa.phases.map(sig)) === JSON.stringify(pb.phases.map(sig))) return;
       const list = A.inp.projects.filter((p) => String(p.id) !== id).concat(pb ? [pb] : []);
       items.push({ kind: 'project', label: describeProject(pa, pb, cfg), effect: gapOf(list, LA, cfg) - base });
+    });
+    // yearly costs, per initiative
+    const rk = (r) => JSON.stringify([r.fund, r.first, r.last, r.amount, r.grows]);
+    const group = (L) => { const m = new Map(); (L.recur || []).forEach((r) => { const k = r.initiative_id || r.name; if (!m.has(k)) m.set(k, []); m.get(k).push(r); }); return m; };
+    const gA = group(LA), gB = group(LB);
+    [...new Set([...gA.keys(), ...gB.keys()])].forEach((k) => {
+      const a = (gA.get(k) || []).map(rk).sort(), b = (gB.get(k) || []).map(rk).sort();
+      if (JSON.stringify(a) === JSON.stringify(b)) return;
+      const name = ((gB.get(k) || gA.get(k))[0] || {}).name || 'An initiative';
+      const yr = (list) => list.reduce((t, r) => t + r.amount, 0);
+      const ra = gA.get(k) || [], rb = gB.get(k) || [];
+      const label = !ra.length ? `${name}: adds yearly costs of ${fmt(yr(rb))} a year` : !rb.length ? `${name}: drops yearly costs of ${fmt(yr(ra))} a year`
+        : `${name}: yearly costs ${fmt(yr(ra))} → ${fmt(yr(rb))} a year, or timing changed`;
+      const L = Object.assign({}, LA, { recur: (LA.recur || []).filter((r) => (r.initiative_id || r.name) !== k).concat(rb) });
+      items.push({ kind: 'yearly', label, effect: gapOf(A.inp.projects, L, cfg) - base });
     });
     const sum = items.reduce((t, x) => t + x.effect, 0), together = total - sum;
     items.sort((x, y) => Math.abs(y.effect) - Math.abs(x.effect));

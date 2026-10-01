@@ -99,6 +99,7 @@
 
   async function route() {
     const hash = location.hash || '';
+    document.querySelectorAll('[data-modal]').forEach((m) => m.remove());   // a dialog never outlives its page
     if (!HG.configured) return renderNotConnected();
     if (/(access_token|error_description|error)=/.test(hash)) return handleEmailLink(hash);
     const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
@@ -136,7 +137,7 @@
       { id: 'community', label: 'Community', status: 'wip', phase: 5, lede: 'What the community told us, and where it shows up in the plan.', render: vCommunity },
     ] },
     { id: 'decisions', label: 'Decisions', tabs: [
-      { id: 'initiatives', label: 'All initiatives', status: 'partial', phase: 2, lede: 'Everything that costs money: projects, programs, hires.', render: vInitiatives },
+      { id: 'initiatives', label: 'All initiatives', status: 'live', lede: 'Everything that costs money: projects, programs, hires.', render: vInitiatives },
       { id: 'ranking', label: 'Ranking & funding line', status: 'wip', phase: 2, lede: 'Force-rank initiatives and see where the money runs out.', render: vRanking },
       { id: 'scenarios', label: 'Scenarios', status: 'live', lede: 'Different ways to pay for the plan, side by side.', render: vScenarios },
     ] },
@@ -297,20 +298,75 @@
   }
 
   // ------------------------------------------------------------------ views: Decisions
+  const INI = { status: '', type: '' };
   async function vInitiatives(c) {
-    const rows = await HG.db.select('initiative', `select=name,type,status,focus_area,tier,cost_confidence,condition&district_id=eq.${c.district.id}&order=name`);
+    const rows = await loadCapitalRows(c.district);
+    INI.rows = rows;
+    const board = rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0];
+    const P = Object.fromEntries((rows.priorities || []).map((p) => [p.id, p.name]));
+    const oneTime = {}, yearly = {};
+    if (board) {
+      rows.phases.filter((ph) => ph.scenario_id === board.id).forEach((ph) => { oneTime[ph.initiative_id] = (oneTime[ph.initiative_id] || 0) + Number(ph.cost); });
+      (rows.recurring || []).filter((r) => r.scenario_id === board.id).forEach((r) => { yearly[r.initiative_id] = (yearly[r.initiative_id] || 0) + Number(r.annual_amount); });
+    }
+    const STATUS = Object.fromEntries(INIT_STATUS), TYPE = Object.fromEntries(INIT_TYPES);
+    const counts = Object.fromEntries(INIT_STATUS.map(([k]) => [k, rows.initiatives.filter((i) => (i.status || 'proposed') === k).length]));
+    const list = rows.initiatives.filter((i) => (!INI.status || (i.status || 'proposed') === INI.status) && (!INI.type || i.type === INI.type));
     return `
-      <div class="row">${nb('Add an initiative', 'Adding initiatives', 1)}<a class="btn" href="#/d/${enc(c.district.slug)}/progress/uploads">Upload projects</a></div>
+      <div class="pipeline" role="group" aria-label="Filter by status">
+        <button type="button" class="pipe ${!INI.status ? 'on' : ''}" data-action="iniStatus" data-v="">All <b>${rows.initiatives.length}</b></button>
+        ${INIT_STATUS.map(([k, v]) => `<button type="button" class="pipe ${INI.status === k ? 'on' : ''}" data-action="iniStatus" data-v="${k}">${v} <b>${counts[k]}</b></button>`).join('')}
+      </div>
+      <div class="row">
+        <label class="chip"><span class="small muted">Type</span><select data-ini-type aria-label="Type"><option value="">All types</option>${INIT_TYPES.map(([k, v]) => `<option value="${k}" ${INI.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        ${c.plan ? '<button type="button" class="btn primary" data-action="editInitiative" data-id="">Add an initiative</button>' : ''}
+        <a class="btn" href="#/d/${enc(c.district.slug)}/progress/uploads">Upload projects</a>
+      </div>
       <div class="card">${table([
-        { label: 'Initiative', get: (r) => r.name },
-        { label: 'Type', get: (r) => r.type },
-        { label: 'Status', get: (r) => r.status },
-        { label: 'Focus area', get: (r) => r.focus_area },
-        { label: 'Tier', get: (r) => r.tier },
-        { label: 'Cost', get: (r) => r.cost_confidence },
-        { label: 'Condition', get: (r) => r.condition },
-      ], rows, 'No initiatives yet. Upload a project spreadsheet from Progress, Uploads.')}</div>
-      ${wip({ phase: 2, items: ['Status pipeline from idea to done', 'Side panel: one-time costs, yearly costs, effect on the gap and on solvency', 'Programs and hires with yearly costs (the FFA-program case)'], uses: 'initiative, phase, phase_funding, recurring_cost' })}`;
+        { label: 'Initiative', html: (i) => (c.plan ? `<a href="#" data-action="editInitiative" data-id="${esc(i.id)}">${esc(i.name)}</a>` : esc(i.name)) },
+        { label: 'Type', get: (i) => TYPE[i.type] || i.type },
+        { label: 'Status', html: (i) => `<span class="st st-${esc(i.status || 'proposed')}">${esc(STATUS[i.status || 'proposed'])}</span>` },
+        { label: 'Priority', get: (i) => P[i.priority_id] || '' },
+        { label: 'Owner', get: (i) => i.owner_name || '' },
+        { label: board ? 'One-time cost' : 'One-time', num: true, get: (i) => (oneTime[i.id] ? fmtK(oneTime[i.id]) : '') },
+        { label: 'Yearly cost', num: true, get: (i) => (yearly[i.id] ? fmtK(yearly[i.id]) : '') },
+      ], list, rows.initiatives.length ? 'Nothing matches these filters.' : 'No initiatives yet. Add one, or upload a project spreadsheet.')}
+      ${board ? `<p class="small muted" style="margin-top:8px">Costs are from ${esc(board.name)}${board.is_board_version ? ', the board version' : ''}, in today’s dollars. Edit phases and yearly costs for each scenario on the capital plan.</p>` : ''}</div>`;
+  }
+  function openInitiativeEditor(id) {
+    const rows = INI.rows, i = id ? rows.initiatives.find((x) => x.id === id) || {} : {};
+    const opt = (list, v) => list.map(([k, t]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${t}</option>`).join('');
+    modal(`<form class="stack" data-form="saveInitiative" data-id="${esc(id || '')}" novalidate>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${id ? 'Initiative details' : 'Add an initiative'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <p class="small muted">These details are shared by every scenario. Add its costs to a scenario on the capital plan (Add an initiative, same name).</p>
+      <div class="fgrid">
+        <label class="field">Name<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
+        <label class="field">Type<select name="type">${opt(INIT_TYPES, i.type || 'capital')}</select></label>
+        <label class="field">Status<select name="status">${opt(INIT_STATUS, i.status || 'proposed')}</select></label>
+        <label class="field">Strategic priority<select name="priority_id"><option value="">None</option>${(rows.priorities || []).map((p) => `<option value="${esc(p.id)}" ${i.priority_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+          ${(rows.priorities || []).length ? '' : '<span class="hint">Priorities are set on Direction (coming in Phase 5).</span>'}</label>
+        <label class="field">Owner<input name="owner_name" maxlength="80" value="${esc(i.owner_name || '')}" placeholder="Name or role"></label>
+        <label class="field">Tier<select name="tier"><option value="">Not ranked</option>${opt([['must', 'Must-have'], ['strategic', 'Strategic'], ['nice', 'Nice to have']], i.tier || '')}</select></label>
+        <label class="field">Focus area<input name="focus_area" maxlength="40" value="${esc(i.focus_area || '')}"></label>
+        <label class="field">Date the board approved it<input name="approved_on" type="date" value="${esc(i.approved_on || '')}"></label>
+      </div>
+      <label class="field">Description<textarea name="description" maxlength="2000">${esc(i.description || '')}</textarea></label>
+      <div class="notice error" data-form-errors hidden></div>
+      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div>
+    </form>`);
+  }
+  async function saveInitiative(f, form) {
+    const name = (f.name || '').trim(), box = form.querySelector('[data-form-errors]');
+    if (!name) { box.hidden = false; box.textContent = 'Give the initiative a name.'; return; }
+    const id = form.dataset.id;
+    if (!id && INI.rows.initiatives.some((x) => x.name.toLowerCase().replace(/\s+/g, ' ') === name.toLowerCase().replace(/\s+/g, ' '))) {
+      box.hidden = false; box.textContent = `There’s already an initiative called “${name}”.`; return;
+    }
+    const row = { name: name.slice(0, 120), type: f.type, status: f.status, priority_id: f.priority_id || null, owner_name: (f.owner_name || '').trim() || null,
+      tier: f.tier || null, focus_area: (f.focus_area || '').trim() || null, approved_on: f.approved_on || null, description: (f.description || '').trim() || null };
+    if (id) await HG.db.update('initiative', `id=eq.${enc(id)}`, row);
+    else await HG.db.insert('initiative', Object.assign({ district_id: S.district.id }, row));
+    closeModal(); toast('Saved', name); here();
   }
   async function vRanking() {
     return wip({ phase: 2, items: [
@@ -359,6 +415,7 @@
         ${line('Paid by borrowing or gifts in the scenario', (m) => fmtK(m.financed))}
         ${line('Gap to close', (m) => `<b class="${m.gap > 0.5 ? 'gaptext' : ''}">${fmtK(m.gap)}</b>${cols.length > 1 && m.gap === minGap ? '<br><span class="small muted">smallest</span>' : ''}`, { strong: true })}
         ${line('Busiest year', (m) => `FY${m.busiestFY} <span class="small muted">${fmtK(m.busiest)}</span>`)}
+        ${line('Yearly costs (first year they start)', (m) => (m.yearlyCapital + m.yearlyOther > 0.5 ? `${fmtK(m.yearlyCapital + m.yearlyOther)} <span class="small muted">FY${m.yearlyFY}</span><br><span class="small muted">${fmtK(m.yearlyCapital)} capital · ${fmtK(m.yearlyOther)} other</span>` : '$0'))}
         ${line('Lowest SAVE balance', (m) => lowest(m.saveLow, m.saveLowFY))}
         ${line('Lowest PPEL balance', (m) => lowest(m.ppelLow, m.ppelLowFY))}
         ${line('SAVE bond room', (m) => fmtK(m.bondRoom))}
@@ -406,7 +463,7 @@
     const b = await boardRun(c.district);
     if (b.none) return notReady(c, b) + wip({ title: 'General-fund summary: not built yet', phase: 6, items: ['Ending balance and solvency ratio'] });
     const { sc, inp, r, paths } = b, cfg = inp.cfg, fmt = (v) => '$' + Math.round(v).toLocaleString('en-US');
-    const rec = (b.rows.initiatives.length && CAP_RECURRING(b.rows, sc.id)) || 0;
+    const byY = HGCapital.recurByYear(inp.levers, cfg), recY = byY.find((y) => y.total > 0.5), rec = recY ? recY.total : 0;
     const funds = HGCapital.CAP_FUNDS.filter((k) => k !== 'vppel' || cfg.vStatus !== 'none' || paths[k].open > 0);
     return `
       <p class="small muted">From <b>${esc(sc.name)}</b>${sc.is_board_version ? ', the board version' : ''}, FY${cfg.start}–FY${cfg.start + cfg.n - 1}. <a href="#/d/${enc(c.district.slug)}/resources/capital">Open the capital plan</a></p>
@@ -414,7 +471,7 @@
         <div class="card tile-card"><div class="small muted">10-year capital need</div><div class="stat">${fmtK(r.need)}</div></div>
         <div class="card tile-card"><div class="small muted">Paid by levies and grants</div><div class="stat">${fmtK(r.levyFunded)}</div></div>
         <div class="card tile-card ${r.gap > 0.5 ? 'gap' : ''}"><div class="small muted">Gap to close</div><div class="stat">${fmtK(r.gap)}</div></div>
-        <div class="card tile-card"><div class="small muted">Yearly costs committed</div><div class="stat">${rec ? fmtK(rec) : '$0'}</div><div class="small muted">programs and hires, per year</div></div>
+        <div class="card tile-card"><div class="small muted">Yearly costs committed</div><div class="stat">${rec ? fmtK(rec) : '$0'}</div><div class="small muted">${recY ? `programs and hires, FY${recY.fy}` : 'programs and hires, per year'}</div></div>
       </div>
       <div class="card"><h3>Capital funds</h3>${table([
         { label: 'Fund', get: (k) => FUND_NAMES[k] },
@@ -428,7 +485,6 @@
       <p class="small muted" style="margin-top:8px">“Short by” is spending planned on a fund beyond what it has that year; it counts toward the gap. Details by year are on All funds.</p></div>
       ${wip({ title: 'General-fund summary: not built yet', phase: 6, items: ['Ending balance and solvency ratio', 'Unspent spending authority'] })}`;
   }
-  const CAP_RECURRING = (rows, sid) => 0;   // recurring costs aren't entered anywhere yet (Phase 2)
   async function vGeneralFund() {
     return wip({ phase: 6, items: [
       'Revenue: certified enrollment, cost per pupil, state supplemental aid',
@@ -505,10 +561,10 @@
   ];
   async function loadCapitalRows(d) {
     const q = (t, extra) => HG.db.select(t, `select=*&district_id=eq.${d.id}${extra || ''}`);
-    const [settings, balances, debts, scenarios, initiatives, phases, funding, financing] = await Promise.all([
+    const [settings, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities] = await Promise.all([
       q('district_settings'), q('fund_balance'), q('debt_obligation'), q('scenario', '&order=name'),
-      q('initiative'), q('phase'), q('phase_funding'), q('financing')]);
-    return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing };
+      q('initiative', '&order=name'), q('phase'), q('phase_funding'), q('financing'), q('recurring_cost'), q('priority', '&order=position')]);
+    return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities };
   }
   function capCompute() { return HGEngine.compute(CAP.inputs.projects, CAP.levers, CAP.inputs.cfg); }
 
@@ -546,7 +602,8 @@
         <div class="card" id="cap-fin">${capFinHtml()}</div>
       </div>
       <div id="cap-years">${capYearsHtml()}</div>
-      ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add a project</button></div>' : ''}
+      ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add an initiative</button></div>' : ''}
+      <div id="cap-yearly">${capYearlyHtml()}</div>
       ${wip({ title: 'Still to come on this screen', phase: 2, items: ['Table view and filters'] })}`;
   }
   function capLoadScenario() {
@@ -633,11 +690,28 @@
     }).join('');
     return `<h2 style="margin-top:6px">Projects by year</h2><div class="ygrid">${cards}</div>`;
   }
+  function capYearlyHtml() {
+    const list = (CAP.levers.recur || []), cfg = CAP.inputs.cfg;
+    if (!list.length) return '';
+    const by = HGCapital.recurByYear(CAP.levers, cfg), firstYear = by.find((y) => y.total > 0.5) || by[0];
+    const FUND = Object.fromEntries(YEARLY_FUNDS), KIND = Object.fromEntries(YEARLY_KINDS);
+    return `<div class="card"><h3>Yearly costs</h3>
+      <p class="small muted">In FY${firstYear.fy}: <b>${fmtK(firstYear.capital)}</b> from capital funds (counted in the plan) and <b>${fmtK(firstYear.other)}</b> from the general fund and other sources (shown as commitments).</p>
+      ${table([
+        { label: 'Initiative', html: (r) => (CAP.editable ? `<a href="#" data-action="editProject" data-id="${esc(r.initiative_id)}">${esc(r.name)}</a>` : esc(r.name)) },
+        { label: 'What', get: (r) => KIND[r.kind] || r.kind },
+        { label: 'Paid from', get: (r) => FUND[r.fund] || r.fund },
+        { label: 'Per year', num: true, get: (r) => fmtK(r.amount) },
+        { label: 'Years', get: (r) => `FY${r.first}–${r.last == null ? 'ongoing' : 'FY' + r.last}` },
+        { label: 'Grows with', get: (r) => ({ none: 'Stays flat', inflation: 'Inflation', settlement: 'Settlements' })[r.grows] },
+      ], list, '')}</div>`;
+  }
   function capRefresh() {
     const a = document.getElementById('cap-results'), b = document.getElementById('cap-years'), f = document.getElementById('cap-fin');
     if (a) a.innerHTML = capResultsHtml();
     if (b) b.innerHTML = capYearsHtml();
     if (f) f.innerHTML = capFinHtml();
+    const yc = document.getElementById('cap-yearly'); if (yc) yc.innerHTML = capYearlyHtml();
     LEVERS.forEach((l) => { const el = document.querySelector(`[data-lever-val="${l.k}"]`); if (el) el.textContent = l.show(CAP.levers[l.k]); });
   }
   async function vAssumptions() {
@@ -681,6 +755,22 @@
   function closeModal() { document.querySelectorAll('[data-modal]').forEach((m) => m.remove()); }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
+  const INIT_TYPES = [['capital', 'Capital project'], ['program', 'Program'], ['staff', 'Staff or hire'], ['curriculum', 'Curriculum'], ['technology', 'Technology'], ['other', 'Other']];
+  const INIT_STATUS = [['idea', 'Idea'], ['proposed', 'Proposed'], ['analysis', 'Being analysed'], ['approved', 'Approved'], ['underway', 'Underway'], ['done', 'Done'], ['deferred', 'Deferred'], ['declined', 'Declined']];
+  const YEARLY_KINDS = [['salary', 'Salary'], ['benefits', 'Benefits'], ['supplies', 'Supplies'], ['activities', 'Activities'], ['contract', 'Contract or subscription'], ['other', 'Other']];
+  const YEARLY_FUNDS = [['general', 'General fund'], ['save', 'SAVE'], ['ppel', 'PPEL'], ['vppel', 'V-PPEL'], ['grants', 'Grants/Donations'], ['boost', 'Boosters'], ['other', 'Other']];
+  function yearlyRowHtml(r, cfg) {
+    const opt = (list, v) => list.map(([k, t]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${t}</option>`).join('');
+    const yr = (v, ongoing) => (ongoing ? `<option value="" ${v == null ? 'selected' : ''}>Ongoing</option>` : '') + cfg.years.map((fy) => `<option value="${fy}" ${fy === Number(v) ? 'selected' : ''}>FY${fy}</option>`).join('');
+    return `<tr data-yearly-row>
+      <td><select name="y_kind" aria-label="What">${opt(YEARLY_KINDS, r.kind)}</select></td>
+      <td><select name="y_fund" aria-label="Paid from">${opt(YEARLY_FUNDS, r.fund)}</select></td>
+      <td><input name="y_amount" inputmode="decimal" value="${r.amount == null ? '' : Number(r.amount).toLocaleString('en-US')}" aria-label="Per year"></td>
+      <td><select name="y_first" aria-label="From">${yr(r.first, false)}</select></td>
+      <td><select name="y_last" aria-label="Until">${yr(r.last, true)}</select></td>
+      <td><select name="y_grows" aria-label="Grows with">${opt([['none', 'Stays flat'], ['inflation', 'Inflation'], ['settlement', 'Salary settlements']], r.grows || 'none')}</select></td>
+      <td><button type="button" class="btn small danger" data-action="removeYearlyRow" aria-label="Remove this yearly cost">×</button></td></tr>`;
+  }
   function phaseRowHtml(ph, cfg) {
     const yr = (v) => cfg.years.map((fy) => `<option value="${fy}" ${fy === v ? 'selected' : ''}>FY${fy}</option>`).join('');
     const src = (i) => { const f = (ph.funding || [])[i] || {}; return `<select name="src${i}" aria-label="Fund ${i + 1}">${i ? '<option value="">None</option>' : ''}${FUNDS.map(([k, v]) => `<option value="${k}" ${f.b === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
@@ -701,24 +791,35 @@
       .map((x) => ({ fy: x.fy, cost: Number(x.cost), status: x.status, actual: x.actual_cost == null ? null : Number(x.actual_cost), funding: fundBy[x.id] || [] }))
       : [{ fy: cfg.start, cost: null, funding: [{ b: 'save', p: 100 }] }];
     const i = init || {};
-    const others = pid ? CAP.rows.scenarios.filter((x) => x.id !== sid && CAP.rows.phases.some((ph) => ph.scenario_id === x.id && ph.initiative_id === pid)).length : 0;
+    const inScenario = (x) => CAP.rows.phases.some((ph) => ph.scenario_id === x.id && ph.initiative_id === pid) || (CAP.rows.recurring || []).some((r) => r.scenario_id === x.id && r.initiative_id === pid);
+    const others = pid ? CAP.rows.scenarios.filter((x) => x.id !== sid && inScenario(x)).length : 0;
+    const yearly = pid ? (CAP.rows.recurring || []).filter((r) => r.scenario_id === sid && r.initiative_id === pid)
+      .map((r) => ({ kind: r.kind, fund: r.fund, amount: Number(r.annual_amount), first: r.first_fy, last: r.last_fy, grows: r.grows_with })) : [];
     modal(`<form class="stack" data-form="saveProject" data-id="${esc(pid || '')}" novalidate>
-      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${pid ? 'Edit project' : 'Add a project'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${pid ? 'Edit initiative' : 'Add an initiative'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
       <p class="small muted">In “${esc(CAP.sc.name)}”.${others ? ` The details at the top are shared with ${others} other scenario${others === 1 ? '' : 's'}; phases and funding are this scenario’s own.` : ''}</p>
       <div class="fgrid">
-        <label class="field">Project<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
+        <label class="field">Name<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
+        <label class="field">Type<select name="type">${INIT_TYPES.map(([k, v]) => `<option value="${k}" ${(i.type || 'capital') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="field">Status<select name="status">${INIT_STATUS.map(([k, v]) => `<option value="${k}" ${(i.status || 'proposed') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <label class="field">Priority<select name="pri">${['', 'High', 'Med', 'Low', '10-yr'].map((v) => `<option value="${v}" ${(i.engine_priority || '') === v ? 'selected' : ''}>${v || 'None'}</option>`).join('')}</select></label>
         <label class="field">Focus area<input name="area" maxlength="40" value="${esc(i.focus_area || '')}" placeholder="Facilities, Safety & security …"></label>
         <label class="field">Cost<select name="conf"><option value="estimate" ${i.cost_confidence !== 'firm' ? 'selected' : ''}>Estimate</option><option value="firm" ${i.cost_confidence === 'firm' ? 'selected' : ''}>Firm (bid or quote)</option></select></label>
         <label class="field">Condition<select name="cond">${['', 'good', 'fair', 'poor', 'critical'].map((v) => `<option value="${v}" ${(i.condition || '') === v ? 'selected' : ''}>${v ? v[0].toUpperCase() + v.slice(1) : 'Not rated'}</option>`).join('')}</select></label>
         <label class="field">Remaining life, years<input name="life" inputmode="numeric" value="${i.remaining_life == null ? '' : i.remaining_life}"></label>
       </div>
-      <h3>Phases</h3>
-      <p class="small muted">Costs in today’s dollars; the plan adds inflation. Split a phase across up to three funds; the percentages must add to 100.</p>
+      <h3>One-time costs (phases)</h3>
+      <p class="small muted">Costs in today’s dollars; the plan adds inflation. Split a phase across up to three funds; the percentages must add to 100. A program with only yearly costs can have no phases.</p>
       <div class="scroll"><table class="data phases"><thead><tr><th>Year</th><th>Cost, $</th><th>Paid from</th><th>Status</th><th></th></tr></thead>
         <tbody data-phase-body>${phases.map((ph) => phaseRowHtml(ph, cfg)).join('')}</tbody></table></div>
       <div><button type="button" class="btn small" data-action="addPhaseRow">Add a phase</button></div>
       <template data-phase-template>${phaseRowHtml({ fy: cfg.start, funding: [{ b: 'save', p: 100 }] }, cfg)}</template>
+      <h3>Yearly costs</h3>
+      <p class="small muted">Costs that repeat every year, such as a salary, supplies or a subscription. Costs paid from SAVE, PPEL, V-PPEL or grants come off that fund each year in the plan. General-fund costs are shown as commitments; they’ll count once the general-fund model arrives.</p>
+      <div class="scroll"><table class="data phases"><thead><tr><th>What</th><th>Paid from</th><th>Per year, $</th><th>From</th><th>Until</th><th>Grows with</th><th></th></tr></thead>
+        <tbody data-yearly-body>${yearly.map((r) => yearlyRowHtml(r, cfg)).join('')}</tbody></table></div>
+      <div><button type="button" class="btn small" data-action="addYearlyRow">Add a yearly cost</button></div>
+      <template data-yearly-template>${yearlyRowHtml({ kind: 'salary', fund: 'general', first: cfg.start + 1, grows: 'none' }, cfg)}</template>
       <div class="notice error" data-form-errors hidden></div>
       <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
         ${pid ? '<span class="spacer" style="flex:1"></span><button type="button" class="btn danger" data-action="removeProject" data-id="' + esc(pid) + '">Remove from this scenario</button>' : ''}</div>
@@ -746,22 +847,29 @@
       if (actual !== null && (isNaN(actual) || actual < 0)) errs.push(`Phase ${k + 1}: actual cost must be a number of dollars.`);
       return { fy: Number(g('fy')), cost, funding, status, actual: status === 'done' && actual !== null && !isNaN(actual) ? actual : null };
     });
-    if (!phases.length) errs.push('Add at least one phase.');
+    const yearly = [...form.querySelectorAll('[data-yearly-body] [data-yearly-row]')].map((tr, k) => {
+      const g = (n) => tr.querySelector(`[name="${n}"]`).value;
+      const amount = toNum(g('y_amount')); if (amount === null || isNaN(amount) || amount <= 0) errs.push(`Yearly cost ${k + 1}: enter the amount per year in dollars.`);
+      const first = Number(g('y_first')), last = g('y_last') === '' ? null : Number(g('y_last'));
+      if (last != null && last < first) errs.push(`Yearly cost ${k + 1}: it ends before it starts.`);
+      return { kind: g('y_kind'), fund: g('y_fund'), amount, first, last, grows: g('y_grows') };
+    });
+    if (!phases.length && !yearly.length) errs.push('Add a one-time phase, a yearly cost, or both.');
     if (phases.length > HGUploads.MAX_PH) errs.push(`A project can have at most ${HGUploads.MAX_PH} phases.`);
-    return { errs, name, pri: v('pri') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, phases };
+    return { errs, name, type: v('type') || 'capital', status: v('status') || 'proposed', pri: v('pri') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, phases, yearly };
   }
   async function saveProject(form) {
     const box = form.querySelector('[data-form-errors]'), r = readProject(form);
     if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); return; }
     const d = S.district.id, sid = CAP.scenarioId; let iid = form.dataset.id || null;
-    const fields = { name: r.name.slice(0, 120), engine_priority: r.pri, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life };
+    const fields = { name: r.name.slice(0, 120), type: r.type, status: r.status, engine_priority: r.pri, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life };
     if (!iid) {
       const same = CAP.rows.initiatives.find((x) => x.name.toLowerCase().replace(/\s+/g, ' ') === r.name.toLowerCase().replace(/\s+/g, ' '));
-      if (same && CAP.rows.phases.some((ph) => ph.scenario_id === sid && ph.initiative_id === same.id)) {
+      if (same && (CAP.rows.phases.some((ph) => ph.scenario_id === sid && ph.initiative_id === same.id) || (CAP.rows.recurring || []).some((x) => x.scenario_id === sid && x.initiative_id === same.id))) {
         box.hidden = false; box.textContent = `“${same.name}” is already in this scenario. Click it on the plan to edit it.`; return;
       }
       if (same) { iid = same.id; await HG.db.update('initiative', `id=eq.${iid}`, fields); }
-      else { iid = crypto.randomUUID(); await HG.db.insert('initiative', Object.assign({ id: iid, district_id: d, type: 'capital', status: 'proposed' }, fields)); }
+      else { iid = crypto.randomUUID(); await HG.db.insert('initiative', Object.assign({ id: iid, district_id: d }, fields)); }
       const rank = CAP.rows.phases.filter((ph) => ph.scenario_id === sid).length + 1;
       await HG.db.upsert('scenario_initiative', [{ scenario_id: sid, initiative_id: iid, district_id: d, rank, included: true }], 'scenario_id,initiative_id');
     } else {
@@ -774,14 +882,17 @@
       phases.push({ id: pid, district_id: d, scenario_id: sid, initiative_id: iid, seq: k + 1, fy: ph.fy, cost: ph.cost, status: ph.status, actual_cost: ph.actual });
       ph.funding.forEach((f) => funding.push({ phase_id: pid, district_id: d, fund: f.b, pct: f.p }));
     });
-    await HG.db.insert('phase', phases);
-    await HG.db.insert('phase_funding', funding);
+    if (phases.length) { await HG.db.insert('phase', phases); await HG.db.insert('phase_funding', funding); }
+    await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
+    if (r.yearly.length) await HG.db.insert('recurring_cost', r.yearly.map((y) => ({ district_id: d, scenario_id: sid, initiative_id: iid, kind: y.kind, fund: y.fund,
+      first_fy: y.first, last_fy: y.last, annual_amount: y.amount, grows_with: y.grows })));
     closeModal(); toast('Saved', `${r.name} in “${CAP.sc.name}”.`); here();
   }
   async function removeProject(el) {
     const iid = el.dataset.id, sid = CAP.scenarioId, name = (CAP.rows.initiatives.find((x) => x.id === iid) || {}).name || 'this project';
     if (!confirm(`Remove ${name} from “${CAP.sc.name}”? Other scenarios keep it.`)) return;
     await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
+    await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
     await HG.db.removeAll('scenario_initiative', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
     closeModal(); toast('Removed', `${name} is no longer in “${CAP.sc.name}”.`); here();
   }
@@ -1659,9 +1770,13 @@
       await HG.auth.mfa.unenroll(el.dataset.id); await loadContext(true); toast('Two-step sign-in is off'); here();
     },
     async editProject(el) { openProjectEditor(el.dataset.id || null); },
+    async editInitiative(el) { openInitiativeEditor(el.dataset.id || null); },
+    async iniStatus(el) { INI.status = el.dataset.v; here(); },
     async removeProject(el) { await removeProject(el); },
     async addPhaseRow() { const t = document.querySelector('[data-phase-template]'); document.querySelector('[data-phase-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
     async removePhaseRow(el) { el.closest('[data-phase-row]').remove(); },
+    async addYearlyRow() { const t = document.querySelector('[data-yearly-template]'); document.querySelector('[data-yearly-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
+    async removeYearlyRow(el) { el.closest('[data-yearly-row]').remove(); },
     async closeModal() { closeModal(); },
     async editFinancing(el) { openFinancingEditor(el.dataset.id || null); },
     async removeFinancing(el) { if (!confirm('Remove this financing from the scenario?')) return; await HG.db.remove('financing', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Removed'); here(); },
@@ -1705,6 +1820,7 @@
       form.reset(); toast('Request sent', 'If that district uses HighGround, its admins will see your request. You’ll have access as soon as one approves it.');
     },
     async saveProject(f, form) { await saveProject(form); },
+    async saveInitiative(f, form) { await saveInitiative(f, form); },
     async saveFinancing(f, form) { await saveFinancing(form); },
     async saveSetup(f, form) { await saveSetup(form); },
     async signIn(f) { await HG.auth.signIn(f.email.trim(), f.password); document.getElementById('toasts').innerHTML = ''; S.loaded = false; go('#/'); },
@@ -1778,6 +1894,8 @@
       if (!on.length) { cp.checked = true; return; }
       CMP.ids = on; document.getElementById('cmp-table').innerHTML = compareTableHtml(); return;
     }
+    const it = e.target.closest('[data-ini-type]');
+    if (it) { INI.type = it.value; return here(); }
     const wy = e.target.closest('[data-why]');
     if (wy) { CMP[wy.dataset.why] = wy.value; document.getElementById('cmp-why').innerHTML = whyHtml(); return; }
     const cs = e.target.closest('[data-cap-scenario]');

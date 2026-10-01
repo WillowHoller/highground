@@ -197,3 +197,15 @@ table.cmp tr.strong th,table.cmp tr.strong td{background:#FBF7EE}
 table.cmp td.asks{text-align:left;min-width:220px;font-size:13px}
 table.cmp td.asks ul{margin:0;padding-left:16px}
 table.cmp td.asks li{margin:2px 0}
+
+/* ---------- initiatives ---------- */
+.pipeline{display:flex;gap:6px;flex-wrap:wrap}
+.pipe{border:1px solid var(--border);background:var(--card);border-radius:18px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--text)}
+.pipe b{margin-left:4px}
+.pipe.on{background:var(--rail);border-color:var(--rail);color:#fff}
+.st{font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;border:1px solid var(--border);white-space:nowrap}
+.st-approved,.st-underway{color:var(--action);border-color:#BFD8C8;background:var(--live-bg)}
+.st-done{color:#fff;background:var(--action);border-color:var(--action)}
+.st-deferred,.st-declined{color:var(--muted);background:#F1EFEA}
+.st-idea,.st-proposed,.st-analysis{color:#6B5A1E;border-color:#E6D7A8;background:#FBF5E6}
+table.phases select{max-width:160px}

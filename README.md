@@ -31,6 +31,7 @@ send_invitation_test.mjs  node --experimental-strip-types send_invitation_test.m
 test_ui.py            browser test against a simulated Supabase (Playwright)
 engine_test.js        node engine_test.js: engine vs. the working planner, 32 cases
 capital_test.js       node capital_test.js: demo data through database-shaped rows and back, 32 cases
+yearly_test.js        node yearly_test.js: yearly costs (programs, hires), including the FFA case
 compare_test.js       node compare_test.js: comparison and "why the gap differs" on the demo
 uploads_test.js       node uploads_test.js: parsing rules, and every demo plan through a spreadsheet and back
 golden_engine.json    the working planner's own output for the demo districts (what the tests compare against)

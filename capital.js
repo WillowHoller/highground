@@ -77,6 +77,14 @@
     return { projects: E.cleanList(raw, cfg), notes };
   }
 
+  /** recurring_cost rows for one scenario → engine yearly costs (with the initiative's name for display). */
+  function recurFromRows(recurring, sid, initiatives) {
+    const INIT = new Map((initiatives || []).map((i) => [i.id, i]));
+    return (recurring || []).filter((r) => r.scenario_id === sid).map((r) => ({
+      id: r.id, initiative_id: r.initiative_id, name: (INIT.get(r.initiative_id) || {}).name || '', kind: r.kind, fund: r.fund,
+      first: n(r.first_fy, 0), last: r.last_fy == null ? null : n(r.last_fy, null), amount: n(r.annual_amount, 0), grows: r.grows_with || 'none', fte: r.fte == null ? null : n(r.fte, null),
+    }));
+  }
   /** scenario row + its financing rows → stored levers (null lever = district default). */
   function leversFromRows(sc, financing) {
     const o = {};
@@ -101,7 +109,11 @@
     const sc = (rows.scenarios || []).find((s) => s.id === scenarioId);
     const pr = projectsFromRows(rows.initiatives, rows.phases, rows.funding, scenarioId, cfg);
     const stored = leversFromRows(sc, rows.financing);
-    return { cfg, projects: pr.projects, stored, levers: E.leversOf(stored, cfg), notes: st.notes.concat(pr.notes) };
+    const recur = recurFromRows(rows.recurring, scenarioId, rows.initiatives);
+    if (recur.length) stored.recur = recur;
+    const notes = st.notes.concat(pr.notes);
+    if (recur.some((r) => r.grows === 'settlement')) notes.push('Yearly costs set to grow with salary settlements stay flat until assumption sets provide a settlement rate.');
+    return { cfg, projects: pr.projects, stored, levers: E.leversOf(stored, cfg), notes };
   }
 
   /* ------------------------------------------------ demo data → database rows */
@@ -181,5 +193,14 @@
     return out;
   }
 
-  return { settingsFromRows, projectsFromRows, leversFromRows, buildInputs, demoRows, yearSummary, fundPaths, CAP_FUNDS };
+  /* yearly costs by year: capital (counted in the plan) and other (general fund, boosters: shown as commitments) */
+  function recurByYear(L, cfg) {
+    return cfg.years.map((fy, y) => {
+      const cap = CAP_FUNDS.reduce((a, b) => a + E.recurIn(cfg, b, y, L), 0);
+      const other = ['general', 'boost', 'other'].reduce((a, b) => a + E.recurIn(cfg, b, y, L), 0);
+      return { fy, capital: cap, other, total: cap + other };
+    });
+  }
+
+  return { settingsFromRows, projectsFromRows, leversFromRows, recurFromRows, buildInputs, demoRows, yearSummary, fundPaths, recurByYear, CAP_FUNDS };
 });

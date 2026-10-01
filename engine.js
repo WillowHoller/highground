@@ -119,9 +119,18 @@
       repay: f.kind === 'rev' ? 'save' : f.kind === 'lease' ? (f.repay === 'save' ? 'save' : 'ppel') : f.kind === 'gift' ? 'none' : 'levy',
     })).slice(0, 8);
   }
+  /* yearly costs (programs, hires) in a scenario: {fund, first, last (null = ongoing), amount, grows: none|inflation|settlement} */
+  function cleanRecur(list) {
+    return (Array.isArray(list) ? list : []).map((r) => ({
+      fund: ['save', 'ppel', 'vppel', 'grants', 'general', 'boost', 'other'].includes(r.fund) ? r.fund : 'general',
+      first: Math.round(num(r.first, 0)), last: r.last == null || r.last === '' ? null : Math.round(num(r.last, 0)),
+      amount: Math.max(0, num(r.amount, 0)), grows: ['inflation', 'settlement'].includes(r.grows) ? r.grows : 'none',
+      name: r.name ? String(r.name).slice(0, 90) : '', kind: r.kind || 'other', id: r.id,
+    }));
+  }
   function leversOf(stored, cfg) {
     const o = Object.assign(defaultLevers(cfg), clone(stored || {}));
-    o.fin = cleanFin(o.fin, cfg); o.sf = !!o.sf;
+    o.fin = cleanFin(o.fin, cfg); o.sf = !!o.sf; o.recur = cleanRecur(o.recur); o.settle = num(o.settle, 0);
     return o;
   }
 
@@ -172,6 +181,15 @@
     const fy = cfg.start + y;
     return (L.fin || []).reduce((a, f) => a + (f.repay === fund && fy > f.fy && fy <= f.fy + f.years ? pmt(f.amount, f.rate, f.years) : 0), 0);
   }
+  /* yearly costs charged to a capital fund in plan year y (none charged = 0, so earlier results are unchanged) */
+  function recurIn(cfg, fund, y, L) {
+    const fy = cfg.start + y;
+    return (L.recur || []).reduce((a, r) => {
+      if (r.fund !== fund || fy < r.first || (r.last != null && fy > r.last)) return a;
+      const g = r.grows === 'inflation' ? L.infl : r.grows === 'settlement' ? (L.settle || 0) : 0;
+      return a + r.amount * Math.pow(1 + g, fy - r.first);
+    }, 0);
+  }
   function finProceeds(cfg, y, L) {
     const fy = cfg.start + y;
     return (L.fin || []).reduce((a, f) => a + (f.fy === fy ? f.amount : 0), 0);
@@ -179,13 +197,13 @@
   /* net receipts landing in plan year y; year 0 is scaled to the part of the year after the balance date */
   function inflow(cfg, bucket, y, L) {
     const f = y === 0 ? cfg.f0 : 1;
-    if (bucket === 'save') return (cfg.saveInc * Math.pow(1 + L.sg, y) * sfFactor(cfg, cfg.start + y, L) - debtIn(cfg, 'save', y) - finPay(cfg, 'save', y, L) - cfg.saveOng) * f;
-    if (bucket === 'ppel') return (cfg.ppelInc * Math.pow(1 + L.pg, y) - cfg.ppelOng - debtIn(cfg, 'ppel', y) - finPay(cfg, 'ppel', y, L)) * f;
+    if (bucket === 'save') return (cfg.saveInc * Math.pow(1 + L.sg, y) * sfFactor(cfg, cfg.start + y, L) - debtIn(cfg, 'save', y) - finPay(cfg, 'save', y, L) - cfg.saveOng - recurIn(cfg, 'save', y, L)) * f;
+    if (bucket === 'ppel') return (cfg.ppelInc * Math.pow(1 + L.pg, y) - cfg.ppelOng - debtIn(cfg, 'ppel', y) - finPay(cfg, 'ppel', y, L) - recurIn(cfg, 'ppel', y, L)) * f;
     if (bucket === 'vppel') {
       const fy = cfg.start + y;
-      return (cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast) ? cfg.vAnnual * f : 0;
+      return ((cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast) ? cfg.vAnnual : 0) * f - recurIn(cfg, 'vppel', y, L) * f;
     }
-    if (bucket === 'grants') return cfg.grantAvg * L.gy * f;
+    if (bucket === 'grants') return (cfg.grantAvg * L.gy - recurIn(cfg, 'grants', y, L)) * f;
     return 0;
   }
   /* a completed phase with an actual cost counts at that cost, not the inflated estimate */
@@ -246,9 +264,9 @@
   }
 
   return {
-    VERSION: '2026-09-29',
+    VERSION: '2026-10-01',
     BUCKETS, BUCKET_NAMES, CAP_ORDER, PRI_LIST,
     fyOfDate, firstYearFraction, normSettings, makeConfig, defaultLevers, leversOf, cleanFin,
-    cleanPhases, cleanProject, cleanList, compute, pmt, sfCut, saveBondCapacity, goDebtRoom,
+    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, compute, pmt, sfCut, saveBondCapacity, goDebtRoom,
   };
 });

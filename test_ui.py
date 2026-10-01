@@ -27,6 +27,8 @@ for t in ["district_settings","debt_obligation","initiative","scenario","scenari
 TABLES["fund_balance"]=IRON["fund_balance"]+[{"district_id":"d1","fund":"save","as_of":"2026-06-01","amount":1,"source":"manual"}]
 for i,dbt in enumerate(TABLES["debt_obligation"]): dbt.setdefault("id","debt-%d"%i)
 for i,fn in enumerate(TABLES["financing"]): fn.setdefault("id","fin-%d"%i)
+_ph_sid=[sc["id"] for sc in IRON["scenario"] if not sc["is_board_version"]][0]
+_init0=IRON["initiative"][0]["id"]
 for sc in TABLES["scenario"]:
   sc["updated_at"]="2026-09-23T12:00:00Z"
   if sc["id"] in IRON["lock"]: sc["is_locked"]=True
@@ -41,6 +43,7 @@ PUB={}
 TABLES["publication"]=[]
 TABLES["import_row"]=[]; TABLES["import_issue"]=[]
 for t in ["assumption_set","outcome","measure_value","survey","survey_result","recurring_cost","project_request","report_snapshot"]: TABLES.setdefault(t,[])
+TABLES["recurring_cost"]=[{"id":"rc1","district_id":"d1","scenario_id":_ph_sid,"initiative_id":_init0,"kind":"supplies","fund":"ppel","first_fy":2028,"last_fy":None,"annual_amount":12000,"grows_with":"none"}]
 TABLES["audit_log"]=[{"id":2,"district_id":"d1","table_name":"initiative","row_pk":"x","action":"update","actor":"u-admin","at":"2026-09-30T15:04:00Z",
    "old_row":{"name":"Gym floor","focus_area":"Facilities","updated_at":"a"},"new_row":{"name":"Gym floor","focus_area":"Activities","updated_at":"b"}},
   {"id":1,"district_id":"d1","table_name":"scenario","row_pk":"y","action":"insert","actor":"u-someone-else","at":"2026-09-30T14:00:00Z","old_row":None,"new_row":{"name":"Plan B"}}]
@@ -209,7 +212,7 @@ async def main():
     new=calls[n0:]; ops=[(c[0],c[1].split("?")[0].replace("/rest/v1/","")) for c in new if c[0] in ("POST","PATCH","DELETE")]
     phs=json.loads(next(c[2] for c in new if c[0]=="POST" and c[1].startswith("/rest/v1/phase?") or (c[0]=="POST" and c[1]=="/rest/v1/phase?")))
     delq=next((c[1] for c in new if c[0]=="DELETE" and "/rest/v1/phase?" in c[1]),"")
-    check("editor: save updates details and replaces this scenario's phases", ops==[("PATCH","initiative"),("DELETE","phase"),("POST","phase"),("POST","phase_funding")]
+    check("editor: save updates details and replaces this scenario's phases", ops==[("PATCH","initiative"),("DELETE","phase"),("POST","phase"),("POST","phase_funding"),("DELETE","recurring_cost"),("POST","recurring_cost")]
           and phs[0]["cost"]==950000 and ("scenario_id=eq."+phased_id) in delq, str(ops))
     await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
     await pg.fill("[data-modal] input[name=name]","Library HVAC")
@@ -219,6 +222,26 @@ async def main():
     ops=[c[1].split("?")[0].replace("/rest/v1/","") for c in calls[n0:] if c[0]=="POST"]
     newph=json.loads(next(c[2] for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase"))
     check("add a project: new project joins this scenario", ops==["initiative","scenario_initiative","phase","phase_funding"] and newph[0]["fy"]==2029 and newph[0]["scenario_id"]==phased_id, str(ops))
+    # Phase 2B: yearly costs and programs without phases
+    await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
+    await pg.fill("[data-modal] input[name=name]","Library aide"); await pg.select_option("[data-modal] select[name=type]","staff")
+    await pg.click("[data-modal] button[data-action=removePhaseRow]"); await pg.click("[data-modal] button[data-action=addYearlyRow]")
+    yr=pg.locator("[data-modal] [data-yearly-row]").last
+    await yr.locator("select[name=y_kind]").select_option("salary"); await yr.locator("select[name=y_fund]").select_option("general")
+    await yr.locator("input[name=y_amount]").fill("32,000"); await yr.locator("select[name=y_first]").select_option("2028")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(800)
+    ops=[c[1].split("?")[0].replace("/rest/v1/","") for c in calls[n0:] if c[0]=="POST"]
+    rcp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/recurring_cost"]
+    ini=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/initiative"]
+    check("yearly costs: a hire with only yearly costs, no phases", ops==["initiative","scenario_initiative","recurring_cost"] and ini[0]["type"]=="staff"
+          and rcp[0][0]["annual_amount"]==32000 and rcp[0][0]["fund"]=="general" and rcp[0][0]["first_fy"]==2028 and rcp[0][0]["last_fy"] is None, str(ops)+str(rcp))
+    await pg.click("[data-action=editProject][data-id='"+_init0+"'] >> nth=0"); await pg.wait_for_timeout(300)
+    check("yearly costs: editor shows the scenario's existing yearly cost", await pg.locator("[data-modal] [data-yearly-row]").count()==1 and await pg.input_value("[data-modal] input[name=y_amount]")=="12,000")
+    await pg.fill("[data-modal] input[name=y_amount]","0"); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
+    check("yearly costs: a zero amount is caught", "amount per year" in await pg.inner_text("[data-modal] [data-form-errors]"))
+    await pg.click("[data-modal] button[data-action=closeModal] >> nth=0"); await pg.wait_for_timeout(200)
+    t=await pg.inner_text("#cap-yearly")
+    check("capital plan: yearly costs card", "Yearly costs" in t and "FY2028" in t and "$12k" in t and "PPEL" in t, t[:200])
     await pg.click("button[data-action=editFinancing][data-id='']"); await pg.wait_for_timeout(300)
     await pg.select_option("[data-modal] select[name=kind]","lease"); await pg.fill("[data-modal] input[name=amount]","300,000")
     await pg.fill("[data-modal] input[name=rate]","5"); await pg.fill("[data-modal] input[name=years]","5")
@@ -243,8 +266,9 @@ async def main():
     pl=json.loads(pp[0][2])["payload"] if pp else {}
     check("publish: sends the board version as a frozen copy", pp and len(pl.get("projects",[]))==16 and pl["settings"]["save"]["receipts"]==1420000 and json.loads(pp[0][2])["kind"]=="board_plan", str(len(pl.get("projects",[]))))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(300)
-    await pg.click("text=Add an initiative"); await pg.wait_for_timeout(200)
-    check("not-built button throws and shows message", "Adding initiatives isn't built yet (planned for Phase 1)" in (await pg.inner_text("#toasts")).replace("’","'"))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/exports"); await pg.wait_for_timeout(400)
+    await pg.click("text=Restore from a backup"); await pg.wait_for_timeout(200)
+    check("not-built button throws and shows message", "Restoring a backup isn't built yet (planned for Phase 2)" in (await pg.inner_text("#toasts")).replace("’","'"))
     # invite
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/people"); await pg.wait_for_timeout(400)
     await pg.fill("form[data-form=invite] input[name=email]","New.Person@Example.test"); await pg.select_option("form[data-form=invite] select","editor")
@@ -370,6 +394,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/scenarios"); await pg.wait_for_timeout(600)
     t=await pg.inner_text("#cmp-table")
     check("compare: both scenarios side by side with their gaps", "$5.35M" in t and "$1.15M" in t and "smallest" in t, t[:200])
+    check("compare: yearly costs row", "Yearly costs (first year they start)" in t and "FY2028" in t and "$12k capital" in t, t[t.find("Yearly"):t.find("Yearly")+120])
     check("compare: what each asks of the community", "general-obligation bond of $4.20M in FY2030, which needs a public vote" in t and "not yet paid for" in t)
     w=await pg.inner_text("#cmp-why")
     check("compare: why the gap differs, in plain words", "lowers the gap by $4.20M" in w and "Financing adds" in w and "no effect on its own" in w, w[:300])
@@ -383,6 +408,25 @@ async def main():
     check("compare: either direction can be explained", "raises the gap by $4.20M" in w, w[:200])
     await pg.click("a[data-action=openScenario] >> nth=1"); await pg.wait_for_timeout(600)
     check("compare: Open goes to that scenario on the capital plan", "/resources/capital" in pg.url)
+    # Phase 2B: All initiatives
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#view")
+    check("initiatives: status pipeline with counts", "All 16" in t.replace("\n"," ") and "Proposed 16" in t.replace("\n"," "), t[:200])
+    check("initiatives: one-time and yearly costs from the board version", "One-time cost" in t and "$1.75M" in t and "District baseline, the board version" in t, t[:400])
+    await pg.click("button[data-action=iniStatus][data-v=approved]"); await pg.wait_for_timeout(300)
+    check("initiatives: filter by status", "Nothing matches these filters" in await pg.inner_text("#view"))
+    await pg.click("button[data-action=iniStatus][data-v='']"); await pg.wait_for_timeout(300)
+    await pg.click("button[data-action=editInitiative][data-id='']"); await pg.wait_for_timeout(300)
+    await pg.fill("[data-modal] input[name=name]","FFA program"); await pg.select_option("[data-modal] select[name=type]","program")
+    await pg.select_option("[data-modal] select[name=status]","analysis"); await pg.fill("[data-modal] input[name=owner_name]","Ag teacher")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
+    ip=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/initiative"]
+    check("initiatives: add with type, status and owner", ip and ip[0]["type"]=="program" and ip[0]["status"]=="analysis" and ip[0]["owner_name"]=="Ag teacher", str(ip))
+    await pg.click("a[data-action=editInitiative] >> nth=0"); await pg.wait_for_timeout(300)
+    await pg.select_option("[data-modal] select[name=status]","approved"); n0=len(calls)
+    await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(500)
+    check("initiatives: edit details", any(c[0]=="PATCH" and "/rest/v1/initiative?" in c[1] and '"approved"' in (c[2] or "") for c in calls[n0:]))
+    await pg.screenshot(path=SHOTS+"/initiatives.png",full_page=True)
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;
