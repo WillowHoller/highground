@@ -135,6 +135,7 @@
                   scenario_initiative: [], phase: [], phase_funding: [], financing: [], recurring_cost: [], lock: [] };
     out.district_settings.push({
       district_id: districtId, plan_start_fy: startFY, plan_years: s.plan.years, enrollment: demo.enrollment,
+      ...(demo.enrollmentYear ? { enrollment_year: demo.enrollmentYear } : {}),
       save_receipts: s.save.receipts, save_receipts_fy: s.save.receiptsFY, save_ongoing: s.save.ongoing, save_trend: s.save.trend, sf2472: s.save.sf2472 !== false,
       ppel_receipts: s.ppel.receipts, ppel_ongoing: s.ppel.ongoing, ppel_growth: s.ppel.growth, ppel_rate: s.ppel.rate,
       taxable_valuation: s.ppel.valuation, actual_valuation: s.ppel.actualValuation, go_outstanding: s.ppel.goOutstanding,

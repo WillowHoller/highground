@@ -6,6 +6,7 @@ const R = C.demoRows(B, 'dB', () => 'id-' + (++i));
 const rows = { district: { name: B.name }, settings: R.district_settings[0], balances: R.fund_balance, debts: R.debt_obligation, scenarios: R.scenario,
   initiatives: R.initiative, phases: R.phase, funding: R.phase_funding, financing: R.financing, recurring: R.recurring_cost, scenario_initiative: R.scenario_initiative };
 check('fictional name, no real Lo-Ma data', B.name === 'Bridger Hollow Community School District' && !JSON.stringify(B).match(/lo-?ma|logan|magnolia/i));
+check('starting numbers complete, including enrollment year and tax estimates', ['plan_years','enrollment','enrollment_year','save_receipts','save_receipts_fy','ppel_receipts','ppel_rate','taxable_valuation','actual_valuation','vppel_status','grants_avg','construction_inflation','tax_home_value','ag_value_per_acre'].every((k) => R.district_settings[0][k] != null) && R.fund_balance.length === 4 && R.debt_obligation.length === 3);
 check('three scenarios: board version locked, a bond, a delay', R.scenario.length === 3 && R.lock.length === 1 && R.financing.some((f) => f.kind === 'go'));
 check('initiatives carry type, status, owner and priority', R.initiative.every((x) => x.type && x.status && x.tier) && R.initiative.some((x) => x.owner_name));
 check('yearly costs load and belong to their initiatives', R.recurring_cost.length === 9 && R.recurring_cost.every((r) => R.initiative.some((x) => x.id === r.initiative_id)));
