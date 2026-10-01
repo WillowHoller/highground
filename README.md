@@ -26,6 +26,7 @@ styles.css            HighGround design tokens
 05_verify_setup.sql   check: structure (9 rows PASS)
 06_access_test.sql    check: access rules as six test users (13 rows PASS)
 07_signin.sql         database: access requests, email-domain allow-list, invitation email tracking (5 rows PASS)
+08_phase_names.sql    database: phase names, and copying them with a scenario (2 rows PASS)
 send-invitation.ts    Supabase Edge Function: emails invitations through Postmark
 send_invitation_test.mjs  node --experimental-strip-types send_invitation_test.mjs
 test_ui.py            browser test against a simulated Supabase (Playwright)

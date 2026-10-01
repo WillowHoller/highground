@@ -148,6 +148,7 @@
       const o = { cost: Math.max(0, Number(ph && ph.cost) || 0), year: Math.max(0, Math.min(N - 1, Number(ph && ph.year) || 0)), funding: f };
       if (ph && (ph.status === 'underway' || ph.status === 'done')) o.status = ph.status;
       if (ph && ph.actual != null && ph.actual !== '' && isFinite(Number(ph.actual))) o.actual = Math.max(0, Number(ph.actual));
+      if (ph && typeof ph.label === 'string' && ph.label.trim()) o.label = ph.label.trim().slice(0, 80);
       return o;
     }).slice(0, 12);
   }

@@ -9,6 +9,7 @@
   --sans:'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html,body{height:100%}
 body{margin:0;font-family:var(--sans);font-size:15px;line-height:1.45;color:var(--text);background:var(--page);font-feature-settings:"tnum" 1}
 a{color:var(--action)} a:hover{color:var(--action-dark)}
@@ -182,8 +183,12 @@ input:disabled,select:disabled{background:#F4F2EC;color:var(--muted)}
 table.phases input,table.phases select{height:34px;border:1px solid var(--border);border-radius:6px;padding:0 8px;background:#fff}
 table.phases td{vertical-align:middle}
 table.phases input[name=cost],table.phases input[name=actual]{width:120px}
-table.phases .srcs{display:grid;grid-template-columns:auto 64px;gap:4px 6px;min-width:250px}
-table.phases .srcs input{width:64px}
+[data-srcs]{display:flex;flex-direction:column;gap:4px;margin-bottom:4px;min-width:260px}
+.src{display:flex;align-items:center;gap:6px}
+.src input[name=pct]{width:64px}
+[data-srcs]:not(.multi) [data-action=removeFund]{visibility:hidden}
+table.phases input[name=label]{width:170px}
+.addto{border-top:1px solid var(--border);padding-top:14px;margin-top:4px}
 table.phases input[name=actual]{display:block;margin-top:4px}
 .ylist a{color:var(--text);text-decoration:underline;text-decoration-color:#C9C3B5;text-underline-offset:3px}
 .ylist a:hover{text-decoration-color:var(--action)}
@@ -209,3 +214,16 @@ table.cmp td.asks li{margin:2px 0}
 .st-deferred,.st-declined{color:var(--muted);background:#F1EFEA}
 .st-idea,.st-proposed,.st-analysis{color:#6B5A1E;border-color:#E6D7A8;background:#FBF5E6}
 table.phases select{max-width:160px}
+
+/* ---------- logos ---------- */
+.logo-img{display:block;height:auto}
+.rail .logo-img{width:170px;max-width:100%}
+.brand{align-items:center}
+.auth-brand{align-items:flex-start}
+.auth-brand .logo-img{width:240px}
+.pub-brand{flex-direction:row;align-items:center;gap:12px}
+.pub-brand .logo-img{width:180px}
+.pub-brand > span.small{color:var(--muted);font-family:var(--sans);font-size:13px;font-weight:400;letter-spacing:0}
+@media (max-width: 820px){ .rail .brand{flex-shrink:0} .rail .logo-img{width:112px} .pub-brand .small{display:none} }
+
+.costs-box{border-top:1px solid var(--border);padding-top:14px;display:flex;flex-direction:column;gap:12px}

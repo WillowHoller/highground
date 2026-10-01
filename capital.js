@@ -63,7 +63,7 @@
         byInit.get(p.initiative_id).push({
           cost: n(p.cost, 0), year: y, funding: fundBy.get(p.id) || [],
           status: p.status === 'planned' ? undefined : p.status, actual: p.actual_cost == null ? undefined : n(p.actual_cost, undefined),
-          phaseId: p.id,
+          phaseId: p.id, label: p.label || undefined,
         });
       });
     if (outside) notes.push(`${outside} phase${outside === 1 ? '' : 's'} fall outside FY${cfg.start}–FY${cfg.start + cfg.n - 1} and are counted in the nearest plan year.`);
@@ -154,7 +154,8 @@
         p.phases.forEach((ph, k) => {
           const pid = newId();
           out.phase.push({ id: pid, district_id: districtId, scenario_id: sid, initiative_id: initId.get(p.id), seq: k + 1,
-            fy: startFY + ph.year, cost: ph.cost, status: ph.status || 'planned', actual_cost: ph.actual == null ? null : ph.actual });
+            fy: startFY + ph.year, cost: ph.cost, status: ph.status || 'planned', actual_cost: ph.actual == null ? null : ph.actual,
+            ...(ph.label ? { label: ph.label } : {}) });
           (ph.funding || []).forEach((f) => out.phase_funding.push({ phase_id: pid, district_id: districtId, fund: f.b, pct: f.p }));
         });
       });

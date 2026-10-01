@@ -43,6 +43,8 @@ PUB={}
 TABLES["publication"]=[]
 TABLES["import_row"]=[]; TABLES["import_issue"]=[]
 for t in ["assumption_set","outcome","measure_value","survey","survey_result","recurring_cost","project_request","report_snapshot"]: TABLES.setdefault(t,[])
+TABLES["initiative"]=TABLES["initiative"]+[{"id":"ini-ffa","district_id":"d1","name":"FFA program","type":"program","status":"approved","cost_confidence":"estimate"}]
+_bp=[p for p in TABLES["phase"] if p["scenario_id"]!=_ph_sid][0]; _bp["label"]="Unit ventilators"
 TABLES["recurring_cost"]=[{"id":"rc1","district_id":"d1","scenario_id":_ph_sid,"initiative_id":_init0,"kind":"supplies","fund":"ppel","first_fy":2028,"last_fy":None,"annual_amount":12000,"grows_with":"none"}]
 TABLES["audit_log"]=[{"id":2,"district_id":"d1","table_name":"initiative","row_pk":"x","action":"update","actor":"u-admin","at":"2026-09-30T15:04:00Z",
    "old_row":{"name":"Gym floor","focus_area":"Facilities","updated_at":"a"},"new_row":{"name":"Gym floor","focus_area":"Activities","updated_at":"b"}},
@@ -194,6 +196,7 @@ async def main():
     board_id=next(sc["id"] for sc in TABLES["scenario"] if sc["is_board_version"]); phased_id=sid
     await pg.select_option("select[data-cap-scenario]",board_id); await pg.wait_for_timeout(400)
     t=await pg.inner_text("#view")
+    check("phase names: shown on the year cards", "· Unit ventilators" in t)
     check("locked scenario: read-only, admin can unlock", "This scenario is locked" in t and await pg.locator(".ylist a").count()==0
           and await pg.locator("button[data-action=unlockScenario]").count()==1 and await pg.locator("button[data-action=deleteScenario]").count()==0
           and await pg.locator("button[data-action=saveLevers]").count()==0)
@@ -204,14 +207,27 @@ async def main():
     check("editor: opens with the project's phases", await pg.locator("[data-modal] [data-phase-row]").count()==2 and await pg.input_value("[data-modal] input[name=name]")=="Middle school HVAC replacement")
     await pg.screenshot(path=SHOTS+"/editor.png")
     first=pg.locator("[data-modal] [data-phase-row]").first
-    await first.locator("input[name=pct0]").fill("60"); n0=len(calls)
+    await first.locator("input[name=pct]").first.fill("60"); n0=len(calls)
     await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
     check("editor: a split that doesn't add to 100% is caught", "add to 60%" in await pg.inner_text("[data-modal] [data-form-errors]") and not any(c[0] in("POST","PATCH","DELETE") for c in calls[n0:]))
-    await first.locator("input[name=pct0]").fill("100"); await first.locator("input[name=cost]").fill("950,000")
+    await first.locator("input[name=pct]").first.fill("100"); await first.locator("input[name=cost]").fill("950,000")
+    # fund rows: add, even split, two-fund complement, remove
+    await first.locator("button[data-action=addFund]").click()
+    pv=lambda: first.locator("input[name=pct]").evaluate_all("els=>els.map(e=>e.value)")
+    two=await pv()
+    await first.locator("button[data-action=addFund]").click(); three=await pv()
+    hidden=await first.locator("button[data-action=addFund]").is_hidden()
+    await first.locator("[data-src] >> nth=2").locator("button[data-action=removeFund]").click()
+    await first.locator("input[name=pct]").first.fill("70"); comp=await pv()
+    await first.locator("[data-src] >> nth=1").locator("button[data-action=removeFund]").click(); one=await pv()
+    check("funds: add gives 50/50, then 34/33/33, capped at three", two==["50","50"] and three==["34","33","33"] and hidden, str([two,three,hidden]))
+    check("funds: with two, the other makes up the rest; removing goes back to 100", comp==["70","30"] and one==["100"], str([comp,one]))
+    await first.locator("input[name=label]").fill("Design and bid")
     n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(800)
     new=calls[n0:]; ops=[(c[0],c[1].split("?")[0].replace("/rest/v1/","")) for c in new if c[0] in ("POST","PATCH","DELETE")]
     phs=json.loads(next(c[2] for c in new if c[0]=="POST" and c[1].startswith("/rest/v1/phase?") or (c[0]=="POST" and c[1]=="/rest/v1/phase?")))
     delq=next((c[1] for c in new if c[0]=="DELETE" and "/rest/v1/phase?" in c[1]),"")
+    check("phase names: saved with the phase", phs[0].get("label")=="Design and bid", str(phs[0]))
     check("editor: save updates details and replaces this scenario's phases", ops==[("PATCH","initiative"),("DELETE","phase"),("POST","phase"),("POST","phase_funding"),("DELETE","recurring_cost"),("POST","recurring_cost")]
           and phs[0]["cost"]==950000 and ("scenario_id=eq."+phased_id) in delq, str(ops))
     await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
@@ -222,6 +238,16 @@ async def main():
     ops=[c[1].split("?")[0].replace("/rest/v1/","") for c in calls[n0:] if c[0]=="POST"]
     newph=json.loads(next(c[2] for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase"))
     check("add a project: new project joins this scenario", ops==["initiative","scenario_initiative","phase","phase_funding"] and newph[0]["fy"]==2029 and newph[0]["scenario_id"]==phased_id, str(ops))
+    # picker: add an existing initiative that isn't in this scenario
+    await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
+    check("picker: existing initiatives not in this scenario are offered", await pg.locator("[data-modal] select[data-pick-init] option", has_text="FFA program").count()==1)
+    await pg.select_option("[data-modal] select[data-pick-init]","ini-ffa"); await pg.wait_for_timeout(300)
+    check("picker: choosing one fills in its details", await pg.input_value("[data-modal] input[name=name]")=="FFA program" and "Add to this scenario" in await pg.inner_text("[data-modal] h2"))
+    row=pg.locator("[data-modal] [data-phase-row]").first
+    await row.locator("input[name=label]").fill("Shop buildout"); await row.locator("input[name=cost]").fill("150000")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(800)
+    ops=[(c[0],c[1].split("?")[0].replace("/rest/v1/","")) for c in calls[n0:] if c[0] in ("POST","PATCH")]
+    check("picker: saving adds it to the scenario without a duplicate", ("PATCH","initiative") in ops and ("POST","scenario_initiative") in ops and ("POST","initiative") not in ops, str(ops))
     # Phase 2B: yearly costs and programs without phases
     await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
     await pg.fill("[data-modal] input[name=name]","Library aide"); await pg.select_option("[data-modal] select[name=type]","staff")
@@ -411,17 +437,48 @@ async def main():
     # Phase 2B: All initiatives
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(600)
     t=await pg.inner_text("#view")
-    check("initiatives: status pipeline with counts", "All 16" in t.replace("\n"," ") and "Proposed 16" in t.replace("\n"," "), t[:200])
+    check("initiatives: status pipeline with counts", "All 17" in t.replace("\n"," ") and "Proposed 16" in t.replace("\n"," ") and "Approved 1" in t.replace("\n"," "), t[:200])
     check("initiatives: one-time and yearly costs from the board version", "One-time cost" in t and "$1.75M" in t and "District baseline, the board version" in t, t[:400])
+    check("initiatives: which plans include each one", "Not in a plan yet" in t and "District baseline (board)" in t)
+    await pg.select_option("select[data-ini-sid]", _ph_sid); await pg.wait_for_timeout(400)
+    t2=await pg.inner_text("#view")
+    check("initiatives: costs from any scenario, including yearly costs from the capital plan", "$12k" in t2 and "Costs are from Addition phased" in t2, t2[-300:])
+    await pg.select_option("select[data-ini-sid]", label="District baseline (board version)"); await pg.wait_for_timeout(400)
+    check("initiatives: Priority shows High/Med/Low", "High" in await pg.inner_text("#view"))
     await pg.click("button[data-action=iniStatus][data-v=approved]"); await pg.wait_for_timeout(300)
-    check("initiatives: filter by status", "Nothing matches these filters" in await pg.inner_text("#view"))
+    t=await pg.inner_text("#view")
+    check("initiatives: filter by status, and approved-but-not-planned is flagged", "FFA program" in t and "Middle school HVAC" not in t and "Approved, but not in the board version yet" in t)
+    await pg.click("a[data-action=editInitiative]:has-text('FFA program')"); await pg.wait_for_timeout(300)
+    m=await pg.inner_text("[data-modal]")
+    check("decisions editor: same details, costs optional", "Not in a plan yet" in m and "Apply to scenario" in m and await pg.locator("[data-modal] [data-phase-row]").count()==0)
+    locked=await pg.locator("[data-modal] select[data-ed-scenario] option[disabled]").count()
+    check("decisions editor: locked scenarios listed but can't be picked", locked==1 and "(locked)" in await pg.locator("[data-modal] select[data-ed-scenario] option[disabled]").inner_text())
+    await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
+    row=pg.locator("[data-modal] [data-phase-row]").first
+    await row.locator("input[name=label]").fill("Chapter start-up fees"); await row.locator("input[name=cost]").fill("5000")
+    await row.locator("button[data-action=addFund]").click()
+    await pg.click("[data-modal] button[data-action=addYearlyRow]")
+    yr=pg.locator("[data-modal] [data-yearly-row]").last
+    await yr.locator("input[name=y_amount]").fill("65,000"); await yr.locator("select[name=y_first]").select_option("2028")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(900)
+    ops=[(c[0],c[1].split("?")[0].replace("/rest/v1/","")) for c in calls[n0:] if c[0] in ("POST","PATCH","DELETE")]
+    phs=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase"]
+    fus=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase_funding"]
+    pat=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/initiative?" in c[1]]
+    check("decisions editor: Apply to scenario writes the costs there", ("POST","scenario_initiative") in ops and phs and phs[0][0]["scenario_id"]==_ph_sid
+          and phs[0][0]["label"]=="Chapter start-up fees" and len(fus[0])==2 and ("POST","recurring_cost") in ops, str(ops))
+    check("decisions editor: details saved too, including owner", pat and "owner_name" in pat[0] and pat[0]["name"]=="FFA program", str(pat)[:200])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(500)
     await pg.click("button[data-action=iniStatus][data-v='']"); await pg.wait_for_timeout(300)
     await pg.click("button[data-action=editInitiative][data-id='']"); await pg.wait_for_timeout(300)
-    await pg.fill("[data-modal] input[name=name]","FFA program"); await pg.select_option("[data-modal] select[name=type]","program")
+    await pg.fill("[data-modal] input[name=name]","FFA program"); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
+    check("initiatives: a duplicate name is refused", "already an initiative called" in await pg.inner_text("[data-modal] [data-form-errors]"))
+    await pg.fill("[data-modal] input[name=name]","Robotics club"); await pg.select_option("[data-modal] select[name=type]","program")
     await pg.select_option("[data-modal] select[name=status]","analysis"); await pg.fill("[data-modal] input[name=owner_name]","Ag teacher")
     n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
     ip=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/initiative"]
-    check("initiatives: add with type, status and owner", ip and ip[0]["type"]=="program" and ip[0]["status"]=="analysis" and ip[0]["owner_name"]=="Ag teacher", str(ip))
+    check("initiatives: add with type, status and owner, details only", ip and ip[0]["type"]=="program" and ip[0]["status"]=="analysis" and ip[0]["owner_name"]=="Ag teacher"
+          and not any(c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase" for c in calls[n0:]), str(ip))
     await pg.click("a[data-action=editInitiative] >> nth=0"); await pg.wait_for_timeout(300)
     await pg.select_option("[data-modal] select[name=status]","approved"); n0=len(calls)
     await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(500)

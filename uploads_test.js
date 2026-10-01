@@ -13,6 +13,11 @@ check('template: cost range uses the midpoint, as an estimate', by['Track resurf
 check('template: Firm is read', by['Replace route bus'].est === false);
 check('template: condition and life', by['Roof replacement — north wing'].cond === 'Poor' && by['Roof replacement — north wing'].life === 2);
 check('template: no errors', !t.issues.some((i) => i.l === 'e'));
+check('template: phase names read', by['Roof replacement — north wing'].phases.map((ph) => ph.label).join('|') === 'Sections A–B|Sections C–D');
+const old = U.parseProjects([['Project', 'FY', 'Estimate', 'Funding source'], ['Boiler', 'FY2028', '90000', 'SAVE']], 2027, 10);
+check('older spreadsheets without a Phase name column still work', old.projects.length === 1 && !old.issues.some((i) => i.l === 'e') && old.projects[0].phases[0].label === undefined);
+const named = U.parseProjects(U.parseCSV(U.projectsToCSV([{ name: 'FFA program', est: true, phases: [{ year: 0, cost: 5000, funding: [{ b: 'grants', p: 100 }], label: 'Chapter start-up fees' }, { year: 2, cost: 150000, funding: [{ b: 'ppel', p: 50 }, { b: 'boost', p: 50 }], label: 'Shop buildout' }] }], 2027)), 2027, 10);
+check('phase names survive export and re-upload', named.projects[0].phases.map((ph) => ph.label).join('|') === 'Chapter start-up fees|Shop buildout');
 
 // 2. edge cases the planner handled
 const rows = [['Project', 'FY', 'Estimate', 'Funding source', 'Funding %', 'Funding source 2', 'Funding % 2'],

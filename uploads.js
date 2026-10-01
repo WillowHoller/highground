@@ -145,6 +145,7 @@
     c.life = pick(/remaining|useful life|life/);
     c.status = pick(/^status|progress/);
     c.cond = pick(/condition/);
+    c.phase = pick(/^phase|phase name|^step/);
     c.name = pick(/^(project|name|item|description|project name)/);
     c.fy = pick(/^fy|fiscal|year|complet|when|timing/);
     c.cost = pick(/estimate|cost|amount|budget|\$/);
@@ -205,6 +206,7 @@
       const stRaw = cell(c.status).toLowerCase(), st = /complete|done|finished|closed/.test(stRaw) ? 'done' : /underway|progress|started|active/.test(stRaw) ? 'underway' : '';
       const act = parseMoney(cell(c.actual));
       const phase = { cost: mon.v, year: y, funding: funding.slice(0, 3) }; if (st) phase.status = st; if (st === 'done' && act) phase.actual = act.v;
+      const pname = cell(c.phase); if (pname) phase.label = pname.slice(0, 80);
       p.phases.push(phase);
       const cond = cell(c.cond); if (cond && !p.cond) { const k = ['Good', 'Fair', 'Poor', 'Critical'].find((x) => x.toLowerCase() === cond.toLowerCase()); if (k) p.cond = k; }
       const life = parseInt(cell(c.life), 10); if (!isNaN(life) && p.life == null) p.life = life;
@@ -245,23 +247,23 @@
   // ---------------------------------------------------------------- templates and export
   const csvCell = (v) => { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
   const toCSV = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
-  const PROJECT_HEAD = ['Project', 'FY', 'Estimate', 'Funding source', 'Funding %', 'Funding source 2', 'Funding % 2', 'Funding source 3', 'Funding % 3',
+  const PROJECT_HEAD = ['Project', 'Phase name', 'FY', 'Estimate', 'Funding source', 'Funding %', 'Funding source 2', 'Funding % 2', 'Funding source 3', 'Funding % 3',
     'Priority', 'Focus area', 'Cost confidence (Firm/Estimate)', 'Status', 'Actual cost', 'Condition', 'Remaining life (years)'];
   function projectTemplate(startFY) {
     const f = startFY || 2027;
     return toCSV([PROJECT_HEAD,
-      ['Secure entry vestibule', 'FY' + f, '185000', 'SAVE', '100', '', '', '', '', 'High', 'Safety & security', 'Estimate'],
-      ['Roof replacement — north wing', 'FY' + (f + 1), '160000', 'SAVE', '60', 'PPEL', '40', '', '', 'High', 'Facilities', 'Estimate', '', '', 'Poor', '2'],
-      ['Roof replacement — north wing', 'FY' + (f + 3), '175000', 'SAVE', '100', '', '', '', '', 'High', 'Facilities', 'Estimate'],
-      ['Replace route bus', 'FY' + (f + 1), '135000', 'PPEL', '100', '', '', '', '', 'Med', 'Transportation', 'Firm'],
-      ['Track resurface', 'FY' + (f + 4), '250000-300000', 'Campaign/Bond', '70', 'Boosters', '30', '', '', 'Low', 'Activities', 'Estimate'],
+      ['Secure entry vestibule', '', 'FY' + f, '185000', 'SAVE', '100', '', '', '', '', 'High', 'Safety & security', 'Estimate'],
+      ['Roof replacement — north wing', 'Sections A–B', 'FY' + (f + 1), '160000', 'SAVE', '60', 'PPEL', '40', '', '', 'High', 'Facilities', 'Estimate', '', '', 'Poor', '2'],
+      ['Roof replacement — north wing', 'Sections C–D', 'FY' + (f + 3), '175000', 'SAVE', '100', '', '', '', '', 'High', 'Facilities', 'Estimate'],
+      ['Replace route bus', '', 'FY' + (f + 1), '135000', 'PPEL', '100', '', '', '', '', 'Med', 'Transportation', 'Firm'],
+      ['Track resurface', '', 'FY' + (f + 4), '250000-300000', 'Campaign/Bond', '70', 'Boosters', '30', '', '', 'Low', 'Activities', 'Estimate'],
     ]);
   }
   /* engine projects → the same spreadsheet layout, so an export can be edited and uploaded back */
   function projectsToCSV(projects, startFY) {
     const rows = [PROJECT_HEAD];
     projects.forEach((p) => p.phases.forEach((ph) => {
-      const r = [p.name, 'FY' + (startFY + ph.year), ph.cost];
+      const r = [p.name, ph.label || '', 'FY' + (startFY + ph.year), ph.cost];
       for (let i = 0; i < 3; i++) { const f = ph.funding[i]; r.push(f ? NAMES[f.b] : '', f ? f.p : ''); }
       r.push(p.pri || '', p.area || '', p.est ? 'Estimate' : 'Firm', ph.status === 'done' ? 'Complete' : ph.status === 'underway' ? 'Underway' : '',
              ph.actual != null ? ph.actual : '', p.cond || '', p.life != null ? p.life : '');

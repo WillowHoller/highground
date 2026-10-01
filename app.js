@@ -16,7 +16,9 @@
   const STATUS = { live: ['b-live', 'Live'], partial: ['b-partial', 'Partly built'], wip: ['b-wip', 'Not built yet'] };
   const badge = (s) => `<span class="badge ${STATUS[s][0]}">${STATUS[s][1]}</span>`;
   const initials = (s) => (String(s || '?').replace(/[^A-Za-z ]/g, ' ').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?').toUpperCase();
-  const LOGO = `<svg width="64" height="26" viewBox="0 0 64 26" aria-hidden="true"><path d="M2 24 L20 6 L28 14 L38 3 L62 24" fill="none" stroke="#F7F5EF" stroke-width="2.4" stroke-linejoin="round"/><path d="M14 12 L20 6 L24 10 M33 8 L38 3 L43 8" fill="none" stroke="#C9A24A" stroke-width="2"/></svg>`;
+  /* HighGround's logo: 'light' (cream) on the dark green rail and sign-in panel, colour on light backgrounds */
+  const LOGO_LIGHT = `<img src="highground-wordmark-light.png" alt="HighGround" class="logo-img" width="170" height="31">`;
+  const LOGO_COLOR = `<img src="highground-wordmark.png" alt="HighGround" class="logo-img" width="170" height="31">`;
 
   /** A dashed panel saying what will be here. */
   function wip({ phase, items = [], uses, title }) {
@@ -183,7 +185,7 @@
     app.innerHTML = `
       <div class="frame">
         <nav class="rail" aria-label="HighGround">
-          <a class="brand" href="#/">${LOGO}<span>HighGround</span></a>
+          <a class="brand" href="#/" aria-label="HighGround home">${LOGO_LIGHT}</a>
           <div class="nav">${slug ? SECTIONS.map(navLink).join('') : ''}</div>
           <div class="nav nav-foot">
             ${slug ? FOOT.map(navLink).join('') : ''}
@@ -298,18 +300,22 @@
   }
 
   // ------------------------------------------------------------------ views: Decisions
-  const INI = { status: '', type: '' };
+  const INI = { status: '', type: '', sid: null, key: null };
   async function vInitiatives(c) {
     const rows = await loadCapitalRows(c.district);
     INI.rows = rows;
     const board = rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0];
+    if (INI.key !== c.district.id || !rows.scenarios.some((x) => x.id === INI.sid)) { INI.key = c.district.id; INI.sid = board ? board.id : null; }
+    const costSc = rows.scenarios.find((x) => x.id === INI.sid);
     const P = Object.fromEntries((rows.priorities || []).map((p) => [p.id, p.name]));
     const oneTime = {}, yearly = {};
-    if (board) {
-      rows.phases.filter((ph) => ph.scenario_id === board.id).forEach((ph) => { oneTime[ph.initiative_id] = (oneTime[ph.initiative_id] || 0) + Number(ph.cost); });
-      (rows.recurring || []).filter((r) => r.scenario_id === board.id).forEach((r) => { yearly[r.initiative_id] = (yearly[r.initiative_id] || 0) + Number(r.annual_amount); });
+    if (costSc) {
+      rows.phases.filter((ph) => ph.scenario_id === costSc.id).forEach((ph) => { oneTime[ph.initiative_id] = (oneTime[ph.initiative_id] || 0) + Number(ph.cost); });
+      (rows.recurring || []).filter((r) => r.scenario_id === costSc.id).forEach((r) => { yearly[r.initiative_id] = (yearly[r.initiative_id] || 0) + Number(r.annual_amount); });
     }
     const STATUS = Object.fromEntries(INIT_STATUS), TYPE = Object.fromEntries(INIT_TYPES);
+    const plansOf = (id) => rows.scenarios.filter((x) => rows.phases.some((ph) => ph.scenario_id === x.id && ph.initiative_id === id) || (rows.recurring || []).some((r) => r.scenario_id === x.id && r.initiative_id === id));
+    INI.plansOf = plansOf;
     const counts = Object.fromEntries(INIT_STATUS.map(([k]) => [k, rows.initiatives.filter((i) => (i.status || 'proposed') === k).length]));
     const list = rows.initiatives.filter((i) => (!INI.status || (i.status || 'proposed') === INI.status) && (!INI.type || i.type === INI.type));
     return `
@@ -318,6 +324,7 @@
         ${INIT_STATUS.map(([k, v]) => `<button type="button" class="pipe ${INI.status === k ? 'on' : ''}" data-action="iniStatus" data-v="${k}">${v} <b>${counts[k]}</b></button>`).join('')}
       </div>
       <div class="row">
+        ${rows.scenarios.length ? `<label class="chip"><span class="small muted">Costs from</span><select data-ini-sid aria-label="Costs from">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === INI.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}</option>`).join('')}</select></label>` : ''}
         <label class="chip"><span class="small muted">Type</span><select data-ini-type aria-label="Type"><option value="">All types</option>${INIT_TYPES.map(([k, v]) => `<option value="${k}" ${INI.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         ${c.plan ? '<button type="button" class="btn primary" data-action="editInitiative" data-id="">Add an initiative</button>' : ''}
         <a class="btn" href="#/d/${enc(c.district.slug)}/progress/uploads">Upload projects</a>
@@ -326,47 +333,16 @@
         { label: 'Initiative', html: (i) => (c.plan ? `<a href="#" data-action="editInitiative" data-id="${esc(i.id)}">${esc(i.name)}</a>` : esc(i.name)) },
         { label: 'Type', get: (i) => TYPE[i.type] || i.type },
         { label: 'Status', html: (i) => `<span class="st st-${esc(i.status || 'proposed')}">${esc(STATUS[i.status || 'proposed'])}</span>` },
-        { label: 'Priority', get: (i) => P[i.priority_id] || '' },
+        { label: 'In plans', html: (i) => { const pl = plansOf(i.id); const inBoard = board && pl.some((x) => x.id === board.id);
+          const warn = (i.status === 'approved' || i.status === 'underway') && board && !inBoard ? `<br><span class="small gaptext">Approved, but not in the board version yet</span>` : '';
+          return (pl.length ? pl.map((x) => esc(x.name) + (x.is_board_version ? ' <span class="small muted">(board)</span>' : '')).join('<br>') : '<span class="muted">Not in a plan yet</span>') + warn; } },
+        { label: 'Priority', get: (i) => i.engine_priority || '' },
+        ...((rows.priorities || []).length ? [{ label: 'Strategic priority', get: (i) => P[i.priority_id] || '' }] : []),
         { label: 'Owner', get: (i) => i.owner_name || '' },
-        { label: board ? 'One-time cost' : 'One-time', num: true, get: (i) => (oneTime[i.id] ? fmtK(oneTime[i.id]) : '') },
+        { label: 'One-time cost', num: true, get: (i) => (oneTime[i.id] ? fmtK(oneTime[i.id]) : '') },
         { label: 'Yearly cost', num: true, get: (i) => (yearly[i.id] ? fmtK(yearly[i.id]) : '') },
       ], list, rows.initiatives.length ? 'Nothing matches these filters.' : 'No initiatives yet. Add one, or upload a project spreadsheet.')}
-      ${board ? `<p class="small muted" style="margin-top:8px">Costs are from ${esc(board.name)}${board.is_board_version ? ', the board version' : ''}, in today’s dollars. Edit phases and yearly costs for each scenario on the capital plan.</p>` : ''}</div>`;
-  }
-  function openInitiativeEditor(id) {
-    const rows = INI.rows, i = id ? rows.initiatives.find((x) => x.id === id) || {} : {};
-    const opt = (list, v) => list.map(([k, t]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${t}</option>`).join('');
-    modal(`<form class="stack" data-form="saveInitiative" data-id="${esc(id || '')}" novalidate>
-      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${id ? 'Initiative details' : 'Add an initiative'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
-      <p class="small muted">These details are shared by every scenario. Add its costs to a scenario on the capital plan (Add an initiative, same name).</p>
-      <div class="fgrid">
-        <label class="field">Name<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
-        <label class="field">Type<select name="type">${opt(INIT_TYPES, i.type || 'capital')}</select></label>
-        <label class="field">Status<select name="status">${opt(INIT_STATUS, i.status || 'proposed')}</select></label>
-        <label class="field">Strategic priority<select name="priority_id"><option value="">None</option>${(rows.priorities || []).map((p) => `<option value="${esc(p.id)}" ${i.priority_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
-          ${(rows.priorities || []).length ? '' : '<span class="hint">Priorities are set on Direction (coming in Phase 5).</span>'}</label>
-        <label class="field">Owner<input name="owner_name" maxlength="80" value="${esc(i.owner_name || '')}" placeholder="Name or role"></label>
-        <label class="field">Tier<select name="tier"><option value="">Not ranked</option>${opt([['must', 'Must-have'], ['strategic', 'Strategic'], ['nice', 'Nice to have']], i.tier || '')}</select></label>
-        <label class="field">Focus area<input name="focus_area" maxlength="40" value="${esc(i.focus_area || '')}"></label>
-        <label class="field">Date the board approved it<input name="approved_on" type="date" value="${esc(i.approved_on || '')}"></label>
-      </div>
-      <label class="field">Description<textarea name="description" maxlength="2000">${esc(i.description || '')}</textarea></label>
-      <div class="notice error" data-form-errors hidden></div>
-      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div>
-    </form>`);
-  }
-  async function saveInitiative(f, form) {
-    const name = (f.name || '').trim(), box = form.querySelector('[data-form-errors]');
-    if (!name) { box.hidden = false; box.textContent = 'Give the initiative a name.'; return; }
-    const id = form.dataset.id;
-    if (!id && INI.rows.initiatives.some((x) => x.name.toLowerCase().replace(/\s+/g, ' ') === name.toLowerCase().replace(/\s+/g, ' '))) {
-      box.hidden = false; box.textContent = `There’s already an initiative called “${name}”.`; return;
-    }
-    const row = { name: name.slice(0, 120), type: f.type, status: f.status, priority_id: f.priority_id || null, owner_name: (f.owner_name || '').trim() || null,
-      tier: f.tier || null, focus_area: (f.focus_area || '').trim() || null, approved_on: f.approved_on || null, description: (f.description || '').trim() || null };
-    if (id) await HG.db.update('initiative', `id=eq.${enc(id)}`, row);
-    else await HG.db.insert('initiative', Object.assign({ district_id: S.district.id }, row));
-    closeModal(); toast('Saved', name); here();
+      ${costSc ? `<p class="small muted" style="margin-top:8px">Costs are from ${esc(costSc.name)}${costSc.is_board_version ? ', the board version' : ''}, in today’s dollars (yearly costs at their starting amount). Change them here or on the capital plan; both edit the same plan.</p>` : ''}</div>`;
   }
   async function vRanking() {
     return wip({ phase: 2, items: [
@@ -604,6 +580,7 @@
       <div id="cap-years">${capYearsHtml()}</div>
       ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add an initiative</button></div>' : ''}
       <div id="cap-yearly">${capYearlyHtml()}</div>
+      ${(() => { if (CAP.openEditor && CAP.editable) { const id = CAP.openEditor; setTimeout(() => openProjectEditor(id), 0); } CAP.openEditor = null; return ''; })()}
       ${wip({ title: 'Still to come on this screen', phase: 2, items: ['Table view and filters'] })}`;
   }
   function capLoadScenario() {
@@ -674,7 +651,7 @@
       CAP.inputs.projects.forEach((p) => p.phases.forEach((ph, k) => {
         if (ph.year !== i) return;
         const cost = ph.status === 'done' && ph.actual != null ? ph.actual : ph.cost * Math.pow(1 + L.infl, ph.year);
-        items.push(`<li><span>${CAP.editable ? `<a href="#" data-action="editProject" data-id="${esc(p.id)}">${esc(p.name)}</a>` : esc(p.name)}${p.phases.length > 1 ? ` <span class="muted">${k + 1}/${p.phases.length}</span>` : ''}
+        items.push(`<li><span>${CAP.editable ? `<a href="#" data-action="editProject" data-id="${esc(p.id)}">${esc(p.name)}</a>` : esc(p.name)}${ph.label ? ` <span class="muted">· ${esc(ph.label)}</span>` : p.phases.length > 1 ? ` <span class="muted">${k + 1}/${p.phases.length}</span>` : ''}
           ${ph.status === 'done' ? '<b class="ok">Done</b>' : ph.status === 'underway' ? '<span class="muted">underway</span>' : ''}
           <span class="chips">${ph.funding.map((f) => `<span class="fchip f-${f.b}">${FUND_LABEL[f.b]}${f.p !== 100 ? ' ' + f.p + '%' : ''}</span>`).join('')}</span></span><b>${fmtK(cost)}</b></li>`);
       }));
@@ -771,46 +748,63 @@
       <td><select name="y_grows" aria-label="Grows with">${opt([['none', 'Stays flat'], ['inflation', 'Inflation'], ['settlement', 'Salary settlements']], r.grows || 'none')}</select></td>
       <td><button type="button" class="btn small danger" data-action="removeYearlyRow" aria-label="Remove this yearly cost">×</button></td></tr>`;
   }
+  /* even split that totals 100: 100 · 50/50 · 34/33/33 */
+  const evenSplit = (n) => Array.from({ length: n }, (_, i) => Math.floor(100 / n) + (i < 100 % n ? 1 : 0));
+  function fundRowHtml(f) {
+    return `<div class="src" data-src><select name="src" aria-label="Fund">${FUNDS.map(([k, v]) => `<option value="${k}" ${f.b === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <input name="pct" inputmode="decimal" value="${f.p == null ? '' : f.p}" aria-label="Percent"><span class="small muted">%</span>
+      <button type="button" class="btn small danger" data-action="removeFund" aria-label="Remove this fund">×</button></div>`;
+  }
   function phaseRowHtml(ph, cfg) {
     const yr = (v) => cfg.years.map((fy) => `<option value="${fy}" ${fy === v ? 'selected' : ''}>FY${fy}</option>`).join('');
-    const src = (i) => { const f = (ph.funding || [])[i] || {}; return `<select name="src${i}" aria-label="Fund ${i + 1}">${i ? '<option value="">None</option>' : ''}${FUNDS.map(([k, v]) => `<option value="${k}" ${f.b === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
-      <input name="pct${i}" inputmode="decimal" value="${f.p == null ? '' : f.p}" aria-label="Percent ${i + 1}" placeholder="%">`; };
+    const funds = (ph.funding && ph.funding.length ? ph.funding : [{ b: 'save', p: 100 }]).slice(0, 3);
     return `<tr data-phase-row>
+      <td><input name="label" maxlength="80" value="${esc(ph.label || '')}" placeholder="Name (optional)" aria-label="Phase name"></td>
       <td><select name="fy" aria-label="Fiscal year">${yr(ph.fy || cfg.start)}</select></td>
       <td><input name="cost" inputmode="decimal" value="${ph.cost == null ? '' : Number(ph.cost).toLocaleString('en-US')}" aria-label="Cost in today’s dollars"></td>
-      <td class="srcs">${src(0)}${src(1)}${src(2)}</td>
+      <td><div data-srcs class="${funds.length > 1 ? 'multi' : ''}">${funds.map(fundRowHtml).join('')}</div>
+        <button type="button" class="btn small" data-action="addFund" ${funds.length >= 3 ? 'hidden' : ''}>Add a fund</button></td>
       <td><select name="status" aria-label="Status">${[['planned', 'Planned'], ['underway', 'Underway'], ['done', 'Done']].map(([k, v]) => `<option value="${k}" ${(ph.status || 'planned') === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <input name="actual" inputmode="decimal" value="${ph.actual == null ? '' : Number(ph.actual).toLocaleString('en-US')}" aria-label="Actual cost" placeholder="Actual cost if done"></td>
       <td><button type="button" class="btn small danger" data-action="removePhaseRow" aria-label="Remove this phase">×</button></td></tr>`;
   }
+  function rebalanceFunds(cell) {
+    const rows = [...cell.querySelectorAll('[data-src]')], split = evenSplit(rows.length);
+    rows.forEach((r, i) => { r.querySelector('[name=pct]').value = split[i]; });
+    cell.classList.toggle('multi', rows.length > 1);
+    cell.parentElement.querySelector('[data-action=addFund]').hidden = rows.length >= 3;
+  }
+  /* ---- one editor for an initiative: its shared details, and its costs in one scenario ----
+     From the capital plan, the scenario is the one on screen. From Decisions, costs are optional and
+     go to the scenario picked in "Apply to scenario". Either way the same rows are read and written. */
+  const ED = { rows: null, cfg: null, sid: null, mode: 'plan' };
+  const inScen = (rows, sid, iid) => rows.phases.some((x) => x.scenario_id === sid && x.initiative_id === iid) || (rows.recurring || []).some((x) => x.scenario_id === sid && x.initiative_id === iid);
+  function edCfg(rows) { return rows.settings ? HGEngine.makeConfig(HGCapital.settingsFromRows(rows.district, rows.settings, rows.balances, rows.debts).settings) : null; }
   function openProjectEditor(pid) {
-    const cfg = CAP.inputs.cfg, sid = CAP.scenarioId;
-    const init = pid ? CAP.rows.initiatives.find((x) => x.id === pid) : null;
-    const fundBy = {}; CAP.rows.funding.forEach((f) => { (fundBy[f.phase_id] = fundBy[f.phase_id] || []).push({ b: f.fund, p: Number(f.pct) }); });
-    const phases = pid ? CAP.rows.phases.filter((x) => x.scenario_id === sid && x.initiative_id === pid).sort((a, b) => a.fy - b.fy || a.seq - b.seq)
-      .map((x) => ({ fy: x.fy, cost: Number(x.cost), status: x.status, actual: x.actual_cost == null ? null : Number(x.actual_cost), funding: fundBy[x.id] || [] }))
+    ED.rows = CAP.rows; ED.cfg = CAP.inputs.cfg; ED.sid = CAP.scenarioId; ED.mode = 'plan';
+    renderEditor(pid);
+  }
+  function openDecisionEditor(pid) {
+    const rows = INI.rows; ED.rows = rows; ED.cfg = edCfg(rows); ED.mode = 'decisions';
+    const usable = (x) => x && !x.is_locked, chosen = rows.scenarios.find((x) => x.id === INI.sid);
+    let sid = null;
+    if (pid) { const pl = rows.scenarios.filter((x) => inScen(rows, x.id, pid)); sid = usable(chosen) && pl.includes(chosen) ? chosen.id : (pl.find(usable) || {}).id || null; }
+    ED.sid = ED.cfg ? sid : null;   // a new initiative starts as "details only": choosing a scenario is deliberate
+    renderEditor(pid);
+  }
+  function costSectionHtml(pid) {
+    const rows = ED.rows, cfg = ED.cfg, sid = ED.sid;
+    if (!sid || !cfg) return '';
+    const fundBy = {}; rows.funding.forEach((f) => { (fundBy[f.phase_id] = fundBy[f.phase_id] || []).push({ b: f.fund, p: Number(f.pct) }); });
+    const here_ = pid && inScen(rows, sid, pid);
+    const phases = here_ ? rows.phases.filter((x) => x.scenario_id === sid && x.initiative_id === pid).sort((a, b) => a.fy - b.fy || a.seq - b.seq)
+      .map((x) => ({ label: x.label || '', fy: x.fy, cost: Number(x.cost), status: x.status, actual: x.actual_cost == null ? null : Number(x.actual_cost), funding: fundBy[x.id] || [] }))
       : [{ fy: cfg.start, cost: null, funding: [{ b: 'save', p: 100 }] }];
-    const i = init || {};
-    const inScenario = (x) => CAP.rows.phases.some((ph) => ph.scenario_id === x.id && ph.initiative_id === pid) || (CAP.rows.recurring || []).some((r) => r.scenario_id === x.id && r.initiative_id === pid);
-    const others = pid ? CAP.rows.scenarios.filter((x) => x.id !== sid && inScenario(x)).length : 0;
-    const yearly = pid ? (CAP.rows.recurring || []).filter((r) => r.scenario_id === sid && r.initiative_id === pid)
+    const yearly = here_ ? (rows.recurring || []).filter((r) => r.scenario_id === sid && r.initiative_id === pid)
       .map((r) => ({ kind: r.kind, fund: r.fund, amount: Number(r.annual_amount), first: r.first_fy, last: r.last_fy, grows: r.grows_with })) : [];
-    modal(`<form class="stack" data-form="saveProject" data-id="${esc(pid || '')}" novalidate>
-      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${pid ? 'Edit initiative' : 'Add an initiative'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
-      <p class="small muted">In “${esc(CAP.sc.name)}”.${others ? ` The details at the top are shared with ${others} other scenario${others === 1 ? '' : 's'}; phases and funding are this scenario’s own.` : ''}</p>
-      <div class="fgrid">
-        <label class="field">Name<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
-        <label class="field">Type<select name="type">${INIT_TYPES.map(([k, v]) => `<option value="${k}" ${(i.type || 'capital') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-        <label class="field">Status<select name="status">${INIT_STATUS.map(([k, v]) => `<option value="${k}" ${(i.status || 'proposed') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-        <label class="field">Priority<select name="pri">${['', 'High', 'Med', 'Low', '10-yr'].map((v) => `<option value="${v}" ${(i.engine_priority || '') === v ? 'selected' : ''}>${v || 'None'}</option>`).join('')}</select></label>
-        <label class="field">Focus area<input name="area" maxlength="40" value="${esc(i.focus_area || '')}" placeholder="Facilities, Safety & security …"></label>
-        <label class="field">Cost<select name="conf"><option value="estimate" ${i.cost_confidence !== 'firm' ? 'selected' : ''}>Estimate</option><option value="firm" ${i.cost_confidence === 'firm' ? 'selected' : ''}>Firm (bid or quote)</option></select></label>
-        <label class="field">Condition<select name="cond">${['', 'good', 'fair', 'poor', 'critical'].map((v) => `<option value="${v}" ${(i.condition || '') === v ? 'selected' : ''}>${v ? v[0].toUpperCase() + v.slice(1) : 'Not rated'}</option>`).join('')}</select></label>
-        <label class="field">Remaining life, years<input name="life" inputmode="numeric" value="${i.remaining_life == null ? '' : i.remaining_life}"></label>
-      </div>
-      <h3>One-time costs (phases)</h3>
-      <p class="small muted">Costs in today’s dollars; the plan adds inflation. Split a phase across up to three funds; the percentages must add to 100. A program with only yearly costs can have no phases.</p>
-      <div class="scroll"><table class="data phases"><thead><tr><th>Year</th><th>Cost, $</th><th>Paid from</th><th>Status</th><th></th></tr></thead>
+    return `<h3>One-time costs (phases)</h3>
+      <p class="small muted">Costs in today’s dollars; the plan adds inflation. A phase starts with one fund; add up to three and the split is shared evenly, then adjust it. A program with only yearly costs can have no phases.</p>
+      <div class="scroll"><table class="data phases"><thead><tr><th>Phase name</th><th>Year</th><th>Cost, $</th><th>Paid from</th><th>Status</th><th></th></tr></thead>
         <tbody data-phase-body>${phases.map((ph) => phaseRowHtml(ph, cfg)).join('')}</tbody></table></div>
       <div><button type="button" class="btn small" data-action="addPhaseRow">Add a phase</button></div>
       <template data-phase-template>${phaseRowHtml({ fy: cfg.start, funding: [{ b: 'save', p: 100 }] }, cfg)}</template>
@@ -819,25 +813,64 @@
       <div class="scroll"><table class="data phases"><thead><tr><th>What</th><th>Paid from</th><th>Per year, $</th><th>From</th><th>Until</th><th>Grows with</th><th></th></tr></thead>
         <tbody data-yearly-body>${yearly.map((r) => yearlyRowHtml(r, cfg)).join('')}</tbody></table></div>
       <div><button type="button" class="btn small" data-action="addYearlyRow">Add a yearly cost</button></div>
-      <template data-yearly-template>${yearlyRowHtml({ kind: 'salary', fund: 'general', first: cfg.start + 1, grows: 'none' }, cfg)}</template>
+      <template data-yearly-template>${yearlyRowHtml({ kind: 'salary', fund: 'general', first: cfg.start + 1, grows: 'none' }, cfg)}</template>`;
+  }
+  function renderEditor(pid) {
+    const rows = ED.rows, sid = ED.sid, dec = ED.mode === 'decisions';
+    const sc = rows.scenarios.find((x) => x.id === sid), i = pid ? rows.initiatives.find((x) => x.id === pid) || {} : {};
+    const inThis = !!(pid && sid && inScen(rows, sid, pid));
+    const plans = pid ? rows.scenarios.filter((x) => inScen(rows, x.id, pid)) : [];
+    const others = plans.filter((x) => x.id !== sid).length;
+    const notHere = dec ? [] : rows.initiatives.filter((x) => !inScen(rows, sid, x.id));
+    const opt = (list, v) => list.map(([k, t]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${t}</option>`).join('');
+    const title = dec ? (pid ? esc(i.name || 'Initiative') : 'Add an initiative') : inThis ? 'Edit initiative' : pid ? 'Add to this scenario' : 'Add an initiative';
+    const note = dec
+      ? (pid ? (plans.length ? `In ${plans.map((x) => `“${esc(x.name)}”`).join(', ')}.` : 'Not in a plan yet.') : 'Add its details now; costs and a scenario are optional.')
+      : `In “${esc(sc.name)}”.${others ? ` The details at the top are shared with ${others} other scenario${others === 1 ? '' : 's'}; phases and yearly costs are this scenario’s own.` : ''}`;
+    modal(`<form class="stack" data-form="saveProject" data-id="${esc(pid || '')}" novalidate>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${title}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <p class="small muted">${note}</p>
+      ${!inThis && notHere.length ? `<label class="field">Initiative<select data-pick-init aria-label="Initiative">
+          <option value="">A new initiative</option>${notHere.map((x) => `<option value="${esc(x.id)}" ${x.id === pid ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
+          <span class="hint">Pick one already on the initiatives list, or start a new one.</span></label>` : ''}
+      <div class="fgrid">
+        <label class="field">Name<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
+        <label class="field">Type<select name="type">${opt(INIT_TYPES, i.type || 'capital')}</select></label>
+        <label class="field">Status<select name="status">${opt(INIT_STATUS, i.status || 'proposed')}</select></label>
+        <label class="field">Priority<select name="pri">${['', 'High', 'Med', 'Low', '10-yr'].map((v) => `<option value="${v}" ${(i.engine_priority || '') === v ? 'selected' : ''}>${v || 'None'}</option>`).join('')}</select></label>
+        <label class="field">Focus area<input name="area" maxlength="40" value="${esc(i.focus_area || '')}" placeholder="Facilities, Safety & security …"></label>
+        <label class="field">Cost<select name="conf"><option value="estimate" ${i.cost_confidence !== 'firm' ? 'selected' : ''}>Estimate</option><option value="firm" ${i.cost_confidence === 'firm' ? 'selected' : ''}>Firm (bid or quote)</option></select></label>
+        <label class="field">Condition<select name="cond">${['', 'good', 'fair', 'poor', 'critical'].map((v) => `<option value="${v}" ${(i.condition || '') === v ? 'selected' : ''}>${v ? v[0].toUpperCase() + v.slice(1) : 'Not rated'}</option>`).join('')}</select></label>
+        <label class="field">Remaining life, years<input name="life" inputmode="numeric" value="${i.remaining_life == null ? '' : i.remaining_life}"></label>
+        ${dec ? `
+        <label class="field">Owner<input name="owner_name" maxlength="80" value="${esc(i.owner_name || '')}" placeholder="Name or role"></label>
+        <label class="field">Tier<select name="tier"><option value="">Not ranked</option>${opt([['must', 'Must-have'], ['strategic', 'Strategic'], ['nice', 'Nice to have']], i.tier || '')}</select></label>
+        <label class="field">Strategic priority<select name="priority_id"><option value="">None</option>${(rows.priorities || []).map((p) => `<option value="${esc(p.id)}" ${i.priority_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+          ${(rows.priorities || []).length ? '' : '<span class="hint">Strategic priorities come from Direction (Phase 5).</span>'}</label>
+        <label class="field">Board approved it on<input name="approved_on" type="date" value="${esc(i.approved_on || '')}"></label>` : ''}
+      </div>
+      ${dec ? `<label class="field">Description<textarea name="description" maxlength="2000">${esc(i.description || '')}</textarea></label>
+      <div class="costs-box"><h3>Costs</h3>
+        ${ED.cfg ? `<label class="field">Apply to scenario<select data-ed-scenario aria-label="Apply to scenario">
+            <option value="" ${!sid ? 'selected' : ''}>Details only: not in a plan yet</option>
+            ${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === sid ? 'selected' : ''} ${x.is_locked ? 'disabled' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}${x.is_locked ? ' (locked)' : ''}${pid && inScen(rows, x.id, pid) ? ' · already in it' : ''}</option>`).join('')}</select>
+            <span class="hint">Pick a scenario to add or change this initiative’s one-time and yearly costs there. Locked scenarios can’t be changed; copy one on the capital plan to make an unlocked version.</span></label>`
+          : '<p class="small muted">Set up Starting numbers (Settings) before adding costs; the plan’s years come from there.</p>'}
+        <div data-cost-section>${costSectionHtml(pid)}</div></div>`
+      : costSectionHtml(pid)}
       <div class="notice error" data-form-errors hidden></div>
       <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
-        ${pid ? '<span class="spacer" style="flex:1"></span><button type="button" class="btn danger" data-action="removeProject" data-id="' + esc(pid) + '">Remove from this scenario</button>' : ''}</div>
+        ${!dec && inThis ? '<span class="spacer" style="flex:1"></span><button type="button" class="btn danger" data-action="removeProject" data-id="' + esc(pid) + '">Remove from this scenario</button>' : ''}</div>
     </form>`);
   }
   function readProject(form) {
     const errs = [], v = (n) => (form.querySelector(`[name="${n}"]`) || {}).value || '';
-    const name = v('name').trim(); if (!name) errs.push('Give the project a name.');
+    const name = v('name').trim(); if (!name) errs.push('Give the initiative a name.');
     const life = toNum(v('life')); if (life !== null && (isNaN(life) || life < 0 || !Number.isInteger(life))) errs.push('Remaining life must be a whole number of years.');
     const phases = [...form.querySelectorAll('[data-phase-body] [data-phase-row]')].map((tr, k) => {
       const g = (n) => tr.querySelector(`[name="${n}"]`).value;
       const cost = toNum(g('cost')); if (cost === null || isNaN(cost) || cost < 0) errs.push(`Phase ${k + 1}: enter the cost in dollars.`);
-      const funding = [];
-      for (let i = 0; i < 3; i++) {
-        const b = g('src' + i); if (!b) continue;
-        const p = toNum(g('pct' + i));
-        funding.push({ b, p: p === null ? null : p });
-      }
+      const funding = [...tr.querySelectorAll('[data-src]')].map((r) => ({ b: r.querySelector('[name=src]').value, p: toNum(r.querySelector('[name=pct]').value) }));
       if (!funding.length) errs.push(`Phase ${k + 1}: choose at least one fund.`);
       if (new Set(funding.map((f) => f.b)).size !== funding.length) errs.push(`Phase ${k + 1}: the same fund appears twice.`);
       if (funding.length === 1 && funding[0].p === null) funding[0].p = 100;
@@ -845,7 +878,7 @@
       else if (Math.abs(funding.reduce((a, f) => a + f.p, 0) - 100) > 0.01) errs.push(`Phase ${k + 1}: the percentages add to ${funding.reduce((a, f) => a + f.p, 0)}%, not 100%.`);
       const status = g('status'), actual = toNum(g('actual'));
       if (actual !== null && (isNaN(actual) || actual < 0)) errs.push(`Phase ${k + 1}: actual cost must be a number of dollars.`);
-      return { fy: Number(g('fy')), cost, funding, status, actual: status === 'done' && actual !== null && !isNaN(actual) ? actual : null };
+      return { label: g('label').trim().slice(0, 80) || null, fy: Number(g('fy')), cost, funding, status, actual: status === 'done' && actual !== null && !isNaN(actual) ? actual : null };
     });
     const yearly = [...form.querySelectorAll('[data-yearly-body] [data-yearly-row]')].map((tr, k) => {
       const g = (n) => tr.querySelector(`[name="${n}"]`).value;
@@ -854,47 +887,55 @@
       if (last != null && last < first) errs.push(`Yearly cost ${k + 1}: it ends before it starts.`);
       return { kind: g('y_kind'), fund: g('y_fund'), amount, first, last, grows: g('y_grows') };
     });
-    if (!phases.length && !yearly.length) errs.push('Add a one-time phase, a yearly cost, or both.');
-    if (phases.length > HGUploads.MAX_PH) errs.push(`A project can have at most ${HGUploads.MAX_PH} phases.`);
-    return { errs, name, type: v('type') || 'capital', status: v('status') || 'proposed', pri: v('pri') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, phases, yearly };
+    if (ED.sid && !phases.length && !yearly.length) errs.push('Add a one-time phase, a yearly cost, or both, or choose “Details only”.');
+    if (phases.length > HGUploads.MAX_PH) errs.push(`An initiative can have at most ${HGUploads.MAX_PH} phases.`);
+    const extra = {};
+    if (form.querySelector('[name=owner_name]')) Object.assign(extra, { owner_name: v('owner_name').trim() || null, tier: v('tier') || null,
+      priority_id: v('priority_id') || null, approved_on: v('approved_on') || null, description: v('description').trim() || null });
+    return { errs, name, type: v('type') || 'capital', status: v('status') || 'proposed', pri: v('pri') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, phases, yearly, extra };
   }
   async function saveProject(form) {
     const box = form.querySelector('[data-form-errors]'), r = readProject(form);
     if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); return; }
-    const d = S.district.id, sid = CAP.scenarioId; let iid = form.dataset.id || null;
-    const fields = { name: r.name.slice(0, 120), type: r.type, status: r.status, engine_priority: r.pri, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life };
+    const rows = ED.rows, d = S.district.id, sid = ED.sid, sc = rows.scenarios.find((x) => x.id === sid); let iid = form.dataset.id || null;
+    const fields = Object.assign({ name: r.name.slice(0, 120), type: r.type, status: r.status, engine_priority: r.pri, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life }, r.extra);
+    const norm = (t) => t.toLowerCase().replace(/\s+/g, ' ');
     if (!iid) {
-      const same = CAP.rows.initiatives.find((x) => x.name.toLowerCase().replace(/\s+/g, ' ') === r.name.toLowerCase().replace(/\s+/g, ' '));
-      if (same && (CAP.rows.phases.some((ph) => ph.scenario_id === sid && ph.initiative_id === same.id) || (CAP.rows.recurring || []).some((x) => x.scenario_id === sid && x.initiative_id === same.id))) {
-        box.hidden = false; box.textContent = `“${same.name}” is already in this scenario. Click it on the plan to edit it.`; return;
-      }
+      const same = rows.initiatives.find((x) => norm(x.name) === norm(r.name));
+      if (same && ED.mode === 'decisions') { box.hidden = false; box.textContent = `There’s already an initiative called “${same.name}”. Click it in the list to edit it.`; return; }
+      if (same && sid && inScen(rows, sid, same.id)) { box.hidden = false; box.textContent = `“${same.name}” is already in this scenario. Click it on the plan to edit it.`; return; }
       if (same) { iid = same.id; await HG.db.update('initiative', `id=eq.${iid}`, fields); }
       else { iid = crypto.randomUUID(); await HG.db.insert('initiative', Object.assign({ id: iid, district_id: d }, fields)); }
-      const rank = CAP.rows.phases.filter((ph) => ph.scenario_id === sid).length + 1;
-      await HG.db.upsert('scenario_initiative', [{ scenario_id: sid, initiative_id: iid, district_id: d, rank, included: true }], 'scenario_id,initiative_id');
     } else {
       await HG.db.update('initiative', `id=eq.${iid}`, fields);
     }
-    await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
-    const phases = [], funding = [];
-    r.phases.forEach((ph, k) => {
-      const pid = crypto.randomUUID();
-      phases.push({ id: pid, district_id: d, scenario_id: sid, initiative_id: iid, seq: k + 1, fy: ph.fy, cost: ph.cost, status: ph.status, actual_cost: ph.actual });
-      ph.funding.forEach((f) => funding.push({ phase_id: pid, district_id: d, fund: f.b, pct: f.p }));
-    });
-    if (phases.length) { await HG.db.insert('phase', phases); await HG.db.insert('phase_funding', funding); }
-    await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
-    if (r.yearly.length) await HG.db.insert('recurring_cost', r.yearly.map((y) => ({ district_id: d, scenario_id: sid, initiative_id: iid, kind: y.kind, fund: y.fund,
-      first_fy: y.first, last_fy: y.last, annual_amount: y.amount, grows_with: y.grows })));
-    closeModal(); toast('Saved', `${r.name} in “${CAP.sc.name}”.`); here();
+    if (sid) {
+      if (!inScen(rows, sid, iid)) {
+        const rank = new Set(rows.phases.filter((ph) => ph.scenario_id === sid).map((ph) => ph.initiative_id)).size + 1;
+        await HG.db.upsert('scenario_initiative', [{ scenario_id: sid, initiative_id: iid, district_id: d, rank, included: true }], 'scenario_id,initiative_id');
+      }
+      await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
+      const phases = [], funding = [];
+      r.phases.forEach((ph, k) => {
+        const pid = crypto.randomUUID();
+        phases.push({ id: pid, district_id: d, scenario_id: sid, initiative_id: iid, seq: k + 1, label: ph.label, fy: ph.fy, cost: ph.cost, status: ph.status, actual_cost: ph.actual });
+        ph.funding.forEach((f) => funding.push({ phase_id: pid, district_id: d, fund: f.b, pct: f.p }));
+      });
+      if (phases.length) { await HG.db.insert('phase', phases); await HG.db.insert('phase_funding', funding); }
+      await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
+      if (r.yearly.length) await HG.db.insert('recurring_cost', r.yearly.map((y) => ({ district_id: d, scenario_id: sid, initiative_id: iid, kind: y.kind, fund: y.fund,
+        first_fy: y.first, last_fy: y.last, annual_amount: y.amount, grows_with: y.grows })));
+    }
+    closeModal(); toast('Saved', sid ? `${r.name} in “${sc.name}”.` : r.name); here();
   }
   async function removeProject(el) {
-    const iid = el.dataset.id, sid = CAP.scenarioId, name = (CAP.rows.initiatives.find((x) => x.id === iid) || {}).name || 'this project';
-    if (!confirm(`Remove ${name} from “${CAP.sc.name}”? Other scenarios keep it.`)) return;
+    const rows = ED.rows, iid = el.dataset.id, sid = ED.sid, sc = rows.scenarios.find((x) => x.id === sid);
+    const name = (rows.initiatives.find((x) => x.id === iid) || {}).name || 'this initiative';
+    if (!confirm(`Remove ${name} from “${sc.name}”? Other scenarios keep it.`)) return;
     await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
     await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
     await HG.db.removeAll('scenario_initiative', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
-    closeModal(); toast('Removed', `${name} is no longer in “${CAP.sc.name}”.`); here();
+    closeModal(); toast('Removed', `${name} is no longer in “${sc.name}”.`); here();
   }
 
   function openFinancingEditor(id) {
@@ -1648,7 +1689,7 @@
     }
     app.innerHTML = `
       <div class="main">
-        <header class="topbar"><span class="brand" style="flex-direction:row;gap:10px">${LOGO.replace('#F7F5EF', '#1E3A2F')}<b style="font-family:var(--serif)">HighGround</b></span>
+        <header class="topbar"><span class="brand pub-brand">${LOGO_COLOR}<span class="small muted">powered by Willow Holler</span></span>
           <span class="spacer"></span><a class="btn small" href="#/signin">Sign in</a></header>
         <main class="content">${body}</main>
       </div>`;
@@ -1657,9 +1698,9 @@
   // ------------------------------------------------------------------ sign-in screens
   function authFrame(inner) {
     app.innerHTML = `<div class="auth">
-      <aside class="auth-side"><a class="brand" href="#/signin" style="align-items:flex-start">${LOGO}<span>HighGround</span></a>
+      <aside class="auth-side"><a class="brand auth-brand" href="#/signin">${LOGO_LIGHT}</a>
         <p>Strategy, decisions, capital planning and accountability for Iowa school districts.</p>
-        <p class="small">By Willow Holler.</p></aside>
+        <p class="small">Powered by Willow Holler.</p></aside>
       <main class="auth-main"><div class="auth-card">${inner}</div></main></div>`;
   }
   function renderAuth(which) {
@@ -1711,7 +1752,7 @@
     return go('#/', 'Your email is confirmed. Welcome to HighGround.');
   }
   function renderNotConnected() {
-    app.innerHTML = `<div class="auth"><aside class="auth-side"><span class="brand" style="align-items:flex-start">${LOGO}<span>HighGround</span></span></aside>
+    app.innerHTML = `<div class="auth"><aside class="auth-side"><span class="brand auth-brand">${LOGO_LIGHT}</span></aside>
       <main class="auth-main"><div class="auth-card"><h1>Not connected yet</h1>
         <p>This copy of HighGround doesn’t know which database to use.</p>
         <p>Open <b>config.js</b> and fill in the Supabase project address and its <b>publishable</b> key (Supabase: Project Settings, API Keys). Never put the secret key there.</p>
@@ -1719,7 +1760,7 @@
   }
   function renderFatal(err) {
     console.error(err);
-    app.innerHTML = `<div class="auth"><aside class="auth-side"><span class="brand" style="align-items:flex-start">${LOGO}<span>HighGround</span></span></aside>
+    app.innerHTML = `<div class="auth"><aside class="auth-side"><span class="brand auth-brand">${LOGO_LIGHT}</span></aside>
       <main class="auth-main"><div class="auth-card"><h1>Something went wrong</h1>
         <div class="notice error">${esc(err && err.message ? err.message : err)}</div>
         <div class="row"><button class="btn primary" type="button" data-action="reload">Try again</button><button class="btn" type="button" data-action="signOut">Sign out</button></div></div></main></div>`;
@@ -1770,7 +1811,19 @@
       await HG.auth.mfa.unenroll(el.dataset.id); await loadContext(true); toast('Two-step sign-in is off'); here();
     },
     async editProject(el) { openProjectEditor(el.dataset.id || null); },
-    async editInitiative(el) { openInitiativeEditor(el.dataset.id || null); },
+    async addFund(el) {
+      const cell = el.parentElement.querySelector('[data-srcs]'), used = [...cell.querySelectorAll('[name=src]')].map((x) => x.value);
+      if (used.length >= 3) return;
+      cell.insertAdjacentHTML('beforeend', fundRowHtml({ b: (FUNDS.find(([k]) => !used.includes(k)) || FUNDS[0])[0], p: null }));
+      rebalanceFunds(cell);
+    },
+    async removeFund(el) { const cell = el.closest('[data-srcs]'); if (cell.querySelectorAll('[data-src]').length <= 1) return; el.closest('[data-src]').remove(); rebalanceFunds(cell); },
+    async addToScenario(el) {
+      const sid = document.querySelector('[data-addto-sc]').value;
+      CAP.key = S.district.id; CAP.scenarioId = sid; CAP.openEditor = el.dataset.id;
+      closeModal(); go(`#/d/${enc(S.district.slug)}/resources/capital`);
+    },
+    async editInitiative(el) { openDecisionEditor(el.dataset.id || null); },
     async iniStatus(el) { INI.status = el.dataset.v; here(); },
     async removeProject(el) { await removeProject(el); },
     async addPhaseRow() { const t = document.querySelector('[data-phase-template]'); document.querySelector('[data-phase-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
@@ -1820,7 +1873,6 @@
       form.reset(); toast('Request sent', 'If that district uses HighGround, its admins will see your request. You’ll have access as soon as one approves it.');
     },
     async saveProject(f, form) { await saveProject(form); },
-    async saveInitiative(f, form) { await saveInitiative(f, form); },
     async saveFinancing(f, form) { await saveFinancing(form); },
     async saveSetup(f, form) { await saveSetup(form); },
     async signIn(f) { await HG.auth.signIn(f.email.trim(), f.password); document.getElementById('toasts').innerHTML = ''; S.loaded = false; go('#/'); },
@@ -1880,6 +1932,11 @@
     run(() => FORMS[form.dataset.form](data, form), form.querySelector('[type=submit]'));
   });
   document.addEventListener('input', (e) => {
+    const pc = e.target.closest('[data-srcs] [name=pct]');
+    if (pc) {   // with two funds, the other one makes up the rest
+      const rows = [...pc.closest('[data-srcs]').querySelectorAll('[name=pct]')], v = toNum(pc.value);
+      if (rows.length === 2 && v !== null && !isNaN(v) && v >= 0 && v <= 100) rows.find((x) => x !== pc).value = +(100 - v).toFixed(2);
+    }
     const lv = e.target.closest('input[type=range][data-lever]');
     if (lv && CAP.inputs) { CAP.levers[lv.dataset.lever] = Number(lv.value); capRefresh(); }
   });
@@ -1894,6 +1951,12 @@
       if (!on.length) { cp.checked = true; return; }
       CMP.ids = on; document.getElementById('cmp-table').innerHTML = compareTableHtml(); return;
     }
+    const es = e.target.closest('[data-ed-scenario]');
+    if (es) { ED.sid = es.value || null; const f = es.closest('form'); f.querySelector('[data-cost-section]').innerHTML = costSectionHtml(f.dataset.id || null); return; }
+    const pk = e.target.closest('[data-pick-init]');
+    if (pk) { openProjectEditor(pk.value || null); return; }
+    const isd = e.target.closest('[data-ini-sid]');
+    if (isd) { INI.sid = isd.value; return here(); }
     const it = e.target.closest('[data-ini-type]');
     if (it) { INI.type = it.value; return here(); }
     const wy = e.target.closest('[data-why]');
