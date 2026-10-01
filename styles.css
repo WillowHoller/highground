@@ -187,3 +187,6 @@ table.phases .srcs input{width:64px}
 table.phases input[name=actual]{display:block;margin-top:4px}
 .ylist a{color:var(--text);text-decoration:underline;text-decoration-color:#C9C3B5;text-underline-offset:3px}
 .ylist a:hover{text-decoration-color:var(--action)}
+
+.fundcard h3{margin-bottom:4px}
+.fundcard p.small{max-width:90ch}

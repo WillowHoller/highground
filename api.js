@@ -79,6 +79,10 @@
     try {
       res = await fetch(BASE + path, { method, headers: h, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) });
     } catch (e) {
+      if (path.startsWith('/functions/v1/')) {
+        const name = path.split('/')[3];
+        throw new ApiError(`Couldn’t reach the server function “${name}”. Check that it’s deployed in Supabase under exactly that name, and that its “Enforce JWT Verification” setting is off.`, 0, 'function_unreachable');
+      }
       throw new ApiError(`Can't reach the database at ${BASE}. Check your connection. If it keeps happening, the Supabase project may be paused.`, 0, 'network');
     }
     if (blob && res.ok) return res.blob();
@@ -170,6 +174,14 @@
   HG.fn = (name, body) => call(`/functions/v1/${name}`, { method: 'POST', body: body || {} });
   HG.db = {
     select: (table, query) => call(`/rest/v1/${table}${qs(query)}`),
+    /** Every row, fetched 1,000 at a time (the API's page size). */
+    selectAll: async (table, query) => {
+      const out = [];
+      for (let off = 0; ; off += 1000) {
+        const page = await call(`/rest/v1/${table}?${query ? query + '&' : ''}limit=1000&offset=${off}`);
+        out.push(...page); if (page.length < 1000) return out;
+      }
+    },
     insert: (table, row) => call(`/rest/v1/${table}`, { method: 'POST', body: row, headers: { Prefer: 'return=representation' } }),
     update: async (table, filter, patch) => changed(await call(`/rest/v1/${table}?${filter}`, { method: 'PATCH', body: patch, headers: { Prefer: 'return=representation' } }), 'changed'),
     remove: async (table, filter) => changed(await call(`/rest/v1/${table}?${filter}`, { method: 'DELETE', headers: { Prefer: 'return=representation' } }), 'removed'),

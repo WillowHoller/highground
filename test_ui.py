@@ -40,6 +40,10 @@ def gold(scen,patch): return next(c for c in GOLD["cases"] if c["scenario"]==sce
 PUB={}
 TABLES["publication"]=[]
 TABLES["import_row"]=[]; TABLES["import_issue"]=[]
+for t in ["assumption_set","outcome","measure_value","survey","survey_result","recurring_cost","project_request","report_snapshot"]: TABLES.setdefault(t,[])
+TABLES["audit_log"]=[{"id":2,"district_id":"d1","table_name":"initiative","row_pk":"x","action":"update","actor":"u-admin","at":"2026-09-30T15:04:00Z",
+   "old_row":{"name":"Gym floor","focus_area":"Facilities","updated_at":"a"},"new_row":{"name":"Gym floor","focus_area":"Activities","updated_at":"b"}},
+  {"id":1,"district_id":"d1","table_name":"scenario","row_pk":"y","action":"insert","actor":"u-someone-else","at":"2026-09-30T14:00:00Z","old_row":None,"new_row":{"name":"Plan B"}}]
 TABLES["access_request"]=[{"id":"req1","district_id":"d1","email":"asker@example.test","message":"New principal at the middle school","created_at":"2026-09-29T15:00:00Z","status":"pending"}]
 calls=[]
 import base64
@@ -362,6 +366,42 @@ async def main():
     await pg.fill("[data-modal] input[name=code]","123 456"); n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
     seq=[c[1].split("?")[0] for c in calls[n0:] if "/factors/" in c[1]]
     check("two-step: challenge, then verify, then on", seq==["/auth/v1/factors/f1/challenge","/auth/v1/factors/f1/verify"] and "Two-step sign-in is on" in await pg.inner_text("#toasts"), str(seq))
+    # milestone 6: summary, all funds, exports, activity
+    EXP=json.loads(subprocess.check_output(["node","-e","""
+      const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;
+      const R=C.demoRows(D['ironwood-valley'],'d1',()=>'00000000-0000-4000-8000-'+String(++i).padStart(12,'0'));
+      const rows={district:{name:'x'},settings:R.district_settings[0],balances:R.fund_balance,debts:R.debt_obligation,scenarios:R.scenario,initiatives:R.initiative,phases:R.phase,funding:R.phase_funding,financing:R.financing};
+      const sc=R.scenario.find(s=>s.is_board_version);const inp=C.buildInputs(rows,sc.id);const r=E.compute(inp.projects,inp.levers,inp.cfg);
+      const P=C.fundPaths(r,inp.cfg);process.stdout.write(JSON.stringify({save27:P.save.years[0].end,saveLow:P.save.low,saveLowFY:P.save.lowFY,phases:R.phase.length}));"""],cwd=os.path.dirname(os.path.abspath(__file__))))
+    money=lambda v: "$"+format(round(v),",")
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pg.wait_for_timeout(500)
+    t=await pg.inner_text("#view")
+    check("summary: board version totals", "$14.79M" in t and "$5.35M" in t and "District baseline" in t)
+    check("summary: each fund's low point", money(EXP["saveLow"])+" (FY"+str(EXP["saveLowFY"])+")" in t, money(EXP["saveLow"]))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(500)
+    t=await pg.inner_text("#view")
+    check("all funds: year-by-year from the engine", "SAVE" in t and money(EXP["save27"]) in t and "Borrowing room" in t and "$4.59M" in t, money(EXP["save27"]))
+    check("all funds: what each fund may pay for, with a caution", "423F" in t and "298.3" in t and "not legal advice" in t)
+    await pg.screenshot(path=SHOTS+"/funds.png",full_page=True)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/exports"); await pg.wait_for_timeout(500)
+    import csv, io as _io
+    async with pg.expect_download() as dl: await pg.click("button[data-action=exportProjects]")
+    f=await dl.value; text=open(await f.path(),encoding="utf-8").read()
+    names={r["Project"] for r in csv.DictReader(_io.StringIO(text))}
+    reparsed=json.loads(subprocess.run(["node","-e","const U=require('./uploads.js');let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const p=U.parseProjects(U.parseCSV(s),2027,10);process.stdout.write(JSON.stringify({n:p.projects.length,e:p.issues.filter(i=>i.l==='e').length}))})"],input=text,capture_output=True,text=True,cwd=os.path.dirname(os.path.abspath(__file__))).stdout)
+    check("exports: projects file is a valid upload with every project", len(names)==16 and reparsed=={"n":16,"e":0} and f.suggested_filename.startswith("ironwood-valley-"), str(reparsed))
+    async with pg.expect_download() as dl: await pg.click("button[data-action=exportPhases]")
+    f=await dl.value; prow=list(csv.DictReader(_io.StringIO(open(await f.path(),encoding="utf-8").read())))
+    check("exports: every scenario's phases in one sheet", len(prow)==EXP["phases"] and {r["Scenario"] for r in prow}=={"District baseline","Addition phased, bond in FY2030"}, str(len(prow)))
+    async with pg.expect_download() as dl: await pg.click("button[data-action=exportBackup]")
+    f=await dl.value; bk=json.load(open(await f.path()))
+    check("exports: full backup has the plan, not people", bk["kind"]=="HighGround district backup" and len(bk["tables"]["phase"])==EXP["phases"] and "district_member" not in bk["tables"] and "audit_log" not in bk["tables"])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/activity"); await pg.wait_for_timeout(500)
+    t=await pg.inner_text("#view")
+    check("activity: who changed what, before and after", "Pat Admin" in t and "Project: Gym floor" in t and "focus area: Facilities → Activities" in t and "updated at" not in t)
+    check("activity: someone outside the district shows as staff", "Willow Holler staff" in t and "Scenario: Plan B" in t)
+    await pg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/activity"); await pg.wait_for_timeout(400)
+    check("activity: admins only", "Only a district admin" in await pg.inner_text("#view"))
     # help map
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(300)
     await pg.screenshot(path=SHOTS+"/help-built.png",full_page=True)

@@ -112,6 +112,7 @@ The app asks a small Supabase function to send invitation emails, so the Postmar
 1. **Edge Functions** (left sidebar) → **Deploy a new function** → **Via Editor**.
 2. Name it exactly `send-invitation`.
 3. Delete the template code, paste in all of `send-invitation.ts`, and click **Deploy function**. It takes 10–30 seconds.
+   Then open the function's **Details** and switch off **Enforce JWT Verification**. Browsers send an unsigned check before the real request, and Supabase's built-in check would turn it away. The function verifies the caller itself and sends only for that district's admins.
 4. **Edge Functions → Secrets**: add a secret named `POSTMARK_SERVER_TOKEN` whose value is your Postmark **Server API token** (Postmark → your server → API Tokens). Save. No redeploy is needed.
 5. Optional secrets: `APP_URL` if the app moves to its own address (default `https://willowholler.github.io/highground/`), and `MAIL_FROM` (default `HighGround <no-reply@willowholler.com>`).
 6. Test: **Settings → People → Invite someone** with an address you can check. Until Postmark approves the account, only willowholler.com addresses receive mail.

@@ -34,5 +34,23 @@ for (const [gk, g] of Object.entries(G.districts)) {
     });
   });
 }
+// fund paths add up: each year's end = start + receipts - spending (never below zero), and carries into next year
+let pathBad = 0;
+for (const [gk, g] of Object.entries(G.districts)) {
+  const cfg = E.makeConfig(g.settings);
+  for (const sc of g.scenarios) {
+    const r = E.compute(E.cleanList(sc.projects, cfg), E.leversOf(sc.levers || {}, cfg), cfg);
+    const P = C.fundPaths(r, cfg);
+    for (const b of C.CAP_FUNDS) P[b].years.forEach((y, i, a) => {
+      if (Math.abs(y.end - Math.max(0, y.start + y.receipts - y.spend)) > 1e-6) pathBad++;
+      if (Math.abs(y.over - Math.max(0, y.spend - y.start - y.receipts)) > 1e-6) pathBad++;
+      if (i && Math.abs(a[i - 1].end - y.start) > 1e-6) pathBad++;
+    });
+    const over = C.CAP_FUNDS.reduce((t, b) => t + P[b].over, 0);
+    if (Math.abs(over - r.overflow) > 1e-6) pathBad++;
+  }
+}
+console.log(`fund paths: ${pathBad ? pathBad + ' problems' : 'all add up'}`);
+if (pathBad) diffs++;
 console.log(`database round trip: cases ${cases} diffs ${diffs}`);
 process.exit(diffs ? 1 : 0);

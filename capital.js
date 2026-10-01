@@ -164,5 +164,22 @@
     });
   }
 
-  return { settingsFromRows, projectsFromRows, leversFromRows, buildInputs, demoRows, yearSummary, CAP_FUNDS };
+  /* each capital fund, year by year: what came in, what was spent, what was left, and the low point */
+  function fundPaths(r, cfg) {
+    const out = {};
+    CAP_FUNDS.forEach((b) => {
+      const years = r.res.map((m) => {
+        const receipts = m.avail[b] - m.carryIn[b];
+        const end = Math.max(0, m.avail[b] - m.spend[b]);
+        return { fy: m.fy, start: m.carryIn[b], receipts, spend: m.spend[b], over: m.over[b], end };
+      });
+      const low = years.reduce((a, y) => (y.end < a.end ? y : a), years[0]);
+      out[b] = { years, open: years.length ? years[0].start : 0, receipts: years.reduce((a, y) => a + y.receipts, 0),
+        spend: years.reduce((a, y) => a + y.spend, 0), over: years.reduce((a, y) => a + y.over, 0),
+        end: years.length ? years[years.length - 1].end : 0, low: low ? low.end : 0, lowFY: low ? low.fy : null };
+    });
+    return out;
+  }
+
+  return { settingsFromRows, projectsFromRows, leversFromRows, buildInputs, demoRows, yearSummary, fundPaths, CAP_FUNDS };
 });
