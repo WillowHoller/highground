@@ -124,7 +124,7 @@
     const s = demo.settings;
     const startFY = E.fyOfDate(s.balances.asOf);
     const out = { district_settings: [], fund_balance: [], debt_obligation: [], initiative: [], scenario: [],
-                  scenario_initiative: [], phase: [], phase_funding: [], financing: [], lock: [] };
+                  scenario_initiative: [], phase: [], phase_funding: [], financing: [], recurring_cost: [], lock: [] };
     out.district_settings.push({
       district_id: districtId, plan_start_fy: startFY, plan_years: s.plan.years, enrollment: demo.enrollment,
       save_receipts: s.save.receipts, save_receipts_fy: s.save.receiptsFY, save_ongoing: s.save.ongoing, save_trend: s.save.trend, sf2472: s.save.sf2472 !== false,
@@ -140,8 +140,9 @@
     demo.scenarios.forEach((sc) => sc.projects.forEach((p) => {
       if (initId.has(p.id)) return;
       const id = newId(); initId.set(p.id, id);
-      out.initiative.push({ id: id, district_id: districtId, name: p.name, type: 'capital', status: 'proposed', engine_priority: p.pri || null,
-        tier: ({ High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' })[p.pri] || null,
+      out.initiative.push({ id: id, district_id: districtId, name: p.name, type: p.type || 'capital', status: p.status || 'proposed', engine_priority: p.pri || null,
+        tier: p.tier || ({ High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' })[p.pri] || null,
+        ...(p.owner_name ? { owner_name: p.owner_name } : {}),
         focus_area: p.area || null, cost_confidence: p.est === false ? 'firm' : 'estimate', condition: p.cond ? p.cond.toLowerCase() : null,
         remaining_life: p.life == null ? null : p.life });
     }));
@@ -163,6 +164,8 @@
           (ph.funding || []).forEach((f) => out.phase_funding.push({ phase_id: pid, district_id: districtId, fund: f.b, pct: f.p }));
         });
       });
+      (sc.recur || []).forEach((r) => out.recurring_cost.push({ district_id: districtId, scenario_id: sid, initiative_id: initId.get(r.project), kind: r.kind,
+        fund: r.fund, first_fy: r.first, last_fy: r.last == null ? null : r.last, annual_amount: r.amount, grows_with: r.grows || 'none' }));
       (L.fin || []).forEach((f) => out.financing.push({ district_id: districtId, scenario_id: sid, name: f.name, kind: f.kind, issue_fy: f.fy,
         amount: f.amount, rate: f.rate || 0, years: f.years || 0,
         repay_from: f.kind === 'rev' ? 'save' : f.kind === 'lease' ? (f.repay === 'save' ? 'save' : 'ppel') : f.kind === 'gift' ? 'none' : 'levy' }));

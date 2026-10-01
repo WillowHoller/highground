@@ -125,7 +125,7 @@
       fund: ['save', 'ppel', 'vppel', 'grants', 'general', 'boost', 'other'].includes(r.fund) ? r.fund : 'general',
       first: Math.round(num(r.first, 0)), last: r.last == null || r.last === '' ? null : Math.round(num(r.last, 0)),
       amount: Math.max(0, num(r.amount, 0)), grows: ['inflation', 'settlement'].includes(r.grows) ? r.grows : 'none',
-      name: r.name ? String(r.name).slice(0, 90) : '', kind: r.kind || 'other', id: r.id,
+      name: r.name ? String(r.name).slice(0, 90) : '', kind: r.kind || 'other', id: r.id, initiative_id: r.initiative_id,
     }));
   }
   function leversOf(stored, cfg) {

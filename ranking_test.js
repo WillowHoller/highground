@@ -35,6 +35,11 @@ const ppelHungry = Object.assign({}, rows, { settings: Object.assign({}, rows.se
 const k3 = K.build(ppelHungry, sid);
 check('flags name who spends what a higher-ranked one needs', k3.flags.length > 0 && /spends PPEL that .* is short of in FY/.test(k3.flags[0].text), k3.flags.slice(0, 2).map((f) => f.text));
 check('flags only point down the list', k3.flags.every((f) => f.low.position > f.high.position));
+// yearly costs belong to their initiative, never a nameless extra row
+const ffaInit = rows.initiatives[0].id;
+const rowsY = Object.assign({}, rows, { recurring: [{ id: 'y1', scenario_id: sid, initiative_id: ffaInit, kind: 'supplies', fund: 'ppel', first_fy: 2028, last_fy: null, annual_amount: 9000, grows_with: 'none' }] });
+const ky = K.build(rowsY, sid);
+check('yearly costs attach to their initiative', ky.items.length === 16 && ky.items.find((x) => x.id === ffaInit).yearly === 9000 && !ky.items.some((x) => x.name === 'Initiative'), ky.items.length);
 console.log('\nIronwood baseline, in rank order:');
 k.items.forEach((x, j) => { if (j === k.line) console.log('   ───── funding line: money runs out here ─────'); console.log(`   #${String(x.position).padStart(2)} ${K.TIER_NAME[x.tier].padEnd(13)} ${x.name.padEnd(40)} $${Math.round(x.oneTime / 1000)}k${x.outside ? ` (campaign/boosters $${Math.round(x.outside / 1000)}k)` : ''}`); });
 console.log(`   above the line $${Math.round(k.aboveCost / 1000)}k · deferred $${Math.round(k.rankOrder.deferredCost / 1000)}k · gap ${Math.round(k.current.gap)} → ${Math.round(k.rankOrder.gap)}`);

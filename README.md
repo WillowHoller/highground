@@ -15,7 +15,8 @@ api.js                sign-in and database calls
 app.js                screens, and what's built vs. not
 engine.js             Iowa capital funds engine (pure; same math as the working planner)
 capital.js            turns database rows into engine inputs; writes demo data
-demo_data.js          three FICTIONAL demo districts (Harvest Plains, Ironwood Valley, Lakeshore Heights)
+demo_data.js          fictional demo districts; Bridger Hollow (about 925 students) is the main demo, reset from the Willow Holler page
+          three FICTIONAL demo districts (Harvest Plains, Ironwood Valley, Lakeshore Heights)
 uploads.js            reads project and balance spreadsheets (.csv, .xlsx); templates
 compare.js            compares scenarios and explains why their gaps differ
 ranking.js            tiers, rank order, the funding line, flags, fund in rank order
@@ -36,6 +37,7 @@ send_invitation_test.mjs  node --experimental-strip-types send_invitation_test.m
 test_ui.py            browser test against a simulated Supabase (Playwright)
 engine_test.js        node engine_test.js: engine vs. the working planner, 32 cases
 capital_test.js       node capital_test.js: demo data through database-shaped rows and back, 32 cases
+demo_test.js          node demo_test.js: Bridger Hollow demo holds together and tells its story
 tax_test.js           node tax_test.js: homestead, rollback and levy arithmetic, worked by hand
 ranking_test.js       node ranking_test.js: the funding line and flags on the demo
 yearly_test.js        node yearly_test.js: yearly costs (programs, hires), including the FFA case

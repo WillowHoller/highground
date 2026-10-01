@@ -1498,6 +1498,7 @@
   async function renderStaff() {
     S.district = null; S.role = null;
     const rows = await HG.db.select('district', 'select=id,slug,name,state,is_demo,public_link_enabled,created_at&order=name');
+    S.staffDistricts = rows;
     frame({ slug: null, sectionId: 'staff', body: `
       <div class="page-head"><div><h1>Willow Holler</h1><div class="lede">Every district, and new ones.</div></div><div class="right">${badge('live')}</div></div>
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
@@ -1524,6 +1525,46 @@
   const toNum = (v) => { if (v == null) return null; const t = String(v).replace(/[$,\s]/g, ''); if (t === '') return null; const x = Number(t); return isFinite(x) ? x : NaN; };
   const moneyIn = (v) => (v == null || v === '' ? '' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }));
   const pctIn = (v) => (v == null || v === '' ? '' : +(Number(v) * 100).toFixed(2));
+  /* light-touch checks on the starting numbers: warnings, never blocks */
+  const SAVE_PER_STUDENT = { fy: 2026, amount: 1358 };   // statewide FY2026 SAVE ≈ $652.7M ÷ 480,665 students (LSA fiscal note, SF 2472)
+  function setupChecks(form) {
+    const num = (n) => { const el = form.querySelector(`[name="${n}"]`); return el ? toNum(el.value) : null; };
+    const val = (n) => { const el = form.querySelector(`[name="${n}"]`); return el ? el.value.trim() : ''; };
+    const warn = [], tip = [];
+    const pr = num('ppel_receipts'), rate = num('ppel_rate'), tv = num('taxable_valuation'), av = num('actual_valuation');
+    if (pr > 0 && tv > 0 && rate > 0) {
+      const exp = rate * tv / 1000;
+      if (Math.abs(pr - exp) / exp > 0.15) warn.push(`PPEL receipts ($${Math.round(pr).toLocaleString()}) don’t match the PPEL rate × taxable valuation (about $${Math.round(exp).toLocaleString()}). Check the valuation and rate against the certified budget; receipts that include an income surtax will be higher.`);
+    } else if (pr > 0 && tv > 0) {
+      const implied = pr / (tv / 1000);
+      if (implied > 0.34) warn.push(`PPEL receipts and taxable valuation imply $${implied.toFixed(2)} per $1,000, above the $0.33 a board can levy without a vote. Check the valuation, or whether receipts include an income surtax.`);
+      else tip.push('Add the PPEL rate from the certified budget, so receipts can be checked against it.');
+    }
+    if (av > 0 && tv > 0 && av < tv) warn.push('Actual (100%) valuation is lower than taxable valuation. Actual valuation is normally the larger figure; check they aren’t swapped.');
+    const sr = num('save_receipts'), en = num('enrollment');
+    if (sr > 0 && en > 0) {
+      const per = sr / en, ratio = per / SAVE_PER_STUDENT.amount;
+      if (ratio < 0.8 || ratio > 1.2) warn.push(`SAVE receipts work out to $${Math.round(per).toLocaleString()} per student; SAVE is shared statewide at about $${SAVE_PER_STUDENT.amount.toLocaleString()} per student (FY${SAVE_PER_STUDENT.fy}). Check the receipts and the certified enrollment.`);
+    }
+    if (sr > 0 && !val('save_receipts_fy')) warn.push('Say which fiscal year the SAVE receipts are for. The SF 2472 reduction is scaled from that year; without it, HighGround assumes the year before the plan starts.');
+    if (!form.querySelectorAll('[data-debt-body] [data-debt-row]').length) tip.push('No existing debt entered. If the district has SAVE revenue bonds, PPEL loans or lease-purchases, add them; otherwise the plan overstates what SAVE and PPEL can pay for.');
+    const asOf = val('as_of');
+    if (asOf) {
+      const d = new Date(asOf + 'T12:00:00'), last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      if (d.getDate() !== last) tip.push('Balances are usually taken at a month-end, or at the 30 June close, so they match the general ledger.');
+    }
+    if (!av) tip.push('Add the actual (100%) valuation and general-obligation debt outstanding to see the 5% debt limit.');
+    return { warn, tip };
+  }
+  function renderSetupChecks(form) {
+    const box = form.querySelector('[data-setup-checks]'); if (!box) return;
+    const { warn, tip } = setupChecks(form);
+    box.hidden = !warn.length && !tip.length;
+    box.innerHTML = `<h3>Worth a second look</h3>
+      ${warn.length ? `<ul class="warn">${warn.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+      ${tip.length ? `<ul class="tip">${tip.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+      <p class="small muted">These are checks, not errors: you can still save.</p>`;
+  }
   async function vSetup(c) {
     const d = c.district.id;
     const [set, bal, debts] = await Promise.all([
@@ -1545,33 +1586,35 @@
       <td>${c.finance ? '<button type="button" class="btn small danger" data-action="removeDebtRow">Remove</button>' : ''}</td></tr>`;
     return `
       ${c.finance ? '' : '<div class="notice">Only a business manager or admin can change these numbers.</div>'}
+      ${(() => { setTimeout(() => { const sf = document.querySelector('form[data-form=saveSetup]'); if (sf) renderSetupChecks(sf); }, 0); return ''; })()}
       <form class="stack setup" data-form="saveSetup" novalidate>
+        <div class="card checks" data-setup-checks hidden></div>
         <div class="card"><h3>Plan</h3><div class="fgrid">
           ${f('plan_years', 'Years in the plan', s.plan_years || 10, '5 to 15', 'int')}
-          ${f('enrollment', 'Certified enrollment', s.enrollment == null ? '' : s.enrollment, 'Used for per-pupil figures', 'int')}
+          ${f('enrollment', 'Certified enrollment', s.enrollment == null ? '' : s.enrollment, 'From the certified enrollment (Iowa Department of Education); used for per-pupil figures', 'int')}
           ${f('enrollment_year', 'Enrollment year', s.enrollment_year || '', 'For example 2025-26')}
           ${f('construction_inflation', 'Construction inflation, % a year', pctIn(s.construction_inflation || 0), 'Applied to future phases')}</div></div>
 
         <div class="card"><h3>Fund balances</h3><div class="fgrid">
           <label class="field">Balances as of<input name="as_of" type="date" value="${esc(asOf)}" ${dis}><span class="hint">Use 30 June for a year-end close. The plan starts in the fiscal year this date belongs to.</span></label>
-          ${f('bal_save', 'SAVE balance, $', moneyIn(B.save))}${f('bal_ppel', 'PPEL balance, $', moneyIn(B.ppel))}
+          ${f('bal_save', 'SAVE balance, $', moneyIn(B.save), 'From the general ledger, or the audited 30 June balance')}${f('bal_ppel', 'PPEL balance, $', moneyIn(B.ppel))}
           ${f('bal_vppel', 'V-PPEL balance, $', moneyIn(B.vppel))}${f('bal_grants', 'Grants and donations on hand, $', moneyIn(B.grants))}</div>
           <p class="small muted">Saving with a new date adds a new set of balances and keeps the earlier ones.</p></div>
 
         <div class="card"><h3>SAVE (Secure an Advanced Vision for Education)</h3><div class="fgrid">
-          ${f('save_receipts', 'SAVE receipts per year, $', moneyIn(s.save_receipts))}
+          ${f('save_receipts', 'SAVE receipts per year, $', moneyIn(s.save_receipts), 'A full year’s receipts, from the general ledger or the audit')}
           ${f('save_receipts_fy', 'Those receipts are for fiscal year', s.save_receipts_fy || '', 'For example 2026', 'int')}
           ${f('save_ongoing', 'Ongoing SAVE commitments per year, $', moneyIn(s.save_ongoing || 0), 'Yearly costs already paid from SAVE, not debt')}
           ${f('save_trend', 'SAVE receipts trend, % a year', pctIn(s.save_trend || 0), 'Negative if receipts are falling')}
           <label class="row"><input type="checkbox" name="sf2472" ${s.sf2472 === false ? '' : 'checked'} ${dis}> Apply the SF 2472 SAVE reduction</label></div></div>
 
         <div class="card"><h3>PPEL (Physical Plant and Equipment Levy)</h3><div class="fgrid">
-          ${f('ppel_receipts', 'PPEL receipts per year, $', moneyIn(s.ppel_receipts))}
+          ${f('ppel_receipts', 'PPEL receipts per year, $', moneyIn(s.ppel_receipts), 'From the certified budget or the general ledger')}
           ${f('ppel_ongoing', 'Ongoing PPEL commitments per year, $', moneyIn(s.ppel_ongoing || 0))}
           ${f('ppel_growth', 'Taxable valuation growth, % a year', pctIn(s.ppel_growth == null ? 0.03 : s.ppel_growth))}
-          ${f('ppel_rate', 'PPEL rate, $ per $1,000', s.ppel_rate == null ? '' : s.ppel_rate, 'Optional')}
+          ${f('ppel_rate', 'PPEL rate, $ per $1,000', s.ppel_rate == null ? '' : s.ppel_rate, 'From the certified budget (Iowa Department of Management); used to check receipts')}
           ${f('taxable_valuation', 'Taxable valuation, $', moneyIn(s.taxable_valuation), 'For tax estimates: the valuation the county auditor certifies for the debt service levy')}
-          ${f('actual_valuation', 'Actual (100%) valuation, $', moneyIn(s.actual_valuation), 'Optional; used for the 5% debt limit')}
+          ${f('actual_valuation', 'Actual (100%) valuation, $', moneyIn(s.actual_valuation), 'From the county auditor; used for the 5% debt limit')}
           ${f('go_outstanding', 'General-obligation debt outstanding, $', moneyIn(s.go_outstanding), 'Optional')}</div></div>
 
         <div class="card"><h3>Tax estimates</h3>
@@ -1686,7 +1729,7 @@
       v: 1, engine: HGEngine.VERSION, scenario: { name: board.name },
       settings: inp.cfg.settings, stored: inp.stored, notes: inp.notes, tax: inp.tax,
       projects: inp.projects.map((p) => ({ id: p.id, name: p.name, pri: p.pri, est: p.est, area: p.area, cond: p.cond, life: p.life,
-        phases: p.phases.map((ph) => ({ cost: ph.cost, year: ph.year, funding: ph.funding, status: ph.status, actual: ph.actual })) })),
+        phases: p.phases.map((ph) => ({ cost: ph.cost, year: ph.year, funding: ph.funding, status: ph.status, actual: ph.actual, label: ph.label })) })),
     } };
   }
   async function publishBoard() {
@@ -1709,17 +1752,18 @@
   function demoLoaderHtml(rows) {
     const demos = rows.filter((r) => r.is_demo);
     if (!demos.length || !window.HG_DEMOS) return '';
-    return `<div class="card"><h3>Fill a demo district with fictional data</h3>
-      <p class="small muted">Loads starting numbers, balances, debt, projects and scenarios. Only for demo districts that have no plan data yet.</p>
+    return `<div class="card"><h3>Demo data</h3>
+      <p class="small muted">Fictional figures for demonstrations. <b>Load</b> fills an empty demo district. <b>Reset</b> erases a demo district’s plan and loads the data set again, then republishes its board version so the public demo link works straight away. People and access are never touched, and only districts marked as demos can be reset.</p>
       <div class="inline-form">
         <label class="field">Demo district<select data-demo-district>${demos.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></label>
         <label class="field">Data set<select data-demo-set>${Object.entries(window.HG_DEMOS).map(([k, v]) => `<option value="${esc(k)}">${esc(v.name)} (${v.enrollment.toLocaleString()} students)</option>`).join('')}</select></label>
-        <button type="button" class="btn primary" data-action="loadDemo">Load demo data</button></div></div>`;
+        <button type="button" class="btn primary" data-action="loadDemo">Load into an empty district</button>
+        <button type="button" class="btn danger" data-action="resetDemo">Reset to this demo</button></div></div>`;
   }
   async function loadDemo(el) {
     const card = el.closest('.card');
     const did = card.querySelector('[data-demo-district]').value, set = card.querySelector('[data-demo-set]').value;
-    const d = S.districts.find((x) => x.id === did) || { id: did };
+    const d = (S.staffDistricts || []).find((x) => x.id === did) || S.districts.find((x) => x.id === did) || { id: did };
     if (!d.is_demo) throw new UserError('Demo data can only go into a demo district.');
     const [a, b, c2] = await Promise.all([
       HG.db.select('district_settings', `select=district_id&district_id=eq.${did}`),
@@ -1727,7 +1771,13 @@
       HG.db.select('initiative', `select=id&district_id=eq.${did}&limit=1`)]);
     if (a.length || b.length || c2.length) throw new UserError('That district already has plan data. Demo data only goes into an empty demo district.');
     const R = HGCapital.demoRows(window.HG_DEMOS[set], did, () => crypto.randomUUID());
-    const order = ['district_settings', 'fund_balance', 'debt_obligation', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'financing'];
+    await writeDemo(d, set);
+    toast('Demo data loaded', `${window.HG_DEMOS[set].name} figures are in ${d.name || 'the district'}.`);
+    go(`#/d/${enc(d.slug)}/resources/capital`);
+  }
+  async function writeDemo(d, set) {
+    const did = d.id, R = HGCapital.demoRows(window.HG_DEMOS[set], did, () => crypto.randomUUID());
+    const order = ['district_settings', 'fund_balance', 'debt_obligation', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing'];
     try {
       for (const t of order) if (R[t].length) await HG.db.insert(t, R[t]);
       for (const sid of R.lock) await HG.db.update('scenario', `id=eq.${sid}`, { is_locked: true });
@@ -1738,8 +1788,28 @@
       }
       throw err;
     }
-    toast('Demo data loaded', `${window.HG_DEMOS[set].name} figures are in ${d.name || 'the district'}.`);
-    go(`#/d/${enc(d.slug)}/resources/capital`);
+  }
+  /* erase a demo district's plan and load a data set again, then republish its board version */
+  async function resetDemo(el) {
+    const card = el.closest('.card');
+    const did = card.querySelector('[data-demo-district]').value, set = card.querySelector('[data-demo-set]').value;
+    const d = S.districts.find((x) => x.id === did) || (S.staffDistricts || []).find((x) => x.id === did);
+    if (!d || !d.is_demo) throw new UserError('Only a demo district can be reset.');
+    if (!confirm(`Erase everything in ${d.name}’s plan (starting numbers, balances, debt, initiatives, scenarios, uploads and publishing history) and load ${window.HG_DEMOS[set].name} again? People and access stay as they are.`)) return;
+    for (const t of ['publication', 'scenario', 'initiative', 'debt_obligation', 'fund_balance', 'import_batch', 'district_settings']) {
+      await HG.db.removeAll(t, `district_id=eq.${did}`);
+    }
+    await writeDemo(d, set);
+    let published = false;
+    if (d.public_link_enabled) {
+      try {
+        const { board, payload } = await publicationPayload(d);
+        await HG.db.insert('publication', { district_id: did, kind: 'board_plan', title: board.name, scenario_id: board.id, payload });
+        published = true;
+      } catch (e) { console.warn('HighGround: demo republish skipped:', e); }
+    }
+    toast('Demo reset', `${d.name} is back to the ${window.HG_DEMOS[set].name.replace(/ Community School District$/, '')} demo${published ? ', and its board version is on the public link again' : ''}.`);
+    here();
   }
 
   function renderNoDistrict() {
@@ -1942,8 +2012,9 @@
     async publishBoard() { await publishBoard(); },
     async withdrawBoard(el) { await withdrawBoard(el); },
     async addDebtRow() { const t = document.querySelector('[data-debt-template]'); document.querySelector('[data-debt-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
-    async removeDebtRow(el) { el.closest('[data-debt-row]').remove(); },
+    async removeDebtRow(el) { const f = el.closest('form'); el.closest('[data-debt-row]').remove(); renderSetupChecks(f); },
     async capReset() { if (CAP.pub) { CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers)); const el = document.getElementById('cap-levers'); if (el) el.innerHTML = capLeversHtml(); capRefresh(); } else { capLoadScenario(); here(); } },
+    async resetDemo(el) { await resetDemo(el); },
     async loadDemo(el) { await loadDemo(el); },
     async signOut() { await HG.auth.signOut(); S.loaded = false; go('#/signin', 'You’re signed out.'); },
     async recheck() { await loadContext(true); go('#/'); },
@@ -2027,6 +2098,8 @@
     run(() => FORMS[form.dataset.form](data, form), form.querySelector('[type=submit]'));
   });
   document.addEventListener('input', (e) => {
+    const sf = e.target.closest('form[data-form=saveSetup]');
+    if (sf) renderSetupChecks(sf);
     const pc = e.target.closest('[data-srcs] [name=pct]');
     if (pc) {   // with two funds, the other one makes up the rest
       const rows = [...pc.closest('[data-srcs]').querySelectorAll('[name=pct]')], v = toNum(pc.value);

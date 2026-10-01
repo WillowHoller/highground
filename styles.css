@@ -235,3 +235,10 @@ table.ranktable td.moves{white-space:nowrap}
 table.ranktable td.moves .btn{min-width:30px;justify-content:center;margin-left:2px}
 table.ranktable select{max-width:150px}
 ul.flags{margin:6px 0;padding-left:20px} ul.flags li{margin:4px 0}
+
+/* ---------- starting-number checks ---------- */
+.card.checks{border-left:4px solid #C9A24A;background:#FFFCF4}
+.card.checks ul{margin:6px 0;padding-left:20px}
+.card.checks li{margin:5px 0}
+.card.checks ul.warn li{color:#6B4A00}
+.card.checks ul.tip li{color:var(--muted)}

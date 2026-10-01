@@ -530,6 +530,22 @@ async def main():
     n0=len(calls); await pg.select_option("select[data-rank-tier] >> nth=0", "strategic"); await pg.wait_for_timeout(600)
     check("ranking: changing a tier saves it on the initiative", any(c[0]=="PATCH" and "/rest/v1/initiative?" in c[1] and '"strategic"' in (c[2] or "") for c in calls[n0:]))
     check("ranking: nothing to defer when everything fits", "Nothing needs deferring" in await pg.inner_text("#view") and await pg.locator("button[data-action=rankScenario]").count()==0)
+    # starting numbers: checks
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(700)
+    ck=pg.locator("[data-setup-checks]")
+    t=await ck.inner_text()
+    check("checks: shown on arrival, as tips, with nothing wrong yet", await ck.is_visible() and "Worth a second look" in t and "don’t match" not in t and "5% debt limit" in t, t[:300])
+    await pg.fill("input[name=ppel_receipts]","100,000"); await pg.wait_for_timeout(150)
+    check("checks: PPEL receipts that don't match rate × valuation", "PPEL receipts ($100,000) don’t match" in await ck.inner_text())
+    await pg.fill("input[name=save_receipts_fy]",""); await pg.wait_for_timeout(150)
+    check("checks: a blank SAVE receipts year", "Say which fiscal year the SAVE receipts are for" in await ck.inner_text())
+    await pg.fill("input[name=enrollment]","300"); await pg.wait_for_timeout(150)
+    check("checks: SAVE per student far from the statewide amount", "per student; SAVE is shared statewide at about $1,358" in await ck.inner_text())
+    while await pg.locator("button[data-action=removeDebtRow]").count(): await pg.locator("button[data-action=removeDebtRow]").first.click()
+    await pg.wait_for_timeout(150)
+    await ck.screenshot(path=SHOTS+"/checks.png")
+    check("checks: no existing debt is questioned", "No existing debt entered" in await ck.inner_text())
+    check("checks: where-to-find hints on the fields", "certified budget (Iowa Department of Management)" in await pg.inner_text("#view"))
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;
@@ -608,6 +624,17 @@ async def main():
     locks=[c for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1] and "is_locked" in (c[2] or "")]
     want=["district_settings","fund_balance","debt_obligation","initiative","scenario","scenario_initiative","phase","phase_funding"]
     check("staff loads demo data in dependency order, then locks the baseline", posts==want and len(locks)==1, str(posts))
+    # reset a demo district to Bridger Hollow
+    await pg.goto("http://localhost:8765/#/staff"); await pg.wait_for_timeout(600)
+    check("staff: Bridger Hollow is offered first", (await pg.locator("select[data-demo-set] option").first.inner_text()).startswith("Bridger Hollow Community School District (925 students)"))
+    await pg.select_option("select[data-demo-district]","d2"); await pg.select_option("select[data-demo-set]","bridger-hollow")
+    n0=len(calls); await pg.click("button[data-action=resetDemo]"); await pg.wait_for_timeout(1200)
+    dels=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="DELETE"]
+    posts=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="POST"]
+    check("reset: erases the demo district's plan, then reloads it", dels==["publication","scenario","initiative","debt_obligation","fund_balance","import_batch","district_settings"]
+          and posts[:10]==["district_settings","fund_balance","debt_obligation","initiative","scenario","scenario_initiative","phase","phase_funding","recurring_cost","financing"], str(dels)+str(posts))
+    check("reset: only that district is touched", all("district_id=eq.d2" in c[1] for c in calls[n0:] if c[0]=="DELETE"))
+    check("reset: says it's done", "Demo reset" in await pg.inner_text("#toasts"))
     await pg.screenshot(path=SHOTS+"/staff.png",full_page=True)
     await pg.click("button[data-action=signOut]"); await pg.wait_for_timeout(300)
     # sign up
