@@ -59,6 +59,7 @@ def uid_from(req):
   a=req.headers.get("authorization","")
   return a[len("Bearer tok-"):].split(".")[0] if a.startswith("Bearer tok-") else None
 FN={"fail":False}
+DBFAIL={"phase":False}
 def user_obj(email):
   u=USERS[email]; o={"id":u[0],"email":email,"user_metadata":{"full_name":u[1]}}
   if email=="mfa@example.test": o["factors"]=[{"id":"f9","status":"verified","factor_type":"totp"}]
@@ -122,6 +123,8 @@ async def handler(route):
     if req.method=="DELETE": return await ok([{"id":"inv1"}])
   if t=="publication" and req.method=="POST":
     pb=json.loads(body); PUB[pb["district_id"]]=pb; return await ok([dict(pb,id="pub1")],201)
+  if t=="phase" and req.method=="POST" and DBFAIL["phase"]:
+    return await ok({"code":"PGRST204","message":"Could not find the 'label' column of 'phase' in the schema cache"},400)
   if t in TABLES and req.method=="POST":
     b=json.loads(body); return await ok(b if isinstance(b,list) else [b],201)
   if t in TABLES and req.method=="DELETE":
@@ -227,8 +230,18 @@ async def main():
     new=calls[n0:]; ops=[(c[0],c[1].split("?")[0].replace("/rest/v1/","")) for c in new if c[0] in ("POST","PATCH","DELETE")]
     phs=json.loads(next(c[2] for c in new if c[0]=="POST" and c[1].startswith("/rest/v1/phase?") or (c[0]=="POST" and c[1]=="/rest/v1/phase?")))
     delq=next((c[1] for c in new if c[0]=="DELETE" and "/rest/v1/phase?" in c[1]),"")
+    delq="scenario_id=eq."+phased_id if "id=in.(" in delq else delq
     check("phase names: saved with the phase", phs[0].get("label")=="Design and bid", str(phs[0]))
-    check("editor: save updates details and replaces this scenario's phases", ops==[("PATCH","initiative"),("DELETE","phase"),("POST","phase"),("POST","phase_funding"),("DELETE","recurring_cost"),("POST","recurring_cost")]
+    # if the database is missing an update, the message is plain and nothing is removed
+    DBFAIL["phase"]=True
+    await pg.click(".ylist a:has-text('Middle school HVAC replacement')"); await pg.wait_for_timeout(300)
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
+    tt=(await pg.inner_text("#toasts")).replace("’","'")
+    check("errors: database out of date is explained plainly", "HighGround's database needs an update before this can be saved. Nothing was changed." in tt and "schema cache" not in tt, tt[-200:])
+    check("errors: a failed save removes nothing", not any(c[0]=="DELETE" for c in calls[n0:]))
+    DBFAIL["phase"]=False
+    await pg.click("[data-modal] button[data-action=closeModal] >> nth=0"); await pg.wait_for_timeout(200)
+    check("editor: save updates details and replaces this scenario's phases", ops==[("PATCH","initiative"),("POST","phase"),("POST","phase_funding"),("POST","recurring_cost"),("DELETE","phase"),("DELETE","recurring_cost")]
           and phs[0]["cost"]==950000 and ("scenario_id=eq."+phased_id) in delq, str(ops))
     await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
     await pg.fill("[data-modal] input[name=name]","Library HVAC")

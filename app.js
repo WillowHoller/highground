@@ -914,7 +914,9 @@
         const rank = new Set(rows.phases.filter((ph) => ph.scenario_id === sid).map((ph) => ph.initiative_id)).size + 1;
         await HG.db.upsert('scenario_initiative', [{ scenario_id: sid, initiative_id: iid, district_id: d, rank, included: true }], 'scenario_id,initiative_id');
       }
-      await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
+      // save the new version first; remove the old rows only once that has worked, so a failure loses nothing
+      const oldPhases = rows.phases.filter((x) => x.scenario_id === sid && x.initiative_id === iid).map((x) => x.id);
+      const oldYearly = (rows.recurring || []).filter((x) => x.scenario_id === sid && x.initiative_id === iid).map((x) => x.id);
       const phases = [], funding = [];
       r.phases.forEach((ph, k) => {
         const pid = crypto.randomUUID();
@@ -922,9 +924,10 @@
         ph.funding.forEach((f) => funding.push({ phase_id: pid, district_id: d, fund: f.b, pct: f.p }));
       });
       if (phases.length) { await HG.db.insert('phase', phases); await HG.db.insert('phase_funding', funding); }
-      await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
       if (r.yearly.length) await HG.db.insert('recurring_cost', r.yearly.map((y) => ({ district_id: d, scenario_id: sid, initiative_id: iid, kind: y.kind, fund: y.fund,
         first_fy: y.first, last_fy: y.last, annual_amount: y.amount, grows_with: y.grows })));
+      if (oldPhases.length) await HG.db.removeAll('phase', `id=in.(${oldPhases.map(enc).join(',')})`);
+      if (oldYearly.length) await HG.db.removeAll('recurring_cost', `id=in.(${oldYearly.map(enc).join(',')})`);
     }
     closeModal(); toast('Saved', sid ? `${r.name} in “${sc.name}”.` : r.name); here();
   }

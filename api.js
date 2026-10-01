@@ -37,8 +37,19 @@
     user: d.user || null,
   });
 
+  const SUPPORT = 'hello@willowholler.com';
   function friendly(msg, code) {
     const m = String(msg || '');
+    // the database is missing something the app expects (an update not yet run)
+    if (/schema cache|does not exist|PGRST20[0-9]|could not find the .* (column|table|function)/i.test(m) || code === '42703' || code === '42P01' || code === '42883' || code === 'PGRST204' || code === 'PGRST202') {
+      console.warn('HighGround: database out of date:', m);
+      return `HighGround’s database needs an update before this can be saved. Nothing was changed. Please contact ${SUPPORT}.`;
+    }
+    if (code === '23503') return 'That refers to something that no longer exists. Reload the page and try again.';
+    if (code === '23514' || code === '22P02' || code === '22023' && !/public email service|Not an email domain/.test(m)) {
+      console.warn('HighGround: value rejected:', m);
+      return 'One of the values wasn’t accepted. Check the entries and try again.';
+    }
     if (code === '42501' || /row-level security|permission denied/i.test(m)) return "You don't have permission to do that in this district.";
     if (/invalid login credentials/i.test(m)) return "That email and password don't match an account.";
     if (/email not confirmed/i.test(m)) return 'Confirm your email first: open the link we sent you, then sign in.';
@@ -47,6 +58,11 @@
     if (/at least one character of each|password is known to be weak|weak password/i.test(m)) return 'That password is too weak. Use at least 8 characters, with a lowercase letter, a capital, a number and a symbol.';
     if (/pwned|leaked|breach/i.test(m)) return 'That password has appeared in a data breach. Choose a different one.';
     if (/rate limit|too many/i.test(m)) return 'Too many attempts. Wait a few minutes and try again.';
+    // anything else that reads like a database message: say so plainly, keep the detail for troubleshooting
+    if (/violates|syntax error|relation |constraint|PGRST|null value|duplicate key|invalid input|operator does not/i.test(m)) {
+      console.warn('HighGround: technical error:', code, m);
+      return `Something went wrong saving this, and nothing was changed. Try again; if it keeps happening, contact ${SUPPORT}.`;
+    }
     if (/invalid totp|code.*(invalid|expired)|mfa_verification_failed/i.test(m)) return 'That code didn’t work. Codes change every 30 seconds; try the current one.';
     return m;
   }

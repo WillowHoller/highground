@@ -48,6 +48,9 @@ end $$;
 revoke execute on function public.copy_scenario(uuid, text) from public, anon;
 grant execute on function public.copy_scenario(uuid, text) to authenticated;
 
+-- make the new column visible to the app straight away
+notify pgrst, 'reload schema';
+
 -- check (both rows should say PASS)
 select 1 as n, 'Phases can have a name' as test,
        case when exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'phase' and column_name = 'label')
