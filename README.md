@@ -22,6 +22,9 @@ styles.css            HighGround design tokens
 04_iowa_rules.sql     database: Iowa rule values with source status
 05_verify_setup.sql   check: structure (9 rows PASS)
 06_access_test.sql    check: access rules as six test users (13 rows PASS)
+07_signin.sql         database: access requests, email-domain allow-list, invitation email tracking (5 rows PASS)
+send-invitation.ts    Supabase Edge Function: emails invitations through Postmark
+send_invitation_test.mjs  node --experimental-strip-types send_invitation_test.mjs
 test_ui.py            browser test against a simulated Supabase (Playwright)
 engine_test.js        node engine_test.js: engine vs. the working planner, 32 cases
 capital_test.js       node capital_test.js: demo data through database-shaped rows and back, 32 cases

@@ -101,6 +101,23 @@ If the address differs from the one in step 4, update **Authentication → URL C
 3. To try the other roles, invite test addresses from **Settings → People** and create those accounts from a private browser window. Invitations aren't emailed yet; the person creates an account with the invited address, confirms it, and has access.
 4. **Help → What's built** lists every screen and whether it works.
 
+## 12. Sign-in update (database)
+
+In **SQL Editor → New query**, paste all of `07_signin.sql` and click **Run**. The result is a five-row table; every row should say **PASS**. Do this *before* uploading the app files that use it.
+
+## 13. Invitation emails (server function)
+
+The app asks a small Supabase function to send invitation emails, so the Postmark token never reaches a browser.
+
+1. **Edge Functions** (left sidebar) → **Deploy a new function** → **Via Editor**.
+2. Name it exactly `send-invitation`.
+3. Delete the template code, paste in all of `send-invitation.ts`, and click **Deploy function**. It takes 10–30 seconds.
+4. **Edge Functions → Secrets**: add a secret named `POSTMARK_SERVER_TOKEN` whose value is your Postmark **Server API token** (Postmark → your server → API Tokens). Save. No redeploy is needed.
+5. Optional secrets: `APP_URL` if the app moves to its own address (default `https://willowholler.github.io/highground/`), and `MAIL_FROM` (default `HighGround <no-reply@willowholler.com>`).
+6. Test: **Settings → People → Invite someone** with an address you can check. Until Postmark approves the account, only willowholler.com addresses receive mail.
+
+If the email can’t be sent, the app says why and keeps the invitation, so the person can still create an account with the invited address.
+
 ## 11. What's ready, and what isn't
 
 **Ready after these steps:** the database for districts, people and roles; initiatives, scenarios, phases, funding and yearly costs; goals and measures; monthly GL, budget and balance uploads with review and apply; surveys (totals and themes); suggestions; attachments; publishing; the audit log; file storage.

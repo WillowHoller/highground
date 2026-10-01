@@ -29,8 +29,9 @@ Decisions deferred during the build, and launch tasks. Work through this list be
 
 ## Product
 
-- [ ] **Invitation emails.** Invitations aren't emailed yet; people are told the address by hand.
-- [ ] **Two-step sign-in** offered in the app, and required for admins.
+- [ ] **Invitation emails working** (built 30 Sept 2026): `send-invitation` deployed, `POSTMARK_SERVER_TOKEN` secret set, a real invitation received outside willowholler.com after Postmark approval.
+- [ ] **Two-step sign-in required for admins.** Offered to everyone since 30 Sept 2026. Requiring it means database rules that check the session's assurance level (`aal2`) for admin actions; decide, then build.
+- [ ] **Email-domain allow-list reviewed** for each district: only the district's own domains, and the role is right.
 - [ ] **Setup screen, project upload, saving scenarios.** Phase 1 items still marked "Not built yet".
 - [ ] **Demo districts** clearly marked, and no real district's name next to invented numbers anywhere, including screenshots and the storyboard image.
 - [ ] **No student data** anywhere. Survey results are totals and themes only.

@@ -47,6 +47,7 @@
     if (/at least one character of each|password is known to be weak|weak password/i.test(m)) return 'That password is too weak. Use at least 8 characters, with a lowercase letter, a capital, a number and a symbol.';
     if (/pwned|leaked|breach/i.test(m)) return 'That password has appeared in a data breach. Choose a different one.';
     if (/rate limit|too many/i.test(m)) return 'Too many attempts. Wait a few minutes and try again.';
+    if (/invalid totp|code.*(invalid|expired)|mfa_verification_failed/i.test(m)) return 'That code didn’t work. Codes change every 30 seconds; try the current one.';
     return m;
   }
 
@@ -113,6 +114,23 @@
       const u = await call('/auth/v1/user', { method: 'PUT', body: { password } });
       session.user = u; save(session); return u;
     },
+    /** 'aal1' after a password; 'aal2' after a two-step code. */
+    aal() {
+      try { const p = session.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'); return JSON.parse(atob(p + '==='.slice((p.length + 3) % 4))).aal || 'aal1'; }
+      catch (e) { return 'aal1'; }
+    },
+    mfa: {
+      async enroll() {
+        return call('/auth/v1/factors', { method: 'POST', body: { factor_type: 'totp', friendly_name: 'Authenticator app ' + new Date().toISOString().slice(0, 16), issuer: 'HighGround' } });
+      },
+      async verify(factorId, code) {
+        const ch = await call(`/auth/v1/factors/${factorId}/challenge`, { method: 'POST', body: {} });
+        const d = await call(`/auth/v1/factors/${factorId}/verify`, { method: 'POST', body: { challenge_id: ch.id, code: String(code).replace(/\s/g, '') } });
+        session = Object.assign(toSession(d), { user: d.user || session.user }); save(session);
+        return session;
+      },
+      async unenroll(factorId) { return call(`/auth/v1/factors/${factorId}`, { method: 'DELETE' }); },
+    },
     async currentUser() {
       const u = await call('/auth/v1/user');
       session.user = u; save(session); return u;
@@ -148,6 +166,8 @@
       { method: 'POST', body: file, raw: true, headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' } }),
     download: (bucket, path) => call(`/storage/v1/object/authenticated/${bucket}/${encPath(path)}`, { blob: true }),
   };
+  /** Call a Supabase Edge Function as the signed-in user. */
+  HG.fn = (name, body) => call(`/functions/v1/${name}`, { method: 'POST', body: body || {} });
   HG.db = {
     select: (table, query) => call(`/rest/v1/${table}${qs(query)}`),
     insert: (table, row) => call(`/rest/v1/${table}`, { method: 'POST', body: row, headers: { Prefer: 'return=representation' } }),

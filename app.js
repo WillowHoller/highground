@@ -69,6 +69,10 @@
     if (S.loaded && !force) return;
     const u = await HG.auth.currentUser();
     S.user = u;
+    const verified = (u.factors || []).filter((f) => f.status === 'verified');
+    S.mfaFactor = verified.length && HG.auth.aal() !== 'aal2' ? verified[0].id : null;
+    if (S.mfaFactor) { S.loaded = false; return; }
+    try { await HG.db.rpc('claim_my_access'); } catch (e) { /* older database without part 7: carry on */ }
     const [staff, mems, prof] = await Promise.all([
       HG.db.select('platform_admin', `select=user_id&user_id=eq.${enc(u.id)}`),
       HG.db.select('district_member', `select=role,district:district_id(id,slug,name,short_name,state,county,brand_color,is_demo,public_link_enabled)&user_id=eq.${enc(u.id)}`),
@@ -106,6 +110,7 @@
       if (!HG.auth.session) return go('#/signin');
       if (parts[0] === 'set-password') return renderSetPassword();
       await loadContext();
+      if (S.mfaFactor) return renderTwoStep();
       if (parts[0] === 'staff') return await renderStaff();
       if (parts[0] === 'd' && parts[1]) return await renderDistrict(parts[1], parts[2], parts[3]);
       if (!S.districts.length) return S.isStaff ? go('#/staff', flash) : renderNoDistrict();
@@ -159,7 +164,7 @@
       { id: 'district', label: 'District', status: 'partial', phase: 1, lede: 'Name, link and look, and the numbers the plan starts from.', render: vDistrict },
       { id: 'setup', label: 'Starting numbers', status: 'live', lede: 'What the capital plan starts from: receipts, balances and existing debt.', render: vSetup },
       { id: 'people', label: 'People', status: 'live', lede: 'Who can see and change this district.', render: vPeople },
-      { id: 'account', label: 'Your account', status: 'partial', phase: 1, lede: 'Your name, password and sign-in security.', render: vAccount },
+      { id: 'account', label: 'Your account', status: 'live', lede: 'Your name, password and sign-in security.', render: vAccount },
     ] },
     { id: 'help', label: 'Help', tabs: [
       { id: 'built', label: 'What’s built', status: 'live', lede: 'Every screen, and whether it works yet.', render: vBuilt },
@@ -932,6 +937,8 @@
   // ------------------------------------------------------------------ views: Settings
   async function vDistrict(c) {
     const d = c.district;
+    let dom = null;
+    try { dom = (await HG.db.select('district', `select=allowed_domains,domain_role&id=eq.${d.id}`))[0] || null; } catch (e) { dom = null; }
     const dis = c.admin ? '' : 'disabled';
     return `
       <div class="card"><h3>District</h3>
@@ -942,6 +949,9 @@
           <label class="field">Brand color<input name="brand_color" type="color" value="${esc(d.brand_color || '#1E3A2F')}" ${dis}>
             <span class="hint">Used for the district’s tile and public page. Buttons keep HighGround’s colors.</span></label>
           <label class="row"><input type="checkbox" name="public_link_enabled" ${d.public_link_enabled ? 'checked' : ''} ${dis}> Public link on</label>
+          ${dom ? `<label class="field">Automatic access for these email domains<input name="allowed_domains" value="${esc((dom.allowed_domains || []).join(', '))}" placeholder="ironwoodvalley.k12.ia.us" ${dis}>
+            <span class="hint">Anyone who confirms an address at one of these domains gets access without an invitation. Use only the district’s own domains; public services like Gmail are refused. Separate several with commas.</span></label>
+          <label class="field">They get<select name="domain_role" ${dis}><option value="viewer" ${dom.domain_role !== 'board' ? 'selected' : ''}>Viewer access</option><option value="board" ${dom.domain_role === 'board' ? 'selected' : ''}>Board-member access</option></select></label>` : ''}
           <p class="small muted">Link id: <b>${esc(d.slug)}</b> (set when the district is created)</p>
           ${c.admin ? '<div><button class="btn primary" type="submit">Save changes</button></div>' : '<p class="small muted">Only a district admin can change these.</p>'}
         </form></div>
@@ -952,8 +962,10 @@
     const d = c.district.id;
     const [mem, inv] = await Promise.all([
       HG.db.select('district_member', `select=user_id,role,created_at&district_id=eq.${d}&order=created_at`),
-      c.admin ? HG.db.select('invitation', `select=id,email,role,created_at,expires_at&district_id=eq.${d}&accepted_at=is.null&order=created_at.desc`) : Promise.resolve([]),
+      c.admin ? HG.db.select('invitation', `select=*&district_id=eq.${d}&accepted_at=is.null&order=created_at.desc`) : Promise.resolve([]),
     ]);
+    let reqs = [];
+    if (c.admin) { try { reqs = await HG.db.select('access_request', `select=id,email,message,created_at&district_id=eq.${d}&status=eq.pending&order=created_at`); } catch (e) { reqs = []; } }
     const ids = mem.map((m) => m.user_id);
     const prof = ids.length ? await HG.db.select('profile', `select=user_id,email,full_name,title&user_id=in.(${ids.map(enc).join(',')})`) : [];
     const P = Object.fromEntries(prof.map((p) => [p.user_id, p]));
@@ -974,16 +986,35 @@
           <label class="field">Role<select name="role">${roleOptions}</select></label>
           <button class="btn primary" type="submit">Send invitation</button>
         </form>
-        <p class="small muted" style="margin-top:10px">HighGround doesn’t email the invitation yet (Phase 1). Tell them to go to ${esc(HG.appUrl())} and create an account with that address.</p></div>
+        <p class="small muted" style="margin-top:10px">HighGround emails them a link to ${esc(HG.appUrl())}. They must create their account with the invited address.</p></div>
+      ${reqs.length ? `<div class="card"><h3>Asking for access</h3>${table([
+        { label: 'Email', get: (q) => q.email },
+        { label: 'Message', get: (q) => q.message },
+        { label: 'Asked', get: (q) => day(q.created_at) },
+        { label: 'Role', html: (q) => `<select data-req-role="${esc(q.id)}" aria-label="Role">${Object.entries(ROLE).map(([k, v]) => `<option value="${k}" ${k === 'viewer' ? 'selected' : ''}>${v}</option>`).join('')}</select>` },
+        { label: '', html: (q) => `<button type="button" class="btn small primary" data-action="approveRequest" data-id="${esc(q.id)}" data-email="${esc(q.email)}">Approve</button>
+            <button type="button" class="btn small danger" data-action="declineRequest" data-id="${esc(q.id)}">Decline</button>` },
+      ], reqs, '')}</div>` : ''}
       <div class="card"><h3>Waiting to accept</h3>${table([
         { label: 'Email', get: (i) => i.email },
         { label: 'Role', get: (i) => ROLE[i.role] },
         { label: 'Invited', get: (i) => day(i.created_at) },
+        { label: 'Emailed', get: (i) => (i.last_sent_at ? day(i.last_sent_at) + (i.sent_count > 1 ? ` (${i.sent_count} times)` : '') : 'Not yet') },
         { label: 'Expires', get: (i) => day(i.expires_at) },
-        { label: '', html: (i) => `<button type="button" class="btn small danger" data-action="cancelInvite" data-id="${esc(i.id)}">Cancel</button>` },
+        { label: '', html: (i) => `<button type="button" class="btn small" data-action="resendInvite" data-id="${esc(i.id)}">Send again</button>
+            <button type="button" class="btn small danger" data-action="cancelInvite" data-id="${esc(i.id)}">Cancel</button>` },
       ], inv, 'No open invitations.')}</div>` : '<p class="small muted">Only a district admin can invite people or change roles.</p>'}
       <details class="small muted"><summary>What each role can do</summary>
         <p><b>Admin</b>: everything, including people, settings, publishing and unlocking scenarios. <b>Business manager</b>: financial uploads, balances, debt, settings. <b>Superintendent</b> and <b>Editor</b>: initiatives, scenarios, goals, project and goal uploads. <b>Board member</b> and <b>Viewer</b>: read everything in the district.</p></details>`;
+  }
+  async function sendInvite(id, email) {
+    try {
+      const r = await HG.fn('send-invitation', { invitation_id: id });
+      if (r && r.status === 'accepted') toast('Access started', `${email} already had an account, so they have access now.`);
+      else toast('Invitation emailed', `Sent to ${email}.`);
+    } catch (err) {
+      toast('Invitation saved, but not emailed', `${err.message} Tell them to create an account at ${HG.appUrl()} with ${email}.`, 'notbuilt');
+    }
   }
   async function vAccount() {
     const p = S.profile || {};
@@ -1001,7 +1032,13 @@
           <label class="field">New password again<input name="again" type="password" minlength="8" required autocomplete="new-password"></label>
           <div><button class="btn primary" type="submit">Change password</button></div>
         </form></div>
-      <div class="card"><h3>Two-step sign-in</h3><p>Use an authenticator app as a second step when you sign in.</p>${nb('Turn on two-step sign-in', 'Two-step sign-in', 1)}</div>`;
+      <div class="card"><h3>Two-step sign-in</h3>${(() => {
+        const on = ((S.user && S.user.factors) || []).find((x) => x.status === 'verified');
+        return on ? `<p><b>On.</b> After your password, HighGround asks for a code from your authenticator app.</p>
+            <button type="button" class="btn danger" data-action="mfaOff" data-id="${esc(on.id)}">Turn it off</button>`
+          : `<p>After your password, HighGround will also ask for a 6-digit code from an authenticator app on your phone (Google Authenticator, Microsoft Authenticator, 1Password and similar).</p>
+            <button type="button" class="btn primary" data-action="mfaOn">Turn on two-step sign-in</button>`;
+      })()}</div>`;
   }
   async function vBuilt() {
     const rows = [];
@@ -1263,7 +1300,13 @@
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
       <div class="card"><h3>You don’t have access to a district yet</h3>
         <p>Ask your district’s HighGround admin to invite <b>${esc(S.user.email)}</b>. Access starts as soon as they do.</p>
-        <div class="row"><button type="button" class="btn primary" data-action="recheck">Check again</button>${nb('Request access', 'Requesting access', 1)}</div></div>` });
+        <div class="row"><button type="button" class="btn primary" data-action="recheck">Check again</button></div></div>
+      <div class="card"><h3>Or ask a district for access</h3>
+        <p class="small muted">The district’s link id is the last part of its HighGround link, for example <b>ironwood-valley</b>.</p>
+        <form class="stack" data-form="requestAccess">
+          <label class="field">District link id<input name="slug" required pattern="[a-zA-Z0-9\\-]{2,40}" autocomplete="off"></label>
+          <label class="field">Message to the district’s admins<textarea name="message" maxlength="1000" placeholder="Who you are and why you need access"></textarea></label>
+          <div><button class="btn" type="submit">Ask for access</button></div></form></div>` });
     flash = null;
   }
 
@@ -1326,6 +1369,14 @@
         <button class="btn primary" type="submit">Sign in</button></form>
       <div class="links"><a href="#/forgot">Forgot your password?</a><a href="#/signup">Create an account</a></div>`);
   }
+  function renderTwoStep() {
+    authFrame(`<h1>Two-step sign-in</h1>
+      <p>Enter the 6-digit code from your authenticator app.</p>
+      <form class="stack" data-form="twoStep">
+        <label class="field">Code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required autofocus></label>
+        <button class="btn primary" type="submit">Continue</button></form>
+      <div class="links"><a href="#" data-action="signOut">Sign out</a></div>`);
+  }
   function renderSetPassword() {
     authFrame(`<h1>Choose a new password</h1>
       <form class="stack" data-form="setPassword">
@@ -1369,6 +1420,34 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async resendInvite(el) { const inv = el.closest('tr').querySelector('td').textContent; await sendInvite(el.dataset.id, inv); here(); },
+    async approveRequest(el) {
+      const role = document.querySelector(`[data-req-role="${el.dataset.id}"]`).value;
+      await HG.db.insert('invitation', { district_id: S.district.id, email: el.dataset.email, role });
+      await HG.db.update('access_request', `id=eq.${enc(el.dataset.id)}`, { status: 'approved', decided_by: S.user.id, decided_at: new Date().toISOString() });
+      toast('Approved', `${el.dataset.email} now has ${ROLE[role].toLowerCase()} access.`); here();
+    },
+    async declineRequest(el) {
+      if (!confirm('Decline this request?')) return;
+      await HG.db.update('access_request', `id=eq.${enc(el.dataset.id)}`, { status: 'declined', decided_by: S.user.id, decided_at: new Date().toISOString() });
+      toast('Declined'); here();
+    },
+    async mfaOn() {
+      for (const f of ((S.user && S.user.factors) || []).filter((x) => x.status !== 'verified')) { try { await HG.auth.mfa.unenroll(f.id); } catch (e) { /* stale */ } }
+      const e = await HG.auth.mfa.enroll();
+      const qr = e.totp && e.totp.qr_code ? (String(e.totp.qr_code).startsWith('data:') ? e.totp.qr_code : 'data:image/svg+xml;utf8,' + encodeURIComponent(e.totp.qr_code)) : '';
+      modal(`<form class="stack" data-form="mfaConfirm" data-id="${esc(e.id)}">
+        <div class="row" style="justify-content:space-between"><h2 id="modal-title">Turn on two-step sign-in</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+        <p>1. In your authenticator app, add an account by scanning this code.</p>
+        ${qr ? `<img src="${esc(qr)}" alt="QR code for your authenticator app" width="200" height="200" style="background:#fff;padding:8px;border:1px solid var(--border);border-radius:8px">` : ''}
+        <p class="small muted">Can’t scan? Enter this key instead: <code>${esc((e.totp && e.totp.secret) || '')}</code></p>
+        <label class="field">2. Enter the 6-digit code it shows<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
+        <div class="row"><button type="submit" class="btn primary">Turn it on</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
+    },
+    async mfaOff(el) {
+      if (!confirm('Turn off two-step sign-in? Signing in will need only your password.')) return;
+      await HG.auth.mfa.unenroll(el.dataset.id); await loadContext(true); toast('Two-step sign-in is off'); here();
+    },
     async editProject(el) { openProjectEditor(el.dataset.id || null); },
     async removeProject(el) { await removeProject(el); },
     async addPhaseRow() { const t = document.querySelector('[data-phase-template]'); document.querySelector('[data-phase-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
@@ -1408,6 +1487,13 @@
     },
   };
   const FORMS = {
+    async twoStep(f) { await HG.auth.mfa.verify(S.mfaFactor, f.code); S.mfaFactor = null; S.loaded = false; document.getElementById('toasts').innerHTML = ''; go('#/'); },
+    async mfaConfirm(f, form) { await HG.auth.mfa.verify(form.dataset.id, f.code); closeModal(); await loadContext(true); toast('Two-step sign-in is on', 'From now on you’ll enter a code after your password.'); here(); },
+    async requestAccess(f, form) {
+      const r = await HG.db.rpc('request_access', { p_slug: f.slug.trim(), p_message: (f.message || '').trim() });
+      if (r === 'member') { await loadContext(true); return go('#/'); }
+      form.reset(); toast('Request sent', 'If that district uses HighGround, its admins will see your request. You’ll have access as soon as one approves it.');
+    },
     async saveProject(f, form) { await saveProject(form); },
     async saveFinancing(f, form) { await saveFinancing(form); },
     async saveSetup(f, form) { await saveSetup(form); },
@@ -1430,12 +1516,14 @@
       await HG.db.update('district', `id=eq.${S.district.id}`, {
         name: f.name.trim(), short_name: f.short_name.trim() || null, county: f.county.trim() || null,
         brand_color: f.brand_color || null, public_link_enabled: !!f.public_link_enabled,
+        ...(f.allowed_domains !== undefined ? { allowed_domains: String(f.allowed_domains).split(/[\s,;]+/).map((x) => x.trim().replace(/^@/, '')).filter(Boolean), domain_role: f.domain_role || 'viewer' } : {}),
       });
       await loadContext(true); toast('Saved'); here();
     },
     async invite(f, form) {
-      await HG.db.insert('invitation', { district_id: S.district.id, email: f.email.trim().toLowerCase(), role: f.role });
-      form.reset(); toast('Invitation saved', `${f.email.trim()} can now create an account and will get access once their email is confirmed.`); here();
+      const email = f.email.trim().toLowerCase();
+      const [inv] = await HG.db.insert('invitation', { district_id: S.district.id, email, role: f.role });
+      form.reset(); await sendInvite(inv.id, email); here();
     },
     async createDistrict(f) {
       const [d] = await HG.db.insert('district', { name: f.name.trim(), short_name: f.short_name.trim() || null, slug: f.slug.trim(), is_demo: !!f.is_demo });

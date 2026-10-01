@@ -8,7 +8,8 @@ USERS={"admin@example.test":("u-admin","Pat Admin",[("d1","admin"),("d2","viewer
        "viewer@example.test":("u-viewer","Val Viewer",[("d1","viewer")],False),
        "new@example.test":("u-new","Nia New",[],False),
        "staff@example.test":("u-staff","Sam Staff",[],True),
-       "empty.staff@example.test":("u-estaff","Eve Staff",[],True)}
+       "empty.staff@example.test":("u-estaff","Eve Staff",[],True),
+       "mfa@example.test":("u-mfa","Mo Factor",[],False)}
 PW="correct horse battery"
 TABLES={"initiative":[{"district_id":"d1","name":"Middle school HVAC","type":"capital","status":"approved","focus_area":"Facilities","tier":"must","cost_confidence":"firm","condition":"poor","id":"i1"}],
  "scenario":[{"district_id":"d1","id":"s1","name":"District baseline","is_board_version":True,"is_locked":True,"updated_at":"2026-09-23T12:00:00Z"}],
@@ -39,11 +40,20 @@ def gold(scen,patch): return next(c for c in GOLD["cases"] if c["scenario"]==sce
 PUB={}
 TABLES["publication"]=[]
 TABLES["import_row"]=[]; TABLES["import_issue"]=[]
+TABLES["access_request"]=[{"id":"req1","district_id":"d1","email":"asker@example.test","message":"New principal at the middle school","created_at":"2026-09-29T15:00:00Z","status":"pending"}]
 calls=[]
+import base64
+def tok(uid,aal="aal1"):
+  pl=base64.urlsafe_b64encode(json.dumps({"sub":uid,"aal":aal}).encode()).decode().rstrip("=")
+  return "tok-%s.%s.sig"%(uid,pl)
 def uid_from(req):
   a=req.headers.get("authorization","")
-  return a.replace("Bearer tok-","") if a.startswith("Bearer tok-") else None
-def user_obj(email): u=USERS[email]; return {"id":u[0],"email":email,"user_metadata":{"full_name":u[1]}}
+  return a[len("Bearer tok-"):].split(".")[0] if a.startswith("Bearer tok-") else None
+FN={"fail":False}
+def user_obj(email):
+  u=USERS[email]; o={"id":u[0],"email":email,"user_metadata":{"full_name":u[1]}}
+  if email=="mfa@example.test": o["factors"]=[{"id":"f9","status":"verified","factor_type":"totp"}]
+  return o
 def email_of(uid): return next((e for e,u in USERS.items() if u[0]==uid),None)
 async def handler(route):
   req=route.request; url=urllib.parse.urlparse(req.url); path=url.path; q=urllib.parse.parse_qs(url.query)
@@ -54,8 +64,20 @@ async def handler(route):
   if path=="/auth/v1/token":
     b=json.loads(body)
     if q["grant_type"][0]=="password":
-      if b["email"] in USERS and b["password"]==PW: return await ok({"access_token":"tok-"+USERS[b["email"]][0],"refresh_token":"r","expires_in":3600,"user":user_obj(b["email"])})
+      if b["email"] in USERS and b["password"]==PW: return await ok({"access_token":tok(USERS[b["email"]][0]),"refresh_token":"r","expires_in":3600,"user":user_obj(b["email"])})
       return await ok({"error":"invalid_grant","error_description":"Invalid login credentials"},400)
+  if path=="/auth/v1/factors" and req.method=="POST": return await ok({"id":"f1","type":"totp","totp":{"qr_code":"<svg xmlns='http://www.w3.org/2000/svg'/>","secret":"JBSWY3DPEHPK3PXP","uri":"otpauth://x"}})
+  if path.startswith("/auth/v1/factors/") and path.endswith("/challenge"): return await ok({"id":"ch1","expires_at":9999999999})
+  if path.startswith("/auth/v1/factors/") and path.endswith("/verify"):
+    b=json.loads(body)
+    if b.get("code")!="123456" or b.get("challenge_id")!="ch1": return await ok({"code":"mfa_verification_failed","msg":"Invalid TOTP code entered"},422)
+    return await ok({"access_token":tok(uid,"aal2"),"refresh_token":"r2","expires_in":3600,"user":user_obj(em)})
+  if path.startswith("/auth/v1/factors/") and req.method=="DELETE": return await ok({"id":path.split("/")[-1]})
+  if path=="/functions/v1/send-invitation":
+    b=json.loads(body)
+    return await (ok({"error":"Email isn’t set up on the server yet."},500) if FN["fail"] else ok({"status":"sent","to":"x"}))
+  if path=="/rest/v1/rpc/claim_my_access": return await route.fulfill(status=204,body="")
+  if path=="/rest/v1/rpc/request_access": return await ok("sent")
   if path=="/auth/v1/user":
     if not em: return await ok({"msg":"JWT expired"},401)
     return await ok(user_obj(em))
@@ -126,6 +148,7 @@ async def main():
     check("wrong password message", "don't match" in (await pg.inner_text("#toasts")).replace("’","'"))
     await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(700)
     body=await pg.inner_text("body")
+    check("access refresh runs on load", any("/rest/v1/rpc/claim_my_access" in c[1] for c in calls))
     check("admin lands on first district overview", "cottonwood-ridge/overview" in pg.url and "initiatives" in body, pg.url)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(500); body=await pg.inner_text("body")
     check("overview live counts", "District baseline" in body)
@@ -224,6 +247,21 @@ async def main():
     await pg.click("form[data-form=invite] button"); await pg.wait_for_timeout(400)
     post=[c for c in calls if c[0]=="POST" and "/rest/v1/invitation" in c[1]]
     check("invite posts lowercased email and role", post and json.loads(post[-1][2])=={"district_id":"d1","email":"new.person@example.test","role":"editor"}, post[-1][2] if post else "")
+    fnc=[c for c in calls if "/functions/v1/send-invitation" in c[1]]
+    check("invite: emails the invitation through the server function", fnc and json.loads(fnc[-1][2])=={"invitation_id":"inv2"} and "Invitation emailed" in await pg.inner_text("#toasts"))
+    FN["fail"]=True
+    await pg.fill("form[data-form=invite] input[name=email]","second@example.test"); await pg.click("form[data-form=invite] button"); await pg.wait_for_timeout(500)
+    check("invite: if the email can't go, says so and keeps the invitation", "Invitation saved, but not emailed" in await pg.inner_text("#toasts"))
+    FN["fail"]=False
+    n0=len(calls); await pg.click("button[data-action=resendInvite][data-id=inv1]"); await pg.wait_for_timeout(500)
+    check("invite: send again", any("/functions/v1/send-invitation" in c[1] and json.loads(c[2])["invitation_id"]=="inv1" for c in calls[n0:]))
+    t=await pg.inner_text("#view")
+    check("access requests: listed for admins", "Asking for access" in t and "asker@example.test" in t and "New principal" in t)
+    await pg.select_option("select[data-req-role=req1]","board"); n0=len(calls)
+    await pg.click("button[data-action=approveRequest][data-id=req1]"); await pg.wait_for_timeout(600)
+    ai=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "/rest/v1/invitation" in c[1]]
+    ap=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/access_request" in c[1]]
+    check("access requests: approve invites them with the chosen role", ai==[{"district_id":"d1","email":"asker@example.test","role":"board"}] and ap and ap[0]["status"]=="approved", str(ai)+str(ap))
     await pg.click("text=Cancel"); await pg.wait_for_timeout(300)
     check("cancel invitation sends delete", any(c[0]=="DELETE" and "invitation?id=eq.inv1" in c[1] for c in calls))
     await pg.select_option("select[data-role-for='u-viewer']","editor"); await pg.wait_for_timeout(300)
@@ -232,6 +270,10 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/district"); await pg.wait_for_timeout(300)
     await pg.fill("input[name=county]","Harrison-free County"); await pg.click("form[data-form=saveDistrict] button[type=submit]"); await pg.wait_for_timeout(400)
     check("district save sends patch", any(c[0]=="PATCH" and "/rest/v1/district?" in c[1] and "Harrison-free" in (c[2] or "") for c in calls))
+    await pg.fill("input[name=allowed_domains]","@IronwoodValley.k12.ia.us, ivcsd.org"); await pg.select_option("select[name=domain_role]","board")
+    n0=len(calls); await pg.click("form[data-form=saveDistrict] button[type=submit]"); await pg.wait_for_timeout(500)
+    dp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/district?" in c[1]]
+    check("domain allow-list: saved with role", dp and dp[0]["allowed_domains"]==["IronwoodValley.k12.ia.us","ivcsd.org"] and dp[0]["domain_role"]=="board", str(dp))
     # switch district: admin is viewer in d2
     await pg.select_option("select[data-switch]","cottonwood-ridge"); await pg.wait_for_timeout(500)
     await pg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/people"); await pg.wait_for_timeout(400)
@@ -311,6 +353,15 @@ async def main():
     check("setup: updates the existing debt and adds the new one", len(dp)==1 and len(di)==1 and json.loads(di[0][2])["fund"]=="ppel" and json.loads(di[0][2])["annual_payment"]==45000)
     await pg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/setup"); await pg.wait_for_timeout(500)
     check("setup: read-only for a viewer", await pg.locator("form[data-form=saveSetup] button[type=submit]").count()==0 and await pg.is_disabled("input[name=save_receipts]"))
+    # two-step sign-in: turning it on
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/account"); await pg.wait_for_timeout(400)
+    await pg.click("button[data-action=mfaOn]"); await pg.wait_for_timeout(400)
+    check("two-step: setup shows a QR code and the key", await pg.locator("[data-modal] img[alt^='QR code']").count()==1 and "JBSWY3DPEHPK3PXP" in await pg.inner_text("[data-modal]"))
+    await pg.fill("[data-modal] input[name=code]","000000"); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(400)
+    check("two-step: a wrong code is explained", "That code didn’t work" in await pg.inner_text("#toasts") and await pg.locator("[data-modal]").count()==1)
+    await pg.fill("[data-modal] input[name=code]","123 456"); n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
+    seq=[c[1].split("?")[0] for c in calls[n0:] if "/factors/" in c[1]]
+    check("two-step: challenge, then verify, then on", seq==["/auth/v1/factors/f1/challenge","/auth/v1/factors/f1/verify"] and "Two-step sign-in is on" in await pg.inner_text("#toasts"), str(seq))
     # help map
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(300)
     await pg.screenshot(path=SHOTS+"/help-built.png",full_page=True)
@@ -320,6 +371,18 @@ async def main():
     await pg.fill("input[name=email]","new@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
     check("no-district welcome", "don’t have access to a district yet" in await pg.inner_text("body"))
     check("no Search button outside a district", await pg.locator("[data-notbuilt='Search']").count()==0)
+    await pg.fill("form[data-form=requestAccess] input[name=slug]","ironwood-valley"); await pg.fill("form[data-form=requestAccess] textarea","I'm the new principal")
+    n0=len(calls); await pg.click("form[data-form=requestAccess] button"); await pg.wait_for_timeout(500)
+    rq=[json.loads(c[2]) for c in calls[n0:] if "rpc/request_access" in c[1]]
+    check("request access: sent by link id", rq==[{"p_slug":"ironwood-valley","p_message":"I'm the new principal"}] and "Request sent" in await pg.inner_text("#toasts"), str(rq))
+    await pg.click("button[data-action=signOut]"); await pg.wait_for_timeout(300)
+    # two-step sign-in: someone who has it on is asked for a code
+    await pg.fill("input[name=email]","mfa@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
+    check("two-step: code asked for after the password", "Enter the 6-digit code" in await pg.inner_text("body"))
+    await pg.goto("http://localhost:8765/#/staff"); await pg.wait_for_timeout(500)
+    check("two-step: nothing else opens until the code is entered", "Enter the 6-digit code" in await pg.inner_text("body"))
+    await pg.fill("input[name=code]","123456"); await pg.click("button[type=submit]"); await pg.wait_for_timeout(700)
+    check("two-step: right code lets them in", "Welcome to HighGround" in await pg.inner_text("body"))
     await pg.click("button[data-action=signOut]"); await pg.wait_for_timeout(300)
     # staff with no districts yet
     await pg.fill("input[name=email]","empty.staff@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
