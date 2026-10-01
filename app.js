@@ -293,7 +293,7 @@
   async function vInitiatives(c) {
     const rows = await HG.db.select('initiative', `select=name,type,status,focus_area,tier,cost_confidence,condition&district_id=eq.${c.district.id}&order=name`);
     return `
-      <div class="row">${nb('Add an initiative', 'Adding initiatives', 1)}${nb('Upload projects', 'Project upload', 2)}</div>
+      <div class="row">${nb('Add an initiative', 'Adding initiatives', 1)}<a class="btn" href="#/d/${enc(c.district.slug)}/progress/uploads">Upload projects</a></div>
       <div class="card">${table([
         { label: 'Initiative', get: (r) => r.name },
         { label: 'Type', get: (r) => r.type },
@@ -302,7 +302,7 @@
         { label: 'Tier', get: (r) => r.tier },
         { label: 'Cost', get: (r) => r.cost_confidence },
         { label: 'Condition', get: (r) => r.condition },
-      ], rows, 'No initiatives yet. Projects are entered by hand on the capital plan (coming in Phase 1); upload arrives in Phase 2.')}</div>
+      ], rows, 'No initiatives yet. Upload a project spreadsheet from Progress, Uploads.')}</div>
       ${wip({ phase: 2, items: ['Status pipeline from idea to done', 'Side panel: one-time costs, yearly costs, effect on the gap and on solvency', 'Programs and hires with yearly costs (the FFA-program case)'], uses: 'initiative, phase, phase_funding, recurring_cost' })}`;
   }
   async function vRanking() {
@@ -351,7 +351,7 @@
     bal.forEach((b) => { if (!seen.has(b.fund)) { seen.add(b.fund); latest.push(b); } });
     const s = set[0];
     return `
-      <div class="row">${c.finance ? `<a class="btn" href="#/d/${enc(c.district.slug)}/settings/setup">Enter balances</a>` + nb('Upload balances', 'Balances upload', 2) : ''}</div>
+      <div class="row">${c.finance ? `<a class="btn" href="#/d/${enc(c.district.slug)}/settings/setup">Enter balances</a>` + `<a class="btn" href="#/d/${enc(c.district.slug)}/progress/uploads">Upload balances</a>` : ''}</div>
       <div class="card"><h3>Latest balances</h3>${table([
         { label: 'Fund', get: (r) => r.fund.toUpperCase() },
         { label: 'As of', get: (r) => day(r.as_of) },
@@ -399,10 +399,10 @@
         ${S.isStaff && c.district.is_demo ? '<p class="small muted" style="margin-top:10px">This is a demo district: you can fill it with fictional data from the Willow Holler page.</p>' : ''}</div>`;
     }
     if (!rows.scenarios.length) {
-      return `<div class="card"><h3>No scenarios yet</h3><p>Adding projects by hand arrives later in Phase 1; uploading a project spreadsheet arrives in Phase 2.</p>${nb('Add projects', 'Adding projects by hand', 1)}</div>`;
+      return `<div class="card"><h3>No scenarios yet</h3><p>Upload the district’s project spreadsheet to create its first scenario.</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/progress/uploads">Upload projects</a></div>`;
     }
     const key = c.district.id;
-    if (CAP.key !== key || !rows.scenarios.some((x) => x.id === CAP.scenarioId)) {
+    if (!rows.scenarios.some((x) => x.id === CAP.scenarioId)) {
       CAP.key = key;
       CAP.scenarioId = (rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0]).id;
     }
@@ -527,29 +527,161 @@
       'Budget against actual by fund, compared with any earlier month',
     ], uses: 'import_batch, gl_account, gl_amount, budget_line, apply_import()' });
   }
+  // ---------------------------------------------------------------- uploads: projects and balances
+  const UP = { kind: null, file: null, rows: null, parsed: null, startFY: null, years: null, hasBoard: false, scenarioCount: 0 };
+  const STATUS_LABEL = { uploaded: 'Uploaded', review: 'Waiting for review', applied: 'Applied', discarded: 'Discarded', superseded: 'Replaced by a later upload' };
   async function vUploads(c) {
-    const rows = await HG.db.select('import_batch', `select=kind,period_end,file_name,status,uploaded_at&district_id=eq.${c.district.id}&order=uploaded_at.desc&limit=100`);
-    const buttons = [
-      c.finance && nb('Monthly GL export', 'Monthly GL upload', 3),
-      c.finance && nb('Budget', 'Budget upload', 3),
-      c.finance && nb('Fund balances', 'Balances upload', 2),
-      c.plan && nb('Projects', 'Project upload', 2),
-      c.plan && nb('Goals', 'Goals upload', 5),
-      (c.plan || c.finance) && nb('Measure results', 'Measure results upload', 5),
-      c.plan && nb('Survey results', 'Survey upload', 5),
+    const d = c.district.id;
+    const [rows, set, scs] = await Promise.all([
+      HG.db.select('import_batch', `select=id,kind,period_end,file_name,storage_path,status,row_count,uploaded_at,applied_at&district_id=eq.${d}&order=uploaded_at.desc&limit=100`),
+      HG.db.select('district_settings', `select=plan_start_fy,plan_years&district_id=eq.${d}`),
+      HG.db.select('scenario', `select=id,is_board_version&district_id=eq.${d}`),
+    ]);
+    UP.startFY = set[0] ? set[0].plan_start_fy : null; UP.years = set[0] ? set[0].plan_years : null;
+    UP.hasBoard = scs.some((x) => x.is_board_version); UP.scenarioCount = scs.length;
+    UP.kind = null; UP.file = null; UP.rows = null; UP.parsed = null;
+    const kinds = [c.plan && ['projects', 'Projects'], c.finance && ['balances', 'Fund balances']].filter(Boolean);
+    const later = [
+      c.finance && nb('Monthly GL export', 'Monthly GL upload', 3), c.finance && nb('Budget', 'Budget upload', 3),
+      c.plan && nb('Goals', 'Goals upload', 5), (c.plan || c.finance) && nb('Measure results', 'Measure results upload', 5), c.plan && nb('Survey results', 'Survey upload', 5),
     ].filter(Boolean);
     return `
-      ${buttons.length ? `<div class="card"><h3>Upload</h3><div class="row">${buttons.join('')}</div>
-        <p class="small muted" style="margin-top:10px">Every upload is kept. You review it before it counts, and a new month’s upload replaces the earlier one for that month.</p></div>`
-        : '<p class="muted">Your role can see uploads but not add them.</p>'}
+      ${kinds.length ? `<div class="card"><h3>Upload a file</h3>
+        <div class="inline-form">
+          <label class="field">What’s in it<select data-upload-kind>${kinds.map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+          <label class="field">File (.csv or .xlsx)<input type="file" data-upload-file accept=".csv,.xlsx,.txt"></label>
+        </div>
+        <p class="small muted" style="margin-top:10px">Nothing changes until you review what HighGround read and click Apply. The original file is kept.
+          Templates: <a href="#" data-action="downloadTemplate" data-kind="projects">projects</a>, <a href="#" data-action="downloadTemplate" data-kind="balances">fund balances</a>.</p>
+        ${c.plan && !UP.startFY ? `<div class="notice">Projects need the plan’s years first: set up <a href="#/d/${enc(c.district.slug)}/settings/setup">Starting numbers</a>.</div>` : ''}
+      </div>` : '<p class="muted">Your role can see uploads but not add them.</p>'}
+      <div id="upload-review"></div>
       <div class="card"><h3>History</h3>${table([
         { label: 'Kind', get: (r) => KIND[r.kind] || r.kind },
-        { label: 'Month', get: (r) => day(r.period_end) },
-        { label: 'File', get: (r) => r.file_name },
-        { label: 'Status', get: (r) => r.status },
+        { label: 'File', html: (r) => (r.storage_path ? `<a href="#" data-action="downloadUpload" data-path="${esc(r.storage_path)}" data-name="${esc(r.file_name)}">${esc(r.file_name)}</a>` : esc(r.file_name)) },
+        { label: 'Rows', num: true, get: (r) => r.row_count },
+        { label: 'Status', get: (r) => STATUS_LABEL[r.status] || r.status },
         { label: 'Uploaded', get: (r) => day(r.uploaded_at) },
       ], rows, 'Nothing uploaded yet.')}</div>
-      ${wip({ phase: 3, items: ['Templates to download for each kind of upload', 'Review screen: new accounts, warnings, errors', 'Apply and discard'], uses: 'import_batch, import_row, import_issue, storage bucket district-files' })}`;
+      ${later.length ? `<div class="card"><h3>Other uploads</h3><div class="row">${later.join('')}</div></div>` : ''}`;
+  }
+  async function readUpload() {
+    const kindEl = document.querySelector('[data-upload-kind]'), fileEl = document.querySelector('[data-upload-file]');
+    const box = document.getElementById('upload-review');
+    if (!fileEl || !fileEl.files.length) { box.innerHTML = ''; return; }
+    UP.kind = kindEl.value; UP.file = fileEl.files[0];
+    if (UP.file.size > 10 * 1024 * 1024) throw new UserError('That file is over 10 MB. Project and balance lists are usually far smaller; check it’s the right file.');
+    UP.rows = await HGUploads.readTable(UP.file);
+    if (UP.kind === 'projects') {
+      if (!UP.startFY) throw new UserError('Set up Starting numbers first, so HighGround knows which years the plan covers.');
+      UP.parsed = HGUploads.parseProjects(UP.rows, UP.startFY, UP.years || 10);
+    } else UP.parsed = HGUploads.parseBalances(UP.rows);
+    box.innerHTML = reviewHtml();
+  }
+  function reviewHtml() {
+    const P = UP.parsed, errs = P.issues.filter((i) => i.l === 'e'), warns = P.issues.filter((i) => i.l === 'w');
+    const issues = `${errs.length ? `<div class="notice error"><b>${errs.length} problem${errs.length === 1 ? '' : 's'} to fix before this can be applied:</b><br>${errs.map((i) => esc(i.m)).join('<br>')}</div>` : ''}
+      ${warns.length ? `<div class="notice warn"><b>${warns.length === 1 ? '1 thing HighGround assumed. Check it:' : warns.length + ' things HighGround assumed. Check them:'}</b><br>${warns.map((i) => esc(i.m)).join('<br>')}</div>` : ''}`;
+    if (UP.kind === 'projects') {
+      const fmt = (v) => '$' + Math.round(v).toLocaleString('en-US');
+      const list = P.projects.map((p) => ({ p, total: p.phases.reduce((a, ph) => a + ph.cost, 0) }));
+      const grand = list.reduce((a, x) => a + x.total, 0);
+      const firstScenario = UP.scenarioCount === 0;
+      const canBoard = S.role === 'admin' || S.isStaff;
+      return `<div class="card"><h3>Review: ${esc(UP.file.name)}</h3>
+        <p>${P.projects.length} project${P.projects.length === 1 ? '' : 's'}, ${list.reduce((a, x) => a + x.p.phases.length, 0)} phases, ${fmt(grand)} in today’s dollars, FY${UP.startFY}–FY${UP.startFY + (UP.years || 10) - 1}.</p>
+        ${issues}
+        ${table([
+          { label: 'Project', get: (x) => x.p.name },
+          { label: 'Phases', html: (x) => x.p.phases.map((ph) => `FY${UP.startFY + ph.year}: ${fmt(ph.cost)} <span class="muted">(${ph.funding.map((f) => `${HGEngine.BUCKET_NAMES[f.b]}${f.p !== 100 ? ' ' + f.p + '%' : ''}`).join(', ')})</span>`).join('<br>') },
+          { label: 'Priority', get: (x) => x.p.pri }, { label: 'Focus area', get: (x) => x.p.area },
+          { label: 'Cost', get: (x) => (x.p.est ? 'Estimate' : 'Firm') },
+          { label: 'Total', num: true, get: (x) => fmt(x.total) },
+        ], list, 'No projects found.')}
+        ${errs.length ? '' : `<div class="inline-form" style="margin-top:12px">
+          <label class="field">Name the new scenario<input data-upload-scenario value="${esc(firstScenario ? 'District baseline' : 'Uploaded ' + day(new Date()))}" maxlength="80"></label>
+          ${canBoard && !UP.hasBoard ? '<label class="row"><input type="checkbox" data-upload-board checked> Make it the board version</label>' : ''}</div>
+          <p class="small muted">${firstScenario ? 'This becomes the district’s first scenario.' : 'This is added as a new scenario; existing scenarios aren’t changed.'}</p>`}
+        <div class="row" style="margin-top:8px"><button type="button" class="btn primary" data-action="applyUpload" ${errs.length ? 'disabled' : ''}>Apply</button>
+          <button type="button" class="btn" data-action="cancelUpload">Cancel</button></div></div>`;
+    }
+    const F = P.found, fmt = (v) => (v == null ? '' : '$' + Math.round(v).toLocaleString('en-US'));
+    return `<div class="card"><h3>Review: ${esc(UP.file.name)}</h3>${issues}
+      ${table([{ label: 'Fund', get: (r) => r.n }, { label: 'Balance', num: true, get: (r) => fmt(r.v) }],
+        [['save', 'SAVE'], ['ppel', 'PPEL'], ['vppel', 'V-PPEL'], ['grants', 'Grants and donations']].filter(([k]) => F[k] != null).map(([k, n]) => ({ n, v: F[k] })), 'No balances found.')}
+      ${errs.length ? '' : `<div class="inline-form" style="margin-top:12px"><label class="field">Balances as of<input type="date" data-upload-asof value="${esc(P.asOf || '')}"></label></div>
+        <p class="small muted">${P.asOf ? 'Date read from the file. ' : 'The file has no date: enter it. '}Funds missing from the file are saved as $0 for this date.</p>`}
+      <div class="row" style="margin-top:8px"><button type="button" class="btn primary" data-action="applyUpload" ${errs.length ? 'disabled' : ''}>Apply</button>
+        <button type="button" class="btn" data-action="cancelUpload">Cancel</button></div></div>`;
+  }
+  async function applyUpload() {
+    if (!UP.parsed || UP.parsed.issues.some((i) => i.l === 'e')) return;
+    const d = S.district, batchId = crypto.randomUUID();
+    const kind = UP.kind === 'projects' ? 'projects' : 'balances';
+    let asOf = null;
+    if (kind === 'balances') {
+      asOf = (document.querySelector('[data-upload-asof]') || {}).value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf || '')) throw new UserError('Enter the date the balances are as of.');
+    }
+    const scName = kind === 'projects' ? ((document.querySelector('[data-upload-scenario]') || {}).value || '').trim() : '';
+    if (kind === 'projects' && !scName) throw new UserError('Give the new scenario a name.');
+    const board = !!(document.querySelector('[data-upload-board]') || {}).checked;
+    const safe = UP.file.name.replace(/[^A-Za-z0-9._-]+/g, '-').slice(-80) || 'upload.csv';
+    const path = `${d.id}/imports/${batchId}/${safe}`;
+    await HG.storage.upload('district-files', path, UP.file);
+    await HG.db.insert('import_batch', { id: batchId, district_id: d.id, kind, file_name: UP.file.name, storage_path: path, status: 'review',
+      row_count: UP.rows.length, period_end: asOf, fiscal_year: asOf ? HGEngine.fyOfDate(asOf) : null });
+    let createdScenario = null;
+    try {
+      for (let i = 0; i < UP.rows.length; i += 500) {
+        await HG.db.insert('import_row', UP.rows.slice(i, i + 500).map((r, k) => ({ batch_id: batchId, district_id: d.id, row_no: i + k + 1, data: r })));
+      }
+      const issues = UP.parsed.issues.map((x) => ({ batch_id: batchId, district_id: d.id, row_no: x.row || null, severity: x.l === 'e' ? 'error' : 'warning', message: x.m }));
+      if (issues.length) await HG.db.insert('import_issue', issues);
+      if (kind === 'projects') {
+        const existing = await HG.db.select('initiative', `select=id,name&district_id=eq.${d.id}`);
+        const byName = new Map(existing.map((x) => [x.name.toLowerCase().replace(/\s+/g, ' '), x.id]));
+        const newInits = [], idFor = new Map();
+        UP.parsed.projects.forEach((p) => {
+          const key = p.name.toLowerCase().replace(/\s+/g, ' ');
+          let id = byName.get(key);
+          if (!id) { id = crypto.randomUUID(); byName.set(key, id);
+            newInits.push({ id, district_id: d.id, name: p.name, type: 'capital', status: 'proposed', engine_priority: p.pri || null, focus_area: p.area || null,
+              cost_confidence: p.est ? 'estimate' : 'firm', condition: p.cond ? p.cond.toLowerCase() : null, remaining_life: p.life == null ? null : p.life }); }
+          idFor.set(p, id);
+        });
+        if (newInits.length) await HG.db.insert('initiative', newInits);
+        createdScenario = crypto.randomUUID();
+        await HG.db.insert('scenario', { id: createdScenario, district_id: d.id, name: scName.slice(0, 80), is_board_version: board && !UP.hasBoard });
+        await HG.db.insert('scenario_initiative', UP.parsed.projects.map((p, i) => ({ scenario_id: createdScenario, initiative_id: idFor.get(p), district_id: d.id, rank: i + 1, included: true })));
+        const phases = [], funding = [];
+        UP.parsed.projects.forEach((p) => p.phases.forEach((ph, k) => {
+          const pid = crypto.randomUUID();
+          phases.push({ id: pid, district_id: d.id, scenario_id: createdScenario, initiative_id: idFor.get(p), seq: k + 1, fy: UP.startFY + ph.year,
+            cost: ph.cost, status: ph.status || 'planned', actual_cost: ph.actual == null ? null : ph.actual });
+          ph.funding.forEach((f) => funding.push({ phase_id: pid, district_id: d.id, fund: f.b, pct: f.p }));
+        }));
+        await HG.db.insert('phase', phases);
+        await HG.db.insert('phase_funding', funding);
+      } else {
+        const F = UP.parsed.found;
+        await HG.db.upsert('fund_balance', ['save', 'ppel', 'vppel', 'grants'].map((fund) => ({ district_id: d.id, fund, as_of: asOf, amount: F[fund] || 0,
+          source: 'upload', import_batch_id: batchId })), 'district_id,fund,as_of');
+      }
+      await HG.db.rpc('apply_import', { p_batch: batchId });
+    } catch (err) {
+      if (createdScenario) { try { await HG.db.remove('scenario', `id=eq.${createdScenario}`); } catch (e) { /* already gone */ } }
+      try { await HG.db.update('import_batch', `id=eq.${batchId}`, { status: 'discarded', notes: String(err.message || err).slice(0, 500) }); } catch (e) { /* keep the original error */ }
+      throw err;
+    }
+    toast('Upload applied', kind === 'projects' ? `“${scName}” is ready on the capital plan.` : `Balances as of ${day(asOf)} saved.`);
+    if (kind === 'projects') { CAP.key = d.id; CAP.scenarioId = createdScenario; go(`#/d/${enc(d.slug)}/resources/capital`); }
+    else here();
+  }
+  function saveText(name, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
 
   // ------------------------------------------------------------------ views: Reports
@@ -1031,6 +1163,10 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async applyUpload() { await applyUpload(); },
+    async cancelUpload() { const f = document.querySelector('[data-upload-file]'); if (f) f.value = ''; document.getElementById('upload-review').innerHTML = ''; UP.parsed = null; },
+    async downloadTemplate(el) { if (el.dataset.kind === 'projects') saveText('highground-projects-template.csv', HGUploads.projectTemplate(UP.startFY || 2027)); else saveText('highground-balances-template.csv', HGUploads.balanceTemplate()); },
+    async downloadUpload(el) { const b = await HG.storage.download('district-files', el.dataset.path); const url = URL.createObjectURL(b); const a = document.createElement('a'); a.href = url; a.download = el.dataset.name || 'upload'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); },
     async publishBoard() { await publishBoard(); },
     async withdrawBoard(el) { await withdrawBoard(el); },
     async addDebtRow() { const t = document.querySelector('[data-debt-template]'); document.querySelector('[data-debt-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
@@ -1113,6 +1249,7 @@
   document.addEventListener('change', (e) => {
     const lc = e.target.closest('input[type=checkbox][data-lever]');
     if (lc && CAP.inputs) { CAP.levers[lc.dataset.lever] = lc.checked; capRefresh(); return; }
+    if (e.target.closest('[data-upload-file]') || (e.target.closest('[data-upload-kind]') && document.querySelector('[data-upload-file]').files.length)) { run(readUpload); return; }
     const cs = e.target.closest('[data-cap-scenario]');
     if (cs) { CAP.scenarioId = cs.value; return here(); }
     const sw = e.target.closest('[data-switch]');

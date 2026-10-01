@@ -68,7 +68,7 @@
     await refreshing;
   }
 
-  async function call(path, { method = 'GET', body, auth = true, headers = {} } = {}) {
+  async function call(path, { method = 'GET', body, auth = true, headers = {}, raw = false, blob = false } = {}) {
     if (!HG.configured) {
       throw new ApiError('HighGround is not connected to a database yet. Add the Supabase address and publishable key to config.js.', 0, 'not_configured');
     }
@@ -76,10 +76,11 @@
     if (auth && session) { await ensureFresh(); if (session) h.Authorization = 'Bearer ' + session.access_token; }
     let res;
     try {
-      res = await fetch(BASE + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+      res = await fetch(BASE + path, { method, headers: h, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) });
     } catch (e) {
       throw new ApiError(`Can't reach the database at ${BASE}. Check your connection. If it keeps happening, the Supabase project may be paused.`, 0, 'network');
     }
+    if (blob && res.ok) return res.blob();
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
@@ -139,6 +140,13 @@
       throw new ApiError(`Nothing was ${what}. You may not have permission, or the item no longer exists.`, 403, '42501');
     }
     return rows;
+  };
+  const encPath = (p) => String(p).split('/').map(encodeURIComponent).join('/');
+  /** Private file storage (bucket district-files). Access rules: district members read; planners and finance staff add. */
+  HG.storage = {
+    upload: (bucket, path, file) => call(`/storage/v1/object/${bucket}/${encPath(path)}`,
+      { method: 'POST', body: file, raw: true, headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' } }),
+    download: (bucket, path) => call(`/storage/v1/object/authenticated/${bucket}/${encPath(path)}`, { blob: true }),
   };
   HG.db = {
     select: (table, query) => call(`/rest/v1/${table}${qs(query)}`),

@@ -171,3 +171,5 @@ form.stack.setup{max-width:none}
 .setup .fgrid > label.row{align-self:center}
 table.debt input,table.debt select{height:34px;border:1px solid var(--border);border-radius:6px;padding:0 8px;background:#fff;width:100%;min-width:90px}
 input:disabled,select:disabled{background:#F4F2EC;color:var(--muted)}
+
+.notice.warn{border-color:#F3D9A4;background:#FFF8E8;color:#6B4A00}

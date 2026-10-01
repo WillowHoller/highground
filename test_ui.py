@@ -37,6 +37,7 @@ def fmtK(v):
 def gold(scen,patch): return next(c for c in GOLD["cases"] if c["scenario"]==scen and c["patch"]==patch)["result"]
 PUB={}
 TABLES["publication"]=[]
+TABLES["import_row"]=[]; TABLES["import_issue"]=[]
 calls=[]
 def uid_from(req):
   a=req.headers.get("authorization","")
@@ -60,6 +61,9 @@ async def handler(route):
   if path=="/auth/v1/signup": return await ok({"id":"u-x","email":json.loads(body)["email"]})
   if path=="/auth/v1/recover": return await ok({})
   if path=="/auth/v1/logout": return await route.fulfill(status=204,body="")
+  if path.startswith("/storage/v1/object/district-files/") and req.method=="POST":
+    return await ok({"Key":path.split("/object/")[1]})
+  if path=="/rest/v1/rpc/apply_import": return await ok({"status":"applied"})
   if path=="/rest/v1/rpc/public_publication":
     b=json.loads(body)
     if b["p_slug"]=="ironwood-valley" and "d1" in PUB: return await ok({"district":D1,"kind":"board_plan","title":PUB["d1"]["title"],"published_at":"2026-09-29T12:00:00Z","payload":PUB["d1"]["payload"]})
@@ -159,8 +163,8 @@ async def main():
     pl=json.loads(pp[0][2])["payload"] if pp else {}
     check("publish: sends the board version as a frozen copy", pp and len(pl.get("projects",[]))==16 and pl["settings"]["save"]["receipts"]==1420000 and json.loads(pp[0][2])["kind"]=="board_plan", str(len(pl.get("projects",[]))))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(300)
-    await pg.click("text=Upload projects"); await pg.wait_for_timeout(200)
-    check("not-built button throws and shows message", "Project upload isn't built yet (planned for Phase 2)" in (await pg.inner_text("#toasts")).replace("’","'"))
+    await pg.click("text=Add an initiative"); await pg.wait_for_timeout(200)
+    check("not-built button throws and shows message", "Adding initiatives isn't built yet (planned for Phase 1)" in (await pg.inner_text("#toasts")).replace("’","'"))
     # invite
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/people"); await pg.wait_for_timeout(400)
     await pg.fill("form[data-form=invite] input[name=email]","New.Person@Example.test"); await pg.select_option("form[data-form=invite] select","editor")
@@ -181,6 +185,48 @@ async def main():
     t=await pg.inner_text("#view"); check("viewer role hides invite form", "Invite someone" not in t and "Only a district admin" in t)
     await pg.goto("http://localhost:8765/#/d/no-such-district/overview/today"); await pg.wait_for_timeout(300)
     check("unknown district message", "don’t have access" in await pg.inner_text("body"))
+    # uploads: projects (CSV), errors, Excel, balances, template
+    import openpyxl, io
+    TEMPLATE=subprocess.check_output(["node","-e","process.stdout.write(require('./uploads.js').projectTemplate(2027))"],cwd=os.path.dirname(os.path.abspath(__file__)))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(400)
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"projects.csv","mimeType":"text/csv","buffer":TEMPLATE}]); await pg.wait_for_timeout(500)
+    t=await pg.inner_text("#upload-review")
+    check("upload: review shows what was read", "4 projects, 5 phases" in t and "midpoint" in t and "Track resurface" in t, t[:200])
+    await pg.screenshot(path=SHOTS+"/upload-review.png",full_page=True)
+    n0=len(calls); await pg.click("button[data-action=applyUpload]"); await pg.wait_for_timeout(900)
+    new=calls[n0:]; seq=[(c[0], c[1].split("?")[0].replace("/rest/v1/","").replace("/storage/v1/object/","storage:")) for c in new if c[0] in ("POST","PATCH")]
+    names=[x[1] if not x[1].startswith("storage:") else "storage" for x in seq]
+    want=["storage","import_batch","import_row","import_issue","initiative","scenario","scenario_initiative","phase","phase_funding","rpc/apply_import"]
+    check("upload: file kept, batch recorded, scenario built, then applied", names==want, str(names))
+    body=lambda t: json.loads(next(c[2] for c in new if c[0]=="POST" and c[1].split("?")[0].endswith("/"+t)))
+    ph=body("phase"); fu=body("phase_funding"); sc=body("scenario"); bt=body("import_batch")
+    check("upload: 5 phases with absolute years, 7 fund splits", len(ph)==5 and sorted(p["fy"] for p in ph)==[2027,2028,2028,2030,2031] and len(fu)==7, str([p["fy"] for p in ph]))
+    check("upload: new scenario, not the board version (one exists)", sc["is_board_version"] is False and sc["name"].startswith("Uploaded"), str(sc))
+    check("upload: batch points at the stored file", bt["storage_path"].startswith("d1/imports/") and bt["status"]=="review" and bt["kind"]=="projects")
+    check("upload: lands on the capital plan", "/resources/capital" in pg.url)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(400)
+    bad=b"Project,FY,Estimate,Funding source\r\nFar away,FY2040,1000,SAVE\r\n"
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"bad.csv","mimeType":"text/csv","buffer":bad}]); await pg.wait_for_timeout(400)
+    check("upload: errors block Apply", "outside this plan" in await pg.inner_text("#upload-review") and await pg.is_disabled("button[data-action=applyUpload]"))
+    wb=openpyxl.Workbook(); ws=wb.active
+    for r in [["Project","FY","Estimate","Funding source","Funding %"],["Chiller replacement","FY2029",640000,"SAVE",1],["Parking lot","2030-31","$95k","PPEL",1]]: ws.append(r)
+    bio=io.BytesIO(); wb.save(bio)
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"projects.xlsx","mimeType":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","buffer":bio.getvalue()}]); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#upload-review")
+    check("upload: Excel files are read", "2 projects" in t and "Chiller replacement" in t and "FY2031: $95,000" in t, t[:200])
+    await pg.click("button[data-action=cancelUpload]")
+    await pg.select_option("select[data-upload-kind]","balances")
+    balcsv=b"Fund,Iowa fund code,Balance,As-of date\r\nSAVE,33,\"$2,300,000\",6/30/2026\r\nPPEL,36,410000,\r\n"
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"balances.csv","mimeType":"text/csv","buffer":balcsv}]); await pg.wait_for_timeout(400)
+    check("upload: balances review with date from the file", await pg.input_value("input[data-upload-asof]")=="2026-06-30")
+    n0=len(calls); await pg.click("button[data-action=applyUpload]"); await pg.wait_for_timeout(800)
+    fb=[c for c in calls[n0:] if c[0]=="POST" and "/rest/v1/fund_balance?on_conflict=" in c[1]]
+    fbb=json.loads(fb[0][2]) if fb else []
+    check("upload: balances saved as an upload, linked to the batch", len(fbb)==4 and next(x for x in fbb if x["fund"]=="save")["amount"]==2300000 and all(x["source"]=="upload" and x["import_batch_id"] for x in fbb))
+    async with pg.expect_download() as dl:
+      await pg.click("a[data-action=downloadTemplate][data-kind=projects]")
+    d=await dl.value
+    check("upload: template downloads", d.suggested_filename=="highground-projects-template.csv")
     # starting numbers
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(500)
     v=await pg.input_value("input[name=save_receipts]"); g=await pg.input_value("input[name=ppel_growth]")

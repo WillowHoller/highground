@@ -14,6 +14,7 @@ app.js                screens, and what's built vs. not
 engine.js             Iowa capital funds engine (pure; same math as the working planner)
 capital.js            turns database rows into engine inputs; writes demo data
 demo_data.js          three FICTIONAL demo districts (Harvest Plains, Ironwood Valley, Lakeshore Heights)
+uploads.js            reads project and balance spreadsheets (.csv, .xlsx); templates
 styles.css            HighGround design tokens
 01_tables.sql         database: tables                       (run in the Supabase SQL editor, in order)
 02_security.sql       database: access rules, invitations, audit log, app functions
@@ -24,6 +25,7 @@ styles.css            HighGround design tokens
 test_ui.py            browser test against a simulated Supabase (Playwright)
 engine_test.js        node engine_test.js: engine vs. the working planner, 32 cases
 capital_test.js       node capital_test.js: demo data through database-shaped rows and back, 32 cases
+uploads_test.js       node uploads_test.js: parsing rules, and every demo plan through a spreadsheet and back
 golden_engine.json    the working planner's own output for the demo districts (what the tests compare against)
 SETUP.md              step-by-step GitHub and Supabase setup
 GO_LIVE.md            decisions and tasks to finish before the first real district
