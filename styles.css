@@ -313,3 +313,8 @@ table.batable td{vertical-align:middle}
 .card h4{margin:12px 0 4px;font-size:14px;color:var(--muted)}
 
 ul.srch{list-style:none;padding:0;margin:0}ul.srch li{padding:8px 0;border-bottom:1px solid var(--border)}
+
+table.gftable td:first-child{white-space:nowrap}
+
+.gflevers{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px 16px;margin-bottom:10px}
+.gflevers .field input{width:100% !important;max-width:120px}

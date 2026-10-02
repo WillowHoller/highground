@@ -20,6 +20,7 @@ demo_data.js          fictional demo districts; Bridger Hollow (about 925 studen
 uploads.js            reads project and balance spreadsheets (.csv, .xlsx); templates
 compare.js            compares scenarios and explains why their gaps differ
 ranking.js            tiers, rank order, the funding line, flags, fund in rank order
+gf.js                 the General Fund forecast: revenue, staff costs, solvency, spending authority, new money vs. settlement
 direction.js          strategic measures (status, automatic values) and the goals, results and survey spreadsheets
 packet.js             the decision packet: one initiative, its costs, effects and place on the funding line
 report.js             the monthly board report: a dated snapshot, and what changed since the last one
@@ -39,6 +40,7 @@ styles.css            HighGround design tokens
 09_priority_tiers.sql database: one priority (Must-have / Strategic / Nice to have), converted from High/Med/Low (1 row PASS)
 10_tax_impact.sql     database: tax estimate settings and the Iowa rules they use (1 row PASS)
 11_gl_import.sql      database: remembers each district's GL export layout; balances from the ledger (2 rows PASS)
+14_general_fund.sql   database: General Fund starting figures, and the Iowa figures the forecast uses (1 row PASS)
 13_direction.sql      database: measures that update themselves from HighGround's own data (1 row PASS)
 12_progress.sql       database: record progress (status, dates, actual cost) on the locked board version (1 row PASS)
 send-invitation.ts    Supabase Edge Function: emails invitations through Postmark
@@ -46,6 +48,7 @@ send_invitation_test.mjs  node --experimental-strip-types send_invitation_test.m
 test_ui.py            browser test against a simulated Supabase (Playwright)
 engine_test.js        node engine_test.js: engine vs. the working planner, 32 cases
 capital_test.js       node capital_test.js: demo data through database-shaped rows and back, 32 cases
+gf_test.js            node gf_test.js: the General Fund forecast against a hand-worked case
 direction_test.js     node direction_test.js: measure status against worked examples
 packet_test.js        node packet_test.js: decision packets for the demo's CTE building and FFA program
 report_test.js        node report_test.js: August and September reports for the demo, and what changed

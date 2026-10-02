@@ -144,8 +144,8 @@
       { id: 'scenarios', label: 'Scenarios', status: 'live', lede: 'Different ways to pay for the plan, side by side.', render: vScenarios },
     ] },
     { id: 'resources', label: 'Resources', tabs: [
-      { id: 'summary', label: 'Summary', status: 'partial', phase: 6, lede: 'Every fund at a glance, from the board version.', render: vResSummary },
-      { id: 'general', label: 'General fund', status: 'wip', phase: 6, lede: 'Five-year general-fund forecast, staffing and settlements.', render: vGeneralFund },
+      { id: 'summary', label: 'Summary', status: 'live', lede: 'Every fund at a glance, from the board version.', render: vResSummary },
+      { id: 'general', label: 'General fund', status: 'live', lede: 'Five-year General Fund forecast: solvency, spending authority and settlements.', render: vGeneralFund },
       { id: 'funds', label: 'All funds', status: 'live', lede: 'Balances, receipts, spending, debt and rules for each capital fund.', render: vFunds },
       { id: 'capital', label: 'Capital plan', status: 'live', lede: 'Projects by year, split across Iowa’s capital funds, with the gap to close.', render: vCapital },
       { id: 'assumptions', label: 'Assumption sets', status: 'live', lede: 'Base, Conservative and Growth: the world the plan has to survive.', render: vAssumptions },
@@ -154,7 +154,7 @@
       { id: 'initiatives', label: 'Initiatives', status: 'live', lede: 'Each initiative against the adopted plan: spending, phases and dates.', render: vProgInitiatives },
       { id: 'measures', label: 'Measures', status: 'live', lede: 'Record results, and see who owes an update.', render: vProgMeasures },
       { id: 'actuals', label: 'Budget vs. actual', status: 'live', lede: 'Each fund’s budget, actual and year-end forecast, from the monthly ledger.', render: vActuals },
-      { id: 'uploads', label: 'Uploads', status: 'partial', phase: 6, lede: 'Every file brought in, and what happened to it.', render: vUploads },
+      { id: 'uploads', label: 'Uploads', status: 'live', lede: 'Every file brought in, and what happened to it.', render: vUploads },
     ] },
     { id: 'reports', label: 'Reports', tabs: [
       { id: 'board', label: 'Board reports', status: 'live', lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
@@ -778,8 +778,9 @@
     <a class="btn primary" href="#/d/${enc(c.district.slug)}/${!b.rows.settings ? 'settings/setup' : 'progress/uploads'}">${!b.rows.settings ? 'Starting numbers' : 'Upload projects'}</a></div>`;
   async function vResSummary(c) {
     const b = await boardRun(c.district);
-    if (b.none) return notReady(c, b) + wip({ title: 'General-fund summary: not built yet', phase: 6, items: ['Ending balance and solvency ratio'] });
+    if (b.none) return notReady(c, b);
     const { sc, inp, r, paths } = b, cfg = inp.cfg, fmt = (v) => '$' + Math.round(v).toLocaleString('en-US');
+    b.rows = b.rows || (await loadCapitalRows(c.district));
     const byY = HGCapital.recurByYear(inp.levers, cfg), recY = byY.find((y) => y.total > 0.5), rec = recY ? recY.total : 0;
     const funds = HGCapital.CAP_FUNDS.filter((k) => k !== 'vppel' || cfg.vStatus !== 'none' || paths[k].open > 0);
     return `
@@ -800,17 +801,171 @@
         { label: `Ending FY${cfg.start + cfg.n - 1}`, num: true, get: (k) => fmt(paths[k].end) },
       ], funds, '')}
       <p class="small muted" style="margin-top:8px">“Short by” is spending planned on a fund beyond what it has that year; it counts toward the gap. Details by year are on All funds.</p></div>
-      ${wip({ title: 'General-fund summary: not built yet', phase: 6, items: ['Ending balance and solvency ratio', 'Unspent spending authority'] })}`;
+      ${(() => { const g = gfRun(b.rows, sc.id); if (!g) return `<div class="card"><h3>General Fund</h3><p class="muted">Not set up yet. ${c.finance ? `<a href="#/d/${enc(c.district.slug)}/resources/general">Enter the starting figures</a>.` : ''}</p></div>`;
+        const ys = g.R.years, a1 = ys[0], z = ys[ys.length - 1], low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]);
+        return `<div class="card"><h3>General Fund</h3><div class="grid tiles">
+          <div class="card tile-card"><div class="small muted">Solvency ratio</div><div class="stat">${pct1(a1.solvency)} → ${pct1(z.solvency)}</div><div class="small muted">lowest ${pct1(low.solvency)} in FY${low.fy}</div></div>
+          <div class="card tile-card"><div class="small muted">Unspent balance ratio</div><div class="stat">${pct1(a1.unspentRatio)} → ${pct1(z.unspentRatio)}</div></div>
+          <div class="card tile-card"><div class="small muted">Ending fund balance, FY${z.fy}</div><div class="stat">${fmtK(z.balance)}</div></div>
+          <div class="card tile-card"><div class="small muted">Staff share of spending</div><div class="stat">${pct1(a1.staffShare)}</div></div></div>
+          <p class="small muted" style="margin-top:8px">Five-year forecast, planning estimates. <a href="#/d/${enc(c.district.slug)}/resources/general">Open the General Fund</a></p></div>`; })()}`;
   }
-  async function vGeneralFund() {
-    return wip({ phase: 6, items: [
-      'Revenue: certified enrollment, cost per pupil, state supplemental aid',
-      'Spending: staff by group, settlement %, health insurance',
-      'Ending balance, solvency ratio, unspent spending authority',
-      'What a settlement or a new hire does to the next five years',
-    ], uses: 'assumption_set, recurring_cost, gl_current, budget_line' })
-      + '<p class="small muted">This is the hardest model to get right. It will be checked with at least two business managers before any board sees it.</p>';
+  /* ---- the General Fund forecast ---- */
+  const GF = { key: null, sid: null, over: {} };
+  function gfAssume(rows, sc, gfi) {
+    const set = sc && sc.assumption_set_id ? (rows.assumption_sets || []).find((x) => x.id === sc.assumption_set_id) : null;
+    const base = Object.assign({}, HGGF.DEFAULTS, (gfi && gfi.assume) || {});
+    const pick = (col, k) => (set && set[col] != null ? Number(set[col]) : base[k]);
+    return { a: { ssa: pick('state_aid_growth', 'ssa'), enroll: pick('enrollment_change_pct', 'enroll'), settle: pick('settlement_pct', 'settle'), health: pick('health_growth', 'health'), inflation: base.inflation }, set };
   }
+  function gfRun(rows, scId, over) {
+    const gfi = rows.settings && rows.settings.gf_inputs;
+    if (!gfi || !rows.settings) return null;
+    const sc = rows.scenarios.find((x) => x.id === scId) || rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0] || null;
+    const { a, set } = gfAssume(rows, sc, gfi), A = Object.assign({}, a, over || {});
+    let years = [], extra = {};
+    if (sc) {
+      const bi = HGCapital.buildInputs(rows, sc.id), L = Object.assign({}, bi.levers, { settle: A.settle });
+      years = bi.cfg.years.slice(0, 5);
+      years.forEach((fy) => { extra[fy] = HGEngine.recurIn(bi.cfg, 'general', fy - bi.cfg.start, L); });
+    } else { const s0 = rows.settings.plan_start_fy || 2027; years = [0, 1, 2, 3, 4].map((k) => s0 + k); }
+    const g = Object.assign({}, gfi, over && over.turnover != null ? { turnover_savings: over.turnover } : {});
+    return { gfi: g, sc, set, a: A, base: a, R: HGGF.forecast(g, A, years, extra), extra };
+  }
+  const pct1 = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
+  function gfChart(R) {
+    const ys = R.years, W = 640, H = 200, pad = 34, n = ys.length;
+    const vals = ys.flatMap((y) => [y.solvency, y.unspentRatio]).filter((v) => v != null);
+    const lo = Math.min(0, ...vals), hi = Math.max(0.2, ...vals), X = (i) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2), Y = (v) => H - 24 - ((v - lo) / (hi - lo)) * (H - 40);
+    const line = (k, color) => `<polyline fill="none" stroke="${color}" stroke-width="2.5" points="${ys.map((y, i) => `${X(i).toFixed(1)},${Y(y[k] || 0).toFixed(1)}`).join(' ')}"/>${ys.map((y, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(y[k] || 0).toFixed(1)}" r="3" fill="${color}"/>`).join('')}`;
+    const band = `<rect x="${pad}" width="${W - pad * 2}" y="${Y(0.10).toFixed(1)}" height="${(Y(0.05) - Y(0.10)).toFixed(1)}" fill="#E6F0EA"/>`;
+    const grid = [0, 0.05, 0.10, 0.15, 0.20].filter((v) => v >= lo && v <= hi).map((v) => `<line x1="${pad}" x2="${W - pad}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${pad - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="11" text-anchor="end" fill="#5A6660">${(v * 100).toFixed(0)}%</text>`).join('');
+    const zero = lo < 0 ? `<line x1="${pad}" x2="${W - pad}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#B42318"/>` : '';
+    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="Solvency ratio and unspent balance ratio by year">${band}${grid}${zero}${line('solvency', '#1E3A2F')}${line('unspentRatio', '#C9A24A')}
+      ${ys.map((y, i) => `<text x="${X(i).toFixed(1)}" y="${H - 6}" font-size="11" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>`).join('')}</svg></div>
+      <p class="small"><span style="color:#1E3A2F">●</span> Solvency ratio &nbsp; <span style="color:#C9A24A">●</span> Unspent balance ratio &nbsp; <span class="muted">shaded: the 5–10% range many districts aim for</span></p>`;
+  }
+  function gfResultsHtml(run) {
+    const R = run.R, ys = R.years, first = ys[0], last = ys[ys.length - 1], f = HGReport.fmt, FL = R.flags;
+    const lowest = (k) => ys.reduce((m, y) => (y[k] != null && (m == null || y[k] < m[k]) ? y : m), null);
+    const ls = lowest('solvency'), lu = lowest('unspentRatio');
+    const flags = [
+      FL.negativeUnspent.length ? `<li class="gaptext">Spending passes spending authority in FY${FL.negativeUnspent.join(', FY')}. Iowa law requires a corrective plan; two years in a row brings state review.</li>` : '',
+      FL.lowSolvency.length ? `<li class="gaptext">Solvency falls below 5% in FY${FL.lowSolvency.join(', FY')}.</li>` : '',
+      FL.lowUnspent.length && !FL.negativeUnspent.length ? `<li>The unspent balance ratio falls below 5% in FY${FL.lowUnspent.join(', FY')}.</li>` : '',
+      FL.deficit.length ? `<li>Spending exceeds revenue in ${FL.deficit.length === ys.length ? 'every year' : 'FY' + FL.deficit.join(', FY')}.</li>` : '',
+      FL.guarantee.length ? `<li>The 101% budget guarantee applies in FY${FL.guarantee.join(', FY')} (enrollment falls faster than funding grows).</li>` : '',
+    ].filter(Boolean);
+    const extraYears = ys.filter((y) => y.extra > 0.5);
+    return `
+      <div class="grid tiles">
+        <div class="card tile-card"><div class="small muted">Solvency ratio</div><div class="stat">${pct1(first.solvency)} → ${pct1(last.solvency)}</div><div class="small muted">FY${first.fy} to FY${last.fy}; lowest ${pct1(ls.solvency)} in FY${ls.fy}</div></div>
+        <div class="card tile-card"><div class="small muted">Unspent balance ratio</div><div class="stat">${pct1(first.unspentRatio)} → ${pct1(last.unspentRatio)}</div><div class="small muted">lowest ${pct1(lu.unspentRatio)} in FY${lu.fy}</div></div>
+        <div class="card tile-card"><div class="small muted">Ending fund balance, FY${last.fy}</div><div class="stat">${f(last.balance)}</div><div class="small muted">unassigned and assigned</div></div>
+        <div class="card tile-card"><div class="small muted">Revenue vs. spending, FY${last.fy}</div><div class="stat">${f(last.net)}</div><div class="small muted">${last.net < 0 ? 'spending more than revenue' : 'revenue covers spending'}</div></div>
+      </div>
+      ${flags.length ? `<div class="card"><h3>Watch</h3><ul>${flags.join('')}</ul></div>` : ''}
+      <div class="card"><h3>Solvency and spending authority</h3>${gfChart(R)}</div>
+      <div class="card"><h3>New money vs. a settlement</h3><p class="small muted">New money is what the formula adds each year (state supplemental aid and enrollment). Each 1% of settlement costs salaries plus benefits.</p>
+        <div class="scroll"><table class="data"><thead><tr><th>Year</th><th class="num">New money</th><th class="num">Each 1% of settlement costs</th><th class="num">A ${(run.a.settle * 100).toFixed(1)}% settlement costs</th><th class="num">Settlement the new money covers</th></tr></thead><tbody>
+          ${ys.slice(1).map((y) => `<tr><td>FY${y.fy}</td><td class="num">${f(y.newMoney)}</td><td class="num">${f(y.costPerPoint)}</td><td class="num">${f(y.settlementCost)}</td><td class="num"><b>${y.affordableSettlement == null ? '' : (y.affordableSettlement * 100).toFixed(1) + '%'}</b></td></tr>`).join('')}
+        </tbody></table></div></div>
+      <div class="card"><h3>Year by year</h3><div class="scroll"><table class="data gftable"><thead><tr><th></th>${ys.map((y) => `<th class="num">FY${y.fy}</th>`).join('')}</tr></thead><tbody>
+        ${[['Enrollment', (y) => Math.round(y.enrollment).toLocaleString('en-US')], ['District cost per pupil', (y) => '$' + Math.round(y.dcpp).toLocaleString('en-US')],
+          ['Regular program', (y) => f(y.regular) + (y.guarantee > 0.5 ? '*' : '')], ['Other state formula funding', (y) => f(y.other)], ['Miscellaneous income', (y) => f(y.misc)], ['<b>Revenue</b>', (y) => `<b>${f(y.revenue)}</b>`],
+          ['Staff (salaries, benefits, health)', (y) => f(y.staff)], ['Other spending', (y) => f(y.nonstaff)], ...(extraYears.length ? [['The plan’s yearly costs', (y) => (y.extra ? f(y.extra) : '')]] : []), ['<b>Spending</b>', (y) => `<b>${f(y.spending)}</b>`],
+          ['Revenue less spending', (y) => `<span class="${y.net < 0 ? 'gaptext' : ''}">${f(y.net)}</span>`], ['Ending fund balance', (y) => f(y.balance)], ['Solvency ratio', (y) => pct1(y.solvency)],
+          ['Spending authority', (y) => f(y.authority)], ['Unspent balance', (y) => `<span class="${y.unspent < 0 ? 'gaptext' : ''}">${f(y.unspent)}</span>`], ['Unspent balance ratio', (y) => pct1(y.unspentRatio)], ['Staff share of spending', (y) => pct1(y.staffShare)],
+        ].map(([l, fn]) => `<tr><td>${l}</td>${ys.map((y) => `<td class="num">${fn(y)}</td>`).join('')}</tr>`).join('')}
+      </tbody></table></div>
+      ${FL.guarantee.length ? '<p class="small muted">* includes the 101% budget guarantee.</p>' : ''}
+      <p class="small muted" style="margin-top:6px">Planning estimates, not the state’s official calculation. FY2027 uses the enacted 2% state supplemental aid ($8,148 state cost per pupil, SF 2201). Solvency = unassigned and assigned balance ÷ revenue less AEA flowthrough. Spending authority = regular program and other formula funding + miscellaneous income + last year’s unspent balance. Figures checked ${esc(day(HGGF.RULES.checked))}.</p></div>`;
+  }
+  async function vGeneralFund(c) {
+    const rows = await loadCapitalRows(c.district);
+    if (GF.key !== c.district.id) { GF.key = c.district.id; GF.sid = null; GF.over = {}; }
+    GF.rows = rows;
+    const caution = '<div class="notice">Planning estimates. Check the starting figures and results with the business manager before sharing them with the board.</div>';
+    if (!rows.settings) return caution + notReady(c, { rows });
+    const gfi = rows.settings.gf_inputs;
+    if (!gfi) return `${caution}<div class="card"><h3>Set up the General Fund</h3><p>The forecast needs a few starting figures: enrollment, cost per pupil, other revenue, staff by group, other spending, and the fund balance and unspent balance from the last audit.</p>
+      ${c.finance ? '<button type="button" class="btn primary" data-action="gfEdit">Enter starting figures</button>' : '<p class="muted">The business office enters these.</p>'}</div>`;
+    const run = gfRun(rows, GF.sid, GF.over); GF.run = run;
+    const lv = (k, label, v, hint) => `<label class="field">${label}<input data-gf-lever="${k}" inputmode="decimal" value="${(v * 100).toFixed(2).replace(/\.?0+$/, '')}" style="width:90px"><span class="hint">${hint}</span></label>`;
+    return `${caution}
+      <div class="row">
+        ${rows.scenarios.length ? `<label class="chip"><span class="small muted">Scenario</span><select data-gf-sc aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${run.sc && x.id === run.sc.id ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}</option>`).join('')}</select></label>` : ''}
+        <span class="small muted">Assumptions: ${run.set ? esc(run.set.name) : 'the General Fund defaults'}${Object.keys(GF.over).length ? ', with what-if changes' : ''}.</span>
+        ${c.finance ? '<button type="button" class="btn" data-action="gfEdit">Starting figures</button>' : ''}</div>
+      <div class="card"><h3>What-if</h3><div class="gflevers">
+        ${lv('ssa', 'State aid growth, %', run.a.ssa, 'after FY2027’s enacted 2%')}${lv('enroll', 'Enrollment change, %', run.a.enroll, 'a year')}${lv('settle', 'Settlement, %', run.a.settle, 'salary increase a year')}
+        ${lv('health', 'Health insurance growth, %', run.a.health, 'a year')}${lv('inflation', 'Other spending growth, %', run.a.inflation, 'a year')}${lv('turnover', 'Turnover savings, %', run.gfi.turnover_savings || 0, 'newer staff on lower pay')}
+      </div><div class="row"><button type="button" class="btn small" data-action="gfReset">Reset to the scenario’s assumptions</button></div></div>
+      <div id="gf-results">${gfResultsHtml(run)}</div>`;
+  }
+  function openGfEditor() {
+    const st = GF.rows.settings, g = st.gf_inputs || { enrollment: st.enrollment || null, dcpp: HGGF.RULES.scpp[2027], misc_growth: 0.01, turnover_savings: 0.01,
+      staff: [{ name: 'Teachers', benefits: 0.1709 }, { name: 'Support staff', benefits: 0.1709 }, { name: 'Administrators', benefits: 0.1709 }], assume: Object.assign({}, HGGF.DEFAULTS) };
+    const money2 = (v) => (v == null || v === '' ? '' : Number(v).toLocaleString('en-US'));
+    const pc = (v) => (v == null ? '' : +(Number(v) * 100).toFixed(2));
+    const f = (n, l, v, h) => `<label class="field">${l}<input name="${n}" inputmode="decimal" value="${esc(v)}">${h ? `<span class="hint">${h}</span>` : ''}</label>`;
+    const staffRow = (x) => `<tr data-gf-staff><td><input name="s_name" value="${esc(x.name || '')}" style="width:140px"></td><td><input name="s_fte" inputmode="decimal" value="${x.fte == null ? '' : x.fte}" style="width:70px"></td>
+      <td><input name="s_salary" inputmode="decimal" value="${money2(x.salary)}" style="width:100px"></td><td><input name="s_benefits" inputmode="decimal" value="${pc(x.benefits)}" style="width:70px"></td>
+      <td><input name="s_health" inputmode="decimal" value="${money2(x.health)}" style="width:90px"></td><td><button type="button" class="btn small" data-action="gfStaffRemove" aria-label="Remove">×</button></td></tr>`;
+    const A = Object.assign({}, HGGF.DEFAULTS, g.assume || {});
+    modal(`<form class="stack" data-form="saveGf" novalidate>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">General Fund starting figures</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <p class="small muted">For the first year of the plan. The certified budget, the Certified Annual Report and the Department of Management’s unspent balance report have most of these.</p>
+      <div data-gf-hint></div>
+      <h3>Revenue</h3><div class="fgrid">
+        ${f('enrollment', 'Certified enrollment (budget enrollment)', g.enrollment == null ? '' : g.enrollment)}${f('dcpp', 'District cost per pupil, $', money2(g.dcpp), 'FY2027 state cost per pupil: $8,148')}
+        ${f('other_formula', 'Other state formula funding, $', money2(g.other_formula), 'Categorical supplements, special education and similar')}${f('misc_income', 'Miscellaneous income, $', money2(g.misc_income), 'Local, federal and other income')}
+        ${f('misc_growth', 'Miscellaneous income growth, % a year', pc(g.misc_growth))}${f('aea_flowthrough', 'AEA flowthrough, $', money2(g.aea_flowthrough), 'Left out of revenue for the solvency ratio')}</div>
+      <h3>Spending</h3><div class="scroll"><table class="data"><thead><tr><th>Staff group</th><th>FTE</th><th>Average salary, $</th><th>Benefits, % of salary</th><th>Health insurance per FTE, $</th><th></th></tr></thead>
+        <tbody data-gf-staff-body>${(g.staff || []).map(staffRow).join('')}</tbody></table></div>
+      <template data-gf-staff-template>${staffRow({ benefits: 0.1709 })}</template>
+      <div class="row"><button type="button" class="btn small" data-action="gfStaffAdd">Add a staff group</button><label class="row small"><input type="checkbox" name="fte_follow_enrollment" ${g.fte_follow_enrollment ? 'checked' : ''}> Staff numbers follow enrollment</label></div>
+      <div class="fgrid">${f('nonstaff', 'Other spending, $ a year', money2(g.nonstaff), 'Supplies, services, utilities, transportation and the rest')}${f('turnover_savings', 'Turnover savings, % a year', pc(g.turnover_savings), 'Experienced staff replaced by newer staff on lower pay')}</div>
+      <h3>Balances</h3><div class="fgrid">${f('fund_balance', 'Unassigned and assigned fund balance, $', money2(g.fund_balance), 'At the start of the plan')}${f('unspent', 'Unspent balance (spending authority), $', money2(g.unspent), 'From the Department of Management’s report')}</div>
+      <h3>Default assumptions</h3><p class="small muted">Used when a scenario’s assumption set leaves them blank.</p><div class="fgrid">
+        ${f('a_ssa', 'State aid growth, %', pc(A.ssa))}${f('a_enroll', 'Enrollment change, %', pc(A.enroll))}${f('a_settle', 'Settlement, %', pc(A.settle))}${f('a_health', 'Health insurance growth, %', pc(A.health))}${f('a_inflation', 'Other spending growth, %', pc(A.inflation))}</div>
+      <div class="notice error" data-form-errors hidden></div>
+      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
+    gfHint();
+  }
+  async function gfHint() {
+    // help: what the latest ledger or adopted budget says, so the business manager can split it into these fields
+    const d = S.district, box = document.querySelector('[data-gf-hint]'); if (!box) return;
+    try {
+      const [acc, bl] = await Promise.all([HG.db.selectAll('gl_account', `select=id,fund_code,object_code,account_type&district_id=eq.${d.id}`), HG.db.selectAll('budget_line', `select=account_id,fiscal_year,amount&district_id=eq.${d.id}&version=eq.adopted`).catch(() => [])]);
+      const A = new Map(acc.map((x) => [x.id, x])), fy = GF.rows.settings.plan_start_fy;
+      let lines = bl.filter((x) => x.fiscal_year === fy).map((x) => Object.assign({}, A.get(x.account_id) || {}, { budget: x.amount })), from = `the adopted FY${fy} budget`;
+      if (!lines.length) {
+        const bt = await HG.db.select('import_batch', `select=id,period_end&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc&limit=1`);
+        if (bt[0]) { const am = await HG.db.selectAll('gl_amount', `select=account_id,budget_amount&batch_id=eq.${bt[0].id}`); lines = am.map((x) => Object.assign({}, A.get(x.account_id) || {}, { budget: x.budget_amount })); from = `the budget column of the ${day(bt[0].period_end)} ledger`; }
+      }
+      const b = HGGF.fromBudget(lines);
+      if (b.revenue || b.total) box.innerHTML = `<div class="notice ok small">From ${esc(from)}: General Fund revenue ${HGReport.fmt(b.revenue)}; staff spending (objects 1xx–2xx) ${HGReport.fmt(b.staff)}; other spending ${HGReport.fmt(b.nonstaff)}. Use these to check your figures add up.</div>`;
+    } catch (e) { /* no ledger or budget yet */ }
+  }
+  async function saveGf(f, form) {
+    const box = form.querySelector('[data-form-errors]'), errs = [], n = (v) => { const x = toNum(v); return x === null ? null : x; }, p = (v) => { const x = toNum(v); return x === null ? null : x / 100; };
+    const staff = [...form.querySelectorAll('[data-gf-staff]')].map((tr) => { const v = (k) => tr.querySelector(`[name=${k}]`).value; return { name: v('s_name').trim() || 'Staff', fte: n(v('s_fte')), salary: n(v('s_salary')), benefits: p(v('s_benefits')), health: n(v('s_health')) }; })
+      .filter((x) => x.fte || x.salary);
+    const g = { enrollment: n(f.enrollment), dcpp: n(f.dcpp), other_formula: n(f.other_formula), misc_income: n(f.misc_income), misc_growth: p(f.misc_growth), aea_flowthrough: n(f.aea_flowthrough),
+      nonstaff: n(f.nonstaff), turnover_savings: p(f.turnover_savings), fund_balance: n(f.fund_balance), unspent: n(f.unspent), fte_follow_enrollment: !!f.fte_follow_enrollment, staff,
+      assume: { ssa: p(f.a_ssa), enroll: p(f.a_enroll), settle: p(f.a_settle), health: p(f.a_health), inflation: p(f.a_inflation) } };
+    if (!(g.enrollment > 0)) errs.push('Enter certified enrollment.');
+    if (!(g.dcpp > 0)) errs.push('Enter the district cost per pupil.');
+    if (!staff.length) errs.push('Add at least one staff group with FTE and average salary.');
+    Object.entries(g).forEach(([k, v]) => { if (typeof v === 'number' && isNaN(v)) errs.push(`${k.replace(/_/g, ' ')} must be a number.`); });
+    staff.forEach((x) => { if ([x.fte, x.salary, x.benefits, x.health].some((v) => v != null && isNaN(v))) errs.push(`${x.name}: numbers only.`); });
+    Object.keys(g.assume).forEach((k) => { if (g.assume[k] == null) delete g.assume[k]; });
+    if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return; }
+    await HG.db.update('district_settings', `district_id=eq.${S.district.id}`, { gf_inputs: g });
+    closeModal(); toast('Saved', 'General Fund starting figures.'); here();
+  }
+
   const FUND_RULES = {
     save: 'School infrastructure: building, remodeling, repairing and equipping school buildings and sites, technology, and safety, plus SAVE revenue bonds and property-tax relief, as the district’s revenue purpose statement allows (Iowa Code chapter 423F).',
     ppel: 'Buying, building and improving buildings and grounds; equipment such as buses and technology; and lease-purchase payments (Iowa Code section 298.3). Board-approved.',
@@ -1128,6 +1283,9 @@
     ['ppel_growth', 'PPEL valuation growth', 'Growth in taxable valuation, which drives PPEL and tax rates'],
     ['grant_yield', 'Grant yield to capital', 'Share of grants and gifts that goes to capital projects'],
     ['settlement_pct', 'Salary settlements', 'How fast yearly staff costs grow'],
+    ['state_aid_growth', 'State aid growth', 'State supplemental aid after FY2027 (General Fund)'],
+    ['enrollment_change_pct', 'Enrollment change', 'A year (General Fund)'],
+    ['health_growth', 'Health insurance growth', 'A year (General Fund)'],
   ];
   const pctTxt = (v) => (v == null ? '' : (Number(v) * 100).toFixed(1).replace(/\.0$/, '') + '%');
   async function vAssumptions(c) {
@@ -1148,7 +1306,7 @@
           <td>${c.plan ? `<a href="#" data-action="editSet" data-id="${esc(x.id)}">Edit</a>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
       <p class="small muted" style="margin-top:8px">New scenarios use the default set. Scenarios without a set use the starting numbers directly.</p></div>
-      ${wip({ title: 'Still to come', phase: 6, items: ['Enrollment, state aid and health-insurance growth, for the general-fund forecast'] })}`;
+`;
   }
   const AS = { rows: null };
   function openSetEditor(id) {
@@ -1684,9 +1842,8 @@
     UP.startFY = set[0] ? set[0].plan_start_fy : null; UP.years = set[0] ? set[0].plan_years : null;
     UP.hasBoard = scs.some((x) => x.is_board_version); UP.scenarioCount = scs.length;
     UP.kind = null; UP.file = null; UP.rows = null; UP.parsed = null;
-    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.plan && ['projects', 'Projects'], c.finance && ['balances', 'Fund balances only (if you can’t export the ledger)']].filter(Boolean);
+    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.plan && ['projects', 'Projects'], c.finance && ['budget', 'Adopted budget (by account)'], c.finance && ['balances', 'Fund balances only (if you can’t export the ledger)']].filter(Boolean);
     const later = [
-      c.finance && nb('Adopted budget (for the general-fund forecast)', 'Budget upload', 6),
       c.plan && `<a class="btn" href="#/d/${enc(c.district.slug)}/direction/priorities">Goals (on Direction → Priorities)</a>`, (c.plan || c.finance) && `<a class="btn" href="#/d/${enc(c.district.slug)}/progress/measures">Measure results (on Progress → Measures)</a>`,
       c.plan && `<a class="btn" href="#/d/${enc(c.district.slug)}/direction/community">Survey results (on Direction → Community)</a>`,
     ].filter(Boolean);
@@ -1721,7 +1878,7 @@
     if (UP.kind === 'projects') {
       if (!UP.startFY) throw new UserError('Set up Starting numbers first, so HighGround knows which years the plan covers.');
       UP.parsed = HGUploads.parseProjects(UP.rows, UP.startFY, UP.years || 10);
-    } else if (UP.kind === 'gl_monthly') {
+    } else if (UP.kind === 'gl_monthly' || UP.kind === 'budget') {
       const d = S.district.id;
       const [accounts, set] = await Promise.all([
         HG.db.selectAll('gl_account', `select=*&district_id=eq.${d}`),
@@ -1745,13 +1902,13 @@
     else if (G.saved && JSON.stringify(G.saved.headerCells) === JSON.stringify(headerCells)) layout = { header: detected.header, cols: G.saved.cols, remembered: true };
     layout.missing = [];
     if (layout.cols.account == null && layout.cols.fund == null) layout.missing.push('account');
-    if (layout.cols.ytd == null && layout.cols.balance == null) layout.missing.push('ytd');
+    if (UP.kind === 'budget' ? layout.cols.budget == null : (layout.cols.ytd == null && layout.cols.balance == null)) layout.missing.push(UP.kind === 'budget' ? 'budget' : 'ytd');
     G.layout = layout; G.headerCells = headerCells;
     G.P = HGGL.parse(UP.rows, layout);
     G.rec = HGGL.reconcile(G.P.lines, G.accounts);
     G.rec.fresh.forEach((f) => { if (!G.sel[f.line.code]) G.sel[f.line.code] = Object.assign({}, f.suggestion); });
     const issues = G.P.issues.map((i) => ({ l: i.level === 'error' ? 'e' : 'w', m: i.text, row: i.row }));
-    layout.missing.forEach((k) => issues.unshift({ l: 'e', m: k === 'account' ? 'HighGround couldn’t find the account-code column. Choose it under “Columns”.' : 'HighGround couldn’t find the year-to-date amount column. Choose it under “Columns”.' }));
+    layout.missing.forEach((k) => issues.unshift({ l: 'e', m: k === 'account' ? 'HighGround couldn’t find the account-code column. Choose it under “Columns”.' : k === 'budget' ? 'HighGround couldn’t find the budget column. Choose it under “Columns”.' : 'HighGround couldn’t find the year-to-date amount column. Choose it under “Columns”.' }));
     UP.parsed = { issues };
   }
   function glMapping() {
@@ -1779,7 +1936,8 @@
     const opt = (list, v) => list.map(([k, t]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${t}</option>`).join('');
     const fmt = (v) => (v == null ? '' : '$' + Math.round(v).toLocaleString('en-US'));
     return `<div class="card"><h3>Review: ${esc(UP.file.name)}</h3>
-      <div class="inline-form"><label class="field">Month-end date<input type="date" data-upload-asof value="${iso(last)}"></label></div>
+      ${UP.kind === 'budget' ? `<div class="inline-form"><label class="field">Budget for<select data-upload-fy>${[0, 1, 2].map((k) => { const y = (UP.startFY || new Date().getFullYear() + 1) + k - 1; return `<option value="${y}" ${k === 1 ? 'selected' : ''}>FY${y}</option>`; }).join('')}</select></label></div>`
+        : `<div class="inline-form"><label class="field">Month-end date<input type="date" data-upload-asof value="${iso(last)}"></label></div>`}
       ${errs.length ? `<div class="notice error">${errs.map((e) => esc(e.m)).join('<br>')}</div>` : ''}
       ${warns.length ? `<div class="notice">${warns.slice(0, 8).map((e) => esc(e.m)).join('<br>')}${warns.length > 8 ? `<br>and ${warns.length - 8} more` : ''}</div>` : ''}
       <details ${G.layout.missing.length ? 'open' : ''}><summary>Columns${G.layout.remembered ? ': the same layout as last time' : ''}</summary>
@@ -1804,13 +1962,19 @@
           return `<details class="glgroup" ${k === 'unmapped' || G.rec.fresh.length <= 25 ? 'open' : ''}><summary>${esc(title)}</summary>
             <div class="scroll"><table class="data glmap">${head}<tbody>${list.map(row).join('')}</tbody></table></div></details>`; }).join('');
       })()}
-      <h3 style="margin-top:14px">Balances this export gives</h3>
-      <div id="gl-balances">${glBalancesHtml()}</div>
+      <h3 style="margin-top:14px">${UP.kind === 'budget' ? 'What this budget says' : 'Balances this export gives'}</h3>
+      <div id="gl-balances">${UP.kind === 'budget' ? budgetSummaryHtml() : glBalancesHtml()}</div>
       <div class="row" style="margin-top:12px"><button type="button" class="btn primary" data-action="applyUpload" ${errs.length ? 'disabled' : ''}>Apply</button>
         <button type="button" class="btn" data-action="cancelUpload">Cancel</button></div></div>`;
   }
+  function budgetSummaryHtml() {
+    const G = UP.gl, M = glMapping();
+    const lines = G.P.lines.map((l) => ({ fund_code: l.parts.fund, object_code: l.parts.object || l.parts.source || '', account_type: (G.accounts.find((a) => a.code === l.code) || {}).account_type || HGGL.suggest(l.parts).account_type, budget: M[l.code] && M[l.code].maps_to === 'ignore' ? null : l.budget }));
+    const b = HGGF.fromBudget(lines), f = HGReport.fmt;
+    return `<p>General Fund in this budget: revenue <b>${f(b.revenue)}</b>; staff spending (objects 1xx–2xx) <b>${f(b.staff)}</b>; other spending <b>${f(b.nonstaff)}</b>.</p><p class="small muted">Applying saves it as the adopted budget for that year. The General Fund’s starting figures show these totals as a check.</p>`;
+  }
   function reviewHtml() {
-    if (UP.kind === 'gl_monthly') return glReviewHtml();
+    if (UP.kind === 'gl_monthly' || UP.kind === 'budget') return glReviewHtml();
     const P = UP.parsed, errs = P.issues.filter((i) => i.l === 'e'), warns = P.issues.filter((i) => i.l === 'w');
     const issues = `${errs.length ? `<div class="notice error"><b>${errs.length} problem${errs.length === 1 ? '' : 's'} to fix before this can be applied:</b><br>${errs.map((i) => esc(i.m)).join('<br>')}</div>` : ''}
       ${warns.length ? `<div class="notice warn"><b>${warns.length === 1 ? '1 thing HighGround assumed. Check it:' : warns.length + ' things HighGround assumed. Check them:'}</b><br>${warns.map((i) => esc(i.m)).join('<br>')}</div>` : ''}`;
@@ -1849,9 +2013,10 @@
   async function applyUpload() {
     if (!UP.parsed || UP.parsed.issues.some((i) => i.l === 'e')) return;
     const d = S.district, batchId = crypto.randomUUID();
-    const kind = UP.kind === 'projects' ? 'projects' : UP.kind === 'gl_monthly' ? 'gl_monthly' : 'balances';
+    const kind = UP.kind === 'projects' ? 'projects' : UP.kind === 'gl_monthly' ? 'gl_monthly' : UP.kind === 'budget' ? 'budget' : 'balances';
+    const budgetFY = kind === 'budget' ? Number((document.querySelector('[data-upload-fy]') || {}).value) : null;
     let asOf = null;
-    if (kind === 'balances' || kind === 'gl_monthly') {
+    if (kind === 'balances' || kind === 'gl_monthly') {   // a budget is for a fiscal year, not a date
       asOf = (document.querySelector('[data-upload-asof]') || {}).value;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf || '')) throw new UserError('Enter the date the balances are as of.');
     }
@@ -1862,7 +2027,7 @@
     const path = `${d.id}/imports/${batchId}/${safe}`;
     await HG.storage.upload('district-files', path, UP.file);
     await HG.db.insert('import_batch', { id: batchId, district_id: d.id, kind, file_name: UP.file.name, storage_path: path, status: 'review',
-      row_count: UP.rows.length, period_end: asOf, fiscal_year: asOf ? HGEngine.fyOfDate(asOf) : null });
+      row_count: UP.rows.length, period_end: asOf, fiscal_year: budgetFY || (asOf ? HGEngine.fyOfDate(asOf) : null) });
     let createdScenario = null;
     try {
       for (let i = 0; i < UP.rows.length; i += 500) {
@@ -1870,20 +2035,26 @@
       }
       const issues = UP.parsed.issues.map((x) => ({ batch_id: batchId, district_id: d.id, row_no: x.row || null, severity: x.l === 'e' ? 'error' : 'warning', message: x.m }));
       if (issues.length) await HG.db.insert('import_issue', issues);
-      if (kind === 'gl_monthly') {
-        const G = UP.gl, fy = HGEngine.fyOfDate(asOf), idOf = new Map(G.accounts.map((a) => [a.code, a.id]));
+      if (kind === 'gl_monthly' || kind === 'budget') {
+        const G = UP.gl, fy = budgetFY || HGEngine.fyOfDate(asOf), idOf = new Map(G.accounts.map((a) => [a.code, a.id]));
         const fresh = G.rec.fresh.map((f) => { const sel = G.sel[f.line.code], p = f.line.parts, id = (f.account && f.account.id) || crypto.randomUUID(); idOf.set(f.line.code, id);
           return { id, district_id: d.id, code: f.line.code, fund_code: p.fund || null, facility_code: p.facility || null, function_code: p.function || null, program_code: p.program || null,
             project_code: p.project || null, object_code: p.object || p.source || p.account || null, description: f.line.description || null,
             account_type: HGGL.suggest(p).account_type, maps_to: sel.maps_to, mapped_fund: sel.mapped_fund || null, sign: sel.sign === -1 ? -1 : 1,
             needs_review: sel.maps_to === 'unmapped', first_seen_batch: batchId }; });
         if (fresh.length) await HG.db.upsert('gl_account', fresh, 'district_id,code');
+        if (kind === 'budget') {
+          const bl = G.P.lines.filter((l) => l.budget != null).map((l) => ({ district_id: d.id, account_id: idOf.get(l.code), fiscal_year: fy, version: 'adopted', amount: l.budget, import_batch_id: batchId }));
+          for (let i = 0; i < bl.length; i += 500) await HG.db.upsert('budget_line', bl.slice(i, i + 500), 'account_id,fiscal_year,version');
+          UP.glUpdated = null; UP.budgetFY = fy;
+        } else {
         const amounts = G.P.lines.map((l) => ({ district_id: d.id, batch_id: batchId, account_id: idOf.get(l.code), fiscal_year: fy, period_end: asOf,
           month_amount: l.month, ytd_amount: l.ytd, budget_amount: l.budget, encumbered: l.encumbered }));
         for (let i = 0; i < amounts.length; i += 500) await HG.db.insert('gl_amount', amounts.slice(i, i + 500));
         await HG.db.update('district_settings', `district_id=eq.${d.id}`, { gl_layout: { headerCells: G.headerCells, cols: G.layout.cols } });
         const B = HGGL.balances(G.P.lines, glMapping());
         UP.glUpdated = ['save', 'ppel', 'vppel', 'grants', 'debt_levy', 'general'].filter((f) => B[f] && B[f].hasEquity).map((f) => HGGL.FUND_NAME[f]);
+        }
       } else if (kind === 'projects') {
         const existing = await HG.db.select('initiative', `select=id,name&district_id=eq.${d.id}`);
         const byName = new Map(existing.map((x) => [x.name.toLowerCase().replace(/\s+/g, ' '), x.id]));
@@ -1921,6 +2092,7 @@
       throw err;
     }
     toast('Upload applied', kind === 'projects' ? `“${scName}” is ready on the capital plan.`
+      : kind === 'budget' ? `The adopted FY${UP.budgetFY} budget is in.`
       : kind === 'gl_monthly' ? `The ledger for ${day(asOf)} is in.${UP.glUpdated.length ? ` Balances updated: ${UP.glUpdated.join(', ')}.` : ' No fund balances changed.'}` : `Balances as of ${day(asOf)} saved.`);
     if (kind === 'projects') { CAP.key = d.id; CAP.scenarioId = createdScenario; go(`#/d/${enc(d.slug)}/resources/capital`); }
     else here();
@@ -2049,6 +2221,7 @@
       <div class="card"><h3>What changed${ch.first ? '' : ` since ${esc(day(ch.since))}`}</h3><ul>${ch.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
       <div class="card"><h3>The capital plan</h3>
         <p>${esc(P.scenario.name)}, FY${P.plan.start}–FY${P.plan.start + P.plan.years - 1}: <b>${f(P.plan.need)}</b> of capital need; levies and grants pay <b>${f(P.plan.levyFunded)}</b>${P.plan.financed > 0.5 ? `, borrowing or gifts <b>${f(P.plan.financed)}</b>` : ''}; <b class="${P.plan.gap > 0.5 ? 'gaptext' : ''}">${f(P.plan.gap)}</b> left to close.</p>
+        ${P.gf ? `<p class="small"><b>General Fund:</b> solvency ${(P.gf.solvency * 100).toFixed(1)}% this year, lowest ${(P.gf.lowest * 100).toFixed(1)}% in FY${P.gf.lowestFY} on the five-year forecast; unspent balance ratio ${(P.gf.unspentRatio * 100).toFixed(1)}%.${P.gf.flags && P.gf.flags.negativeUnspent.length ? ` <span class="gaptext">Spending passes spending authority in FY${P.gf.flags.negativeUnspent.join(', FY')}.</span>` : ''}</p>` : ''}
         ${P.tax ? `<p class="small">Added property tax at its highest (FY${P.tax.fy}): about <b>$${Math.round(P.tax.home).toLocaleString('en-US')} a year</b> for a $${Math.round(P.tax.homeValue).toLocaleString('en-US')} home.</p>` : ''}</div>
       ${(P.budget || []).length ? `<div class="card"><h3>Funds</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Balance</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">Encumbered</th><th class="num">Spending forecast</th></tr></thead><tbody>
         ${P.budget.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${P.balances[x.key] ? f(P.balances[x.key].amount) : ''}</td><td class="num">${f(x.revenue.budget)}</td><td class="num">${f(x.revenue.actual)}</td><td class="num">${f(x.spending.budget)}</td><td class="num">${f(x.spending.actual)}</td><td class="num">${f(x.spending.encumbered)}</td><td class="num">${f(x.spending.forecast)}</td></tr>`).join('')}
@@ -2072,7 +2245,9 @@
     ]);
     const batch = batches.find((b) => b.period_end <= date) || null;
     const amounts = batch ? await HG.db.selectAll('gl_amount', `select=account_id,batch_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${batch.id}`) : [];
-    const payload = HGReport.build({ district: d, rows, periodEnd: date, batch, accounts, amounts, batches: batch ? [batch] : [], balances });
+    const g = gfRun(rows, board.id), ys = g ? g.R.years : null;
+    const gf = ys ? (() => { const low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]); return { solvency: ys[0].solvency, lowest: low.solvency, lowestFY: low.fy, unspentRatio: ys[0].unspentRatio, endBalance: ys[ys.length - 1].balance, endFY: ys[ys.length - 1].fy, flags: g.R.flags }; })() : null;
+    const payload = HGReport.build({ district: d, rows, periodEnd: date, batch, accounts, amounts, batches: batch ? [batch] : [], balances, gf });
     const id = crypto.randomUUID();
     const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     await HG.db.insert('report_snapshot', { id, district_id: d.id, kind: 'board_monthly', title: `Board report, ${label}`, period_end: date, scenario_id: board.id, batch_id: batch ? batch.id : null, payload });
@@ -2902,6 +3077,10 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async gfEdit() { if (!GF.rows) GF.rows = await loadCapitalRows(S.district); openGfEditor(); },
+    async gfStaffAdd() { const t = document.querySelector('[data-gf-staff-template]'); document.querySelector('[data-gf-staff-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
+    async gfStaffRemove(el) { el.closest('[data-gf-staff]').remove(); },
+    async gfReset() { GF.over = {}; here(); },
     async openSearch() { await openSearch(); },
     async searchGo(el) {
       const k = el.dataset.k, id = el.dataset.id, slug = S.district.slug; closeModal();
@@ -3052,6 +3231,7 @@
     },
   };
   const FORMS = {
+    async saveGf(f, form) { await saveGf(f, form); },
     async saveSurvey(f, form) { await saveSurvey(f, form); },
     async savePriority(f, form) { await savePriority(f, form); },
     async saveMeasure(f, form) { await saveMeasure(f, form); },
@@ -3123,6 +3303,8 @@
     run(() => FORMS[form.dataset.form](data, form), form.querySelector('[type=submit]'));
   });
   document.addEventListener('input', (e) => {
+    const gl2 = e.target.closest('[data-gf-lever]');
+    if (gl2) { const v = toNum(gl2.value); if (v !== null && !isNaN(v)) { GF.over[gl2.dataset.gfLever] = v / 100; GF.run = gfRun(GF.rows, GF.sid, GF.over); document.getElementById('gf-results').innerHTML = gfResultsHtml(GF.run); } return; }
     const sq = e.target.closest('[data-search]');
     if (sq) { document.querySelector('[data-search-results]').innerHTML = searchResults(sq.value); return; }
     const cq = e.target.closest('[data-cap-filter=q]');
@@ -3159,6 +3341,8 @@
     const ma = e.target.closest('[data-me-auto]');
     if (ma && ma.value) { const a = HGDirection.AUTO[ma.value], fm = ma.closest('form'), set = (n, v) => { const el = fm.querySelector(`[name=${n}]`); if (el && !el.value) el.value = v; };
       set('name', a.name); set('unit', a.unit); fm.querySelector('[name=better]').value = a.better; fm.querySelector('[name=cadence]').value = a.cadence; return; }
+    const gsc = e.target.closest('[data-gf-sc]');
+    if (gsc) { GF.sid = gsc.value; GF.over = {}; return here(); }
     const mp = e.target.closest('[data-me-prio]');
     if (mp) { const sel = mp.closest('form').querySelector('[name=outcome_id]'); sel.innerHTML = '<option value="">None</option>' + DIR.D.outcomes.filter((o) => o.priority_id === mp.value).map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join(''); return; }
     const ph2 = e.target.closest('[data-pub-hold]');
@@ -3177,7 +3361,7 @@
     if (gm) {
       const code = gm.dataset.glMap || gm.dataset.glFund || gm.dataset.glSign, sel = UP.gl.sel[code];
       if (gm.dataset.glMap) sel.maps_to = gm.value; else if (gm.dataset.glFund) sel.mapped_fund = gm.value; else sel.sign = gm.checked ? -1 : 1;
-      document.getElementById('gl-balances').innerHTML = glBalancesHtml(); return;
+      document.getElementById('gl-balances').innerHTML = UP.kind === 'budget' ? budgetSummaryHtml() : glBalancesHtml(); return;
     }
     const ua = e.target.closest('[data-upload-asof]');
     if (ua && UP.kind === 'gl_monthly' && document.getElementById('gl-balances')) { document.getElementById('gl-balances').innerHTML = glBalancesHtml(); }

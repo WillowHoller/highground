@@ -51,6 +51,7 @@
       plan: { need: r.need, levyFunded: r.levyFunded, financed: r.financed, gap: r.gap, overflow: r.overflow, start: cfg.start, years: cfg.n },
       balances: bal, budget, progress, initiatives, done, pending: pending.slice(0, 12), pendingCount: pending.length,
       tax: tax && tax.taxed.length && tax.hasValuation ? { home: tax.peak.home, fy: tax.peak.fy, homeValue: tax.homeValue } : null,
+      gf: inp.gf || null,   // the General Fund forecast's headline figures, when the district has set it up
     };
     function pick(o) { return { budget: o.budget, actual: o.actual, encumbered: o.encumbered, forecast: o.forecast, variance: o.variance }; }
   }
@@ -73,6 +74,8 @@
       const a = (now.balances || {})[f], b = (prev.balances || {})[f];
       if (a && b && Math.abs(a.amount - b.amount) > 0.5) items.push(`${FUNDN[f]} balance ${a.amount > b.amount ? 'up' : 'down'} ${fmt(Math.abs(a.amount - b.amount))}, to ${fmt(a.amount)}.`);
     });
+    if (now.gf && prev.gf && now.gf.solvency != null && prev.gf.solvency != null && Math.abs(now.gf.solvency - prev.gf.solvency) >= 0.001)
+      items.push(`General Fund solvency ${now.gf.solvency > prev.gf.solvency ? 'rose' : 'fell'} from ${(prev.gf.solvency * 100).toFixed(1)}% to ${(now.gf.solvency * 100).toFixed(1)}%.`);
     const spentNow = (now.progress || []).reduce((t, x) => t + x.spent, 0), spentPrev = now.fiscalYear === prev.fiscalYear ? (prev.progress || []).reduce((t, x) => t + x.spent, 0) : 0;
     if (spentNow - spentPrev > 0.5) items.push(`Spending on initiatives this period: ${fmt(spentNow - spentPrev)}.`);
     if (!items.length) items.push('Nothing material changed since the last report.');

@@ -158,6 +158,7 @@
       vppel_status: s.vppel.status, vppel_annual: s.vppel.annual, vppel_first_fy: s.vppel.firstFY, vppel_last_fy: s.vppel.lastFY,
       grants_avg: s.grants.avg, grants_yield: s.grants.yield, construction_inflation: s.inflation,
       ...(s.tax ? { tax_home_value: s.tax.homeValue, ag_value_per_acre: s.tax.agPerAcre } : {}),
+      ...(s.gf ? { gf_inputs: s.gf } : {}),
     });
     CAP_FUNDS.forEach((f) => out.fund_balance.push({ district_id: districtId, fund: f, as_of: s.balances.asOf, amount: s.balances[f] || 0, source: 'manual' }));
     (s.debt || []).forEach((d) => out.debt_obligation.push({ district_id: districtId, name: d.name, fund: d.fund, annual_payment: d.annual, final_fy: d.lastFY }));
@@ -248,12 +249,12 @@
     const s = settings || {}, r = (v) => Math.round(v * 10000) / 10000;
     const infl = s.inflation == null ? 0.03 : s.inflation, sg = (s.save && s.save.trend) || 0, pg = (s.ppel && s.ppel.growth) || 0, gy = s.grants && s.grants.yield != null ? s.grants.yield : 0.75;
     return [
-      { name: 'Base', is_default: true, construction_inflation: r(infl), save_trend: r(sg), ppel_growth: r(pg), grant_yield: r(gy), settlement_pct: 0.03,
-        notes: 'The district’s own starting numbers.' },
-      { name: 'Conservative', is_default: false, construction_inflation: r(infl + 0.015), save_trend: r(sg - 0.01), ppel_growth: r(pg - 0.01), grant_yield: r(gy * 0.67), settlement_pct: 0.04,
-        notes: 'Costs rise faster and revenue grows slower than expected.' },
-      { name: 'Growth', is_default: false, construction_inflation: r(Math.max(0, infl - 0.005)), save_trend: r(sg + 0.01), ppel_growth: r(pg + 0.01), grant_yield: r(Math.min(1, gy + 0.1)), settlement_pct: 0.025,
-        notes: 'Revenue grows faster and costs a little slower than expected.' },
+      { name: 'Base', is_default: true, construction_inflation: r(infl), save_trend: r(sg), ppel_growth: r(pg), grant_yield: r(gy), settlement_pct: 0.025,
+        state_aid_growth: 0.0225, enrollment_change_pct: -0.005, health_growth: 0.05, notes: 'The district’s own starting numbers.' },
+      { name: 'Conservative', is_default: false, construction_inflation: r(infl + 0.015), save_trend: r(sg - 0.01), ppel_growth: r(pg - 0.01), grant_yield: r(gy * 0.67), settlement_pct: 0.035,
+        state_aid_growth: 0.0125, enrollment_change_pct: -0.015, health_growth: 0.08, notes: 'Costs rise faster and revenue grows slower than expected.' },
+      { name: 'Growth', is_default: false, construction_inflation: r(Math.max(0, infl - 0.005)), save_trend: r(sg + 0.01), ppel_growth: r(pg + 0.01), grant_yield: r(Math.min(1, gy + 0.1)), settlement_pct: 0.02,
+        state_aid_growth: 0.03, enrollment_change_pct: 0.005, health_growth: 0.04, notes: 'Revenue grows faster and costs a little slower than expected.' },
     ];
   }
 

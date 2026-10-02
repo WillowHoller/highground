@@ -32,6 +32,9 @@ check('changes: the status change', /CTE and ag building addition: Being analyse
 check('changes: balances moved', /SAVE balance down \$43k, to \$1\.31M/.test(text) && /PPEL balance down \$13k/.test(text), text);
 check('changes: the gap moved because the finished phase cost less than planned', /The gap to close (shrank|grew)/.test(text) || Math.abs(now.plan.gap - prev.plan.gap) < 0.5, text);
 check('changes: spending this period', /Spending on initiatives this period: \$211k/.test(text), text);
+const withGf = Rp.build({ district: rows.district, rows, periodEnd: '2026-09-30', batch: sep, accounts, amounts: amounts('sep', 1), batches: [aug, sep], balances: balancesSep, gf: { solvency: 0.152, lowest: 0.13, lowestFY: 2031, unspentRatio: 0.11 } });
+const prevGf = Object.assign({}, prev, { gf: { solvency: 0.164 } });
+check('General Fund headline kept in the report, and its change described', withGf.gf.solvency === 0.152 && /General Fund solvency fell from 16\.4% to 15\.2%/.test(Rp.changes(withGf, prevGf).items.join(' ')));
 check('nothing material: said plainly', Rp.changes(now, now).items[0] === 'Nothing material changed since the last report.');
 check('the report is plain data (can be stored as it was)', JSON.parse(JSON.stringify(now)).plan.need === now.plan.need);
 console.log(ch.items.map((x) => '  · ' + x).join('\n'));

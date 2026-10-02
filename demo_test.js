@@ -29,5 +29,8 @@ const bond = R.scenario[1], ib = C.buildInputs(rows, bond.id), tb = T.impact(ib.
 check('bond scenario: a believable tax impact for the example home', tb.peak && tb.peak.home > 5 && tb.peak.home < 200, tb.peak && tb.peak.home);
 const mA = X.metrics(X.run(rows, board.id)), mB = X.metrics(X.run(rows, bond.id));
 check('bond scenario: a smaller gap than the board version', mB.gap < mA.gap);
+const F = require('./gf.js'), g = B.settings.gf, gr = F.forecast(g, g.assume, [2027, 2028, 2029, 2030, 2031]).years;
+check('General Fund: believable starting point (revenue ≈ spending, staff about 78%, solvency in the teens)', Math.abs(gr[0].revenue - gr[0].spending) < 0.03 * gr[0].revenue && gr[0].staffShare > 0.74 && gr[0].staffShare < 0.82 && gr[0].solvency > 0.12 && gr[0].solvency < 0.2, gr[0]);
+check('General Fund: a gentle decline over five years, not a cliff', gr[4].solvency < gr[0].solvency && gr[4].solvency > 0.08, gr.map((y) => y.solvency));
 console.log(`Bridger Hollow: gap ${Math.round(mA.gap / 1e3)}k board, ${Math.round(mB.gap / 1e3)}k with bond; line after #${kb.line}; ${kb.flags.length} flags; bond adds $${tb.peak.home.toFixed(2)}/yr for a $${B.settings.tax.homeValue.toLocaleString()} home`);
 console.log(`demo tests: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

@@ -42,7 +42,7 @@ def gold(scen,patch): return next(c for c in GOLD["cases"] if c["scenario"]==sce
 PUB={}
 TABLES["publication"]=[]
 TABLES["import_row"]=[]; TABLES["import_issue"]=[]
-for t in ["assumption_set","outcome","measure_value","survey","survey_result","recurring_cost","project_request","report_snapshot"]: TABLES.setdefault(t,[])
+for t in ["assumption_set","outcome","measure_value","survey","survey_result","recurring_cost","project_request","report_snapshot","budget_line"]: TABLES.setdefault(t,[])
 TABLES["initiative"]=TABLES["initiative"]+[{"id":"ini-ffa","district_id":"d1","name":"FFA program","type":"program","status":"approved","cost_confidence":"estimate"}]
 _bp=[p for p in TABLES["phase"] if p["scenario_id"]!=_ph_sid][0]; _bp["label"]="Unit ventilators"
 TABLES["recurring_cost"]=[{"id":"rc1","district_id":"d1","scenario_id":_ph_sid,"initiative_id":_init0,"kind":"supplies","fund":"ppel","first_fy":2028,"last_fy":None,"annual_amount":12000,"grows_with":"none"}]
@@ -375,9 +375,13 @@ async def main():
     pl=json.loads(pp[0][2])["payload"] if pp else {}
     check("publish: sends the board version as a frozen copy", pp and len(pl.get("projects",[]))==16 and pl["settings"]["save"]["receipts"]==1420000 and json.loads(pp[0][2])["kind"]=="board_plan" and pl["note"].startswith("The board adopts"), str(len(pl.get("projects",[]))))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(300)
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(400)
-    await pg.click("text=Adopted budget (for the general-fund forecast)"); await pg.wait_for_timeout(200)
-    check("not-built button throws and shows message", "Budget upload isn't built yet (planned for Phase 6)" in (await pg.inner_text("#toasts")).replace("’","'"))
+    leftovers={}
+    for route in ["overview/today","direction/priorities","direction/measures","direction/community","decisions/initiatives","resources/summary","resources/general","resources/capital",
+                  "progress/initiatives","progress/measures","progress/actuals","progress/uploads","reports/board","reports/community","reports/exports","settings/district"]:
+      await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+route); await pg.wait_for_timeout(350)
+      n=await pg.locator("[data-notbuilt]").count()
+      if n: leftovers[route]=n
+    check("no unbuilt buttons left anywhere", not leftovers, str(leftovers))
     # invite
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/people"); await pg.wait_for_timeout(400)
     await pg.fill("form[data-form=invite] input[name=email]","New.Person@Example.test"); await pg.select_option("form[data-form=invite] select","editor")
@@ -956,6 +960,49 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(500)
     rowtxt=[r for r in (await pg.inner_text("#view")).split("\n") if r.startswith("Public link")]
     check("help: the public link row matches the finished community page", rowtxt and "Live" in rowtxt[0] and "Phase" not in rowtxt[0], str(rowtxt))
+    # Phase 6: the General Fund
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/general"); await pg.wait_for_timeout(800)
+    t=await pg.inner_text("#view")
+    check("general fund: caution, solvency, unspent ratio, ending balance", "Check the starting figures and results with the business manager" in t and "Solvency ratio" in t and "16.8%" in t and "Unspent balance ratio" in t and "Ending fund balance" in t, t[:600])
+    check("general fund: new money vs a settlement, and the year table", "New money vs. a settlement" in t and "Each 1% of settlement costs" in t and "Spending authority" in t and "Staff share of spending" in t and "$8,148" in t)
+    await pg.screenshot(path=SHOTS+"/generalfund.png", full_page=True)
+    box=await pg.locator(".gflevers").bounding_box()
+    check("general fund: what-if levers laid out compactly, not one tall column", box and box["height"]<260, str(box))
+    before=await pg.inner_text("#gf-results")
+    await pg.fill("input[data-gf-lever=settle]","4.5"); await pg.wait_for_timeout(300)
+    after=await pg.inner_text("#gf-results")
+    check("general fund: a what-if settlement changes the forecast at once", before!=after and "A 4.5% settlement costs" in after)
+    await pg.fill("input[data-gf-lever=settle]","9"); await pg.fill("input[data-gf-lever=health]","12"); await pg.wait_for_timeout(300)
+    check("general fund: warns when spending passes spending authority", "passes spending authority" in await pg.inner_text("#gf-results"))
+    await pg.click("button[data-action=gfReset]"); await pg.wait_for_timeout(600)
+    await pg.click("button[data-action=gfEdit]"); await pg.wait_for_timeout(500)
+    await pg.fill("[data-modal] input[name=enrollment]","1240")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
+    gp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/district_settings?" in c[1]]
+    check("general fund: starting figures saved, staff groups and default assumptions with them", gp and gp[0]["gf_inputs"]["enrollment"]==1240 and len(gp[0]["gf_inputs"]["staff"])==3 and gp[0]["gf_inputs"]["assume"]["settle"]==0.025, str(gp)[:300])
+    saved_gf=TABLES["district_settings"][0].get("gf_inputs")
+    TABLES["district_settings"][0]["gf_inputs"]=None
+    await pg.reload(); await pg.wait_for_timeout(700)
+    check("general fund: not set up yet, with a way in", "Set up the General Fund" in await pg.inner_text("#view"))
+    TABLES["district_settings"][0]["gf_inputs"]=saved_gf
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pg.wait_for_timeout(700)
+    check("summary: the General Fund half", "General Fund" in await pg.inner_text("#view") and "Staff share of spending" in await pg.inner_text("#view"))
+    # adopted budget upload
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(500)
+    TABLES["gl_account"]=[]
+    await pg.select_option("select[data-upload-kind]","budget")
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"budget-fy2027.csv","mimeType":"text/csv","buffer":GLCSV}]); await pg.wait_for_timeout(600)
+    rv=await pg.inner_text("#upload-review")
+    check("budget upload: reviewed with the General Fund totals it gives", "What this budget says" in rv and "revenue $12.30M" in rv and "staff spending (objects 1xx–2xx) $5.28M" in rv, rv[-400:])
+    n0=len(calls); await pg.click("button[data-action=applyUpload]"); await pg.wait_for_timeout(1000)
+    bb=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/import_batch"]
+    bl=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].startswith("/rest/v1/budget_line")]
+    check("budget upload: saved as the adopted budget for the year", bb and bb[0]["kind"]=="budget" and bb[0]["period_end"] is None and bl and all(x["version"]=="adopted" and x["fiscal_year"]==bb[0]["fiscal_year"] for x in bl[0]) and len(bl[0])==16, str(bb)[:150]+str(len(bl[0]) if bl else 0))
+    check("budget upload: no balances touched", not any(c[1].startswith("/rest/v1/gl_amount") for c in calls[n0:]) and "The adopted FY" in await pg.inner_text("#toasts"))
+    TABLES["gl_account"]=[]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(500)
+    bt=await pg.inner_text("#view")
+    check("help: every screen is live", "Partly built" not in bt and "Not built" not in bt and "Phase " not in bt, bt[:300])
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;
