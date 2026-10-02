@@ -697,7 +697,26 @@ async def main():
     n0=len(calls); await first.locator("button[data-action=piSavePhase]").click(); await pg.wait_for_timeout(600)
     sp=[json.loads(c[2]) for c in calls[n0:] if "rpc/set_phase_progress" in c[1]]
     check("progress: recorded through the progress-only function, even on the locked plan", sp and sp[0]["p_status"]=="done" and sp[0]["p_actual"]==401500 and sp[0]["p_done"]=="2026-09-25" and sp[0]["p_phase"]==sorted(TABLES_ph,key=lambda p:(p["fy"],p["seq"]))[0]["id"], str(sp))
+    # Phase 3C: budget vs. actual (ledger still loaded from the progress tests)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/actuals"); await pg.wait_for_timeout(800)
+    t=await pg.inner_text("#view")
+    check("budget: every fund, General Fund first, from the ledger through the month end", "Every fund" in t and t.find("General Fund")<t.find("SAVE")<t.find("PPEL") and "Sep 30, 2026" in t and "25% of the fiscal year gone" in t, t[:300])
+    check("budget: by default, the year ends at budget unless already exceeded (no false alarms)", "$12,300,000" in t and "$2,909,551" in t and "over by" not in t and "on budget" in t, t[:600])
+    await pg.select_option("select[data-ba=method]","pace"); await pg.wait_for_timeout(600); t=await pg.inner_text("#view")
+    check("budget: rest of the year at the budget's pace", "$12,134,551" in t and "short by $165,449" in t)
+    check("budget: spending by function, with what's still available", "Instruction" in t and "$5,275,000" in t and "$880,634" in t and "Operation and maintenance of plant" in t and "$4,394,366" in t, t[t.find("Spending by function"):t.find("Spending by function")+400])
+    await pg.locator("#view").screenshot(path=SHOTS+"/budget.png")
+    await pg.select_option("select[data-ba=method]","straight"); await pg.wait_for_timeout(600)
+    check("budget: straight-line forecast, with its caution", "$11,638,206" in await pg.inner_text("#view") and "can mislead this method" in await pg.inner_text("#view"))
+    await pg.click("a[data-action=baFund][data-k=save]"); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#view")
+    check("budget: any fund in detail", "Facilities acquisition and construction" in t and "$1,180,640" in t, t[t.find("Spending by function")-300:t.find("Spending by function")+300])
+    for g in TABLES["gl_amount"]: g["budget_amount"]=None
+    await pg.reload(); await pg.wait_for_timeout(800)
+    check("budget: an export with no budget column says so", "has no budget column" in await pg.inner_text("#view"))
     TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]; TABLES["import_batch"]=[b for b in TABLES["import_batch"] if b["id"]!="glb1"]
+    await pg.reload(); await pg.wait_for_timeout(600)
+    check("budget: before any ledger, says what's needed", "No monthly ledger yet" in await pg.inner_text("#view"))
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;

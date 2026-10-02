@@ -271,3 +271,10 @@ details.glgroup summary{margin:4px 0}
 table.pitable tr.pidetail > td{background:#FBF9F4}
 table.pitable input[type=date]{height:32px}
 table.pitable input[name=actual]{width:110px;height:32px}
+
+/* ---------- budget vs. actual ---------- */
+.ubar{display:inline-block;position:relative;width:120px;height:8px;background:#ECE8DD;border-radius:4px;vertical-align:middle;margin-top:6px}
+.ubar i{position:absolute;left:0;top:0;bottom:0;background:var(--action);border-radius:4px}
+.ubar i.hot{background:#C27A00}
+.ubar b{position:absolute;top:-3px;width:2px;height:14px;background:var(--text)}
+table.batable td{vertical-align:middle}

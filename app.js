@@ -153,7 +153,7 @@
     { id: 'progress', label: 'Progress', tabs: [
       { id: 'initiatives', label: 'Initiatives', status: 'live', lede: 'Each initiative against the adopted plan: spending, phases and dates.', render: vProgInitiatives },
       { id: 'measures', label: 'Measures', status: 'wip', phase: 5, lede: 'Results against targets over time.', render: vProgMeasures },
-      { id: 'actuals', label: 'Budget vs. actual', status: 'wip', phase: 3, lede: 'Monthly actuals from the business office, by fund.', render: vActuals },
+      { id: 'actuals', label: 'Budget vs. actual', status: 'live', lede: 'Each fund’s budget, actual and year-end forecast, from the monthly ledger.', render: vActuals },
       { id: 'uploads', label: 'Uploads', status: 'partial', phase: 3, lede: 'Every file brought in, and what happened to it.', render: vUploads },
     ] },
     { id: 'reports', label: 'Reports', tabs: [
@@ -999,14 +999,54 @@
   async function vProgMeasures() {
     return wip({ phase: 5, items: ['Each measure’s trend against its target', 'Updates owed by each owner'], uses: 'measure, measure_value' });
   }
-  async function vActuals() {
-    return wip({ phase: 3, items: [
-      'Upload a monthly GL export or trial balance',
-      'Match accounts once; HighGround remembers them month to month',
-      'Review new accounts, then apply',
-      'Budget against actual by fund, compared with any earlier month',
-    ], uses: 'import_batch, gl_account, gl_amount, budget_line, apply_import()' });
+  const BA = { key: null, fy: null, method: 'budget', fund: null };
+  async function vActuals(c) {
+    const d = c.district;
+    const batches = await HG.db.select('import_batch', `select=id,kind,status,period_end,fiscal_year&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc`).catch(() => []);
+    const latest = HGActuals.latestByYear(batches), fys = Object.keys(latest).map(Number).sort((x, y) => y - x);
+    if (!fys.length) return `<div class="card"><h3>No monthly ledger yet</h3><p>Budget against actual comes from the business office’s month-end export: its budget, year-to-date and encumbered columns.</p>
+      ${c.finance ? `<a class="btn primary" href="#/d/${enc(d.slug)}/progress/uploads">Upload a month-end export</a>` : '<p class="muted">It appears once the business office uploads one.</p>'}</div>`;
+    if (BA.key !== d.id) { BA.key = d.id; BA.fy = null; BA.fund = null; }
+    const fy = BA.fy && latest[BA.fy] ? BA.fy : fys[0], batch = latest[fy];
+    const [accounts, amounts] = await Promise.all([
+      HG.db.selectAll('gl_account', `select=id,code,fund_code,function_code,maps_to,mapped_fund,sign&district_id=eq.${d.id}`),
+      HG.db.selectAll('gl_amount', `select=account_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${batch.id}`),
+    ]);
+    const S = HGBudget.summarize(accounts, amounts, batch.period_end, BA.method);
+    const fund = S.funds.find((f) => f.key === BA.fund) || S.funds.find((f) => f.key === 'general') || S.funds[0];
+    const fmt = (v) => (v == null ? '' : (v < 0 ? '−' : '') + '$' + Math.round(Math.abs(v)).toLocaleString('en-US'));
+    const pctTxt = (v) => (v == null ? '' : Math.round(v * 100) + '%');
+    const bar = (used, spending) => used == null ? '' : `<span class="ubar" title="${pctTxt(used)} of budget; ${pctTxt(S.gone)} of the year gone">
+      <i style="width:${Math.min(100, Math.max(0, used * 100)).toFixed(1)}%" class="${spending && used > S.gone + 0.1 ? 'hot' : ''}"></i><b style="left:${(S.gone * 100).toFixed(1)}%"></b></span>`;
+    const spendVar = (o) => (!o.budget ? '' : o.variance > 0.5 ? `<span class="gaptext">over by ${fmt(o.variance)}</span>` : o.variance < -0.5 ? `<span class="ok">under by ${fmt(-o.variance)}</span>` : '<span class="muted">on budget</span>');
+    const revVar = (o) => (!o.budget ? '' : o.variance < -0.5 ? `<span class="gaptext">short by ${fmt(-o.variance)}</span>` : o.variance > 0.5 ? `<span class="ok">ahead by ${fmt(o.variance)}</span>` : '<span class="muted">on budget</span>');
+    const fns = Object.entries(fund ? fund.byFunction : {}).sort((x, y) => x[0].localeCompare(y[0]));
+    return `
+      <div class="row">
+        <label class="chip"><span class="small muted">Fiscal year</span><select data-ba="fy" aria-label="Fiscal year">${fys.map((y) => `<option value="${y}" ${y === fy ? 'selected' : ''}>FY${y}</option>`).join('')}</select></label>
+        <label class="chip"><span class="small muted">Forecast</span><select data-ba="method" aria-label="Forecast method"><option value="budget" ${BA.method === 'budget' ? 'selected' : ''}>Budget, unless already exceeded</option><option value="pace" ${BA.method === 'pace' ? 'selected' : ''}>Rest of the year at the budget’s pace</option><option value="straight" ${BA.method === 'straight' ? 'selected' : ''}>Straight line from this year so far</option></select></label>
+        <span class="small muted">From the ledger through <b>${esc(day(batch.period_end))}</b>: ${pctTxt(S.gone)} of the fiscal year gone.</span>
+      </div>
+      ${S.hasBudget ? '' : '<div class="notice">This month’s export has no budget column, so only actuals show. Include the budget in the export (most systems can), and HighGround will compare against it.</div>'}
+      <div class="card"><h3>Every fund</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Year-end forecast</th><th></th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">Encumbered</th><th class="num">Year-end forecast</th><th></th></tr></thead><tbody>
+        ${S.funds.map((f) => `<tr><td><a href="#" data-action="baFund" data-k="${esc(f.key)}">${esc(f.name)}</a></td>
+          <td class="num">${fmt(f.revenue.budget)}</td><td class="num">${fmt(f.revenue.actual)}</td><td class="num">${fmt(f.revenue.forecast)}</td><td class="small">${revVar(f.revenue)}</td>
+          <td class="num">${fmt(f.spending.budget)}</td><td class="num">${fmt(f.spending.actual)}</td><td class="num">${fmt(f.spending.encumbered)}</td><td class="num">${fmt(f.spending.forecast)}</td><td class="small">${spendVar(f.spending)}</td></tr>`).join('')}
+      </tbody></table></div></div>
+      ${fund ? `<div class="card"><h3>${esc(fund.name)}</h3>
+        <div class="grid tiles">
+          <div class="card tile-card"><div class="small muted">Revenue received</div><div class="stat">${fmt(fund.revenue.actual)}</div><div class="small muted">of ${fmt(fund.revenue.budget)} budgeted · ${pctTxt(fund.revenue.used)}</div>${bar(fund.revenue.used, false)}</div>
+          <div class="card tile-card"><div class="small muted">Revenue forecast</div><div class="stat">${fmt(fund.revenue.forecast)}</div><div class="small">${revVar(fund.revenue)}</div></div>
+          <div class="card tile-card"><div class="small muted">Spent and encumbered</div><div class="stat">${fmt(fund.spending.actual + fund.spending.encumbered)}</div><div class="small muted">of ${fmt(fund.spending.budget)} budgeted · ${pctTxt(fund.spending.used)}</div>${bar(fund.spending.used, true)}</div>
+          <div class="card tile-card"><div class="small muted">Spending forecast</div><div class="stat">${fmt(fund.spending.forecast)}</div><div class="small">${spendVar(fund.spending)}</div></div>
+        </div>
+        ${fns.length ? `<h3 style="margin-top:14px">Spending by function</h3><div class="scroll"><table class="data batable"><thead><tr><th>Function</th><th class="num">Budget</th><th class="num">Spent</th><th class="num">Encumbered</th><th class="num">Available</th><th>Used vs. year gone</th><th class="num">Year-end forecast</th><th></th></tr></thead><tbody>
+          ${fns.map(([k, x]) => `<tr><td>${esc(x.name)}</td><td class="num">${fmt(x.budget)}</td><td class="num">${fmt(x.actual)}</td><td class="num">${fmt(x.encumbered)}</td><td class="num">${fmt(x.available)}</td>
+            <td>${bar(x.used, true)} <span class="small muted">${pctTxt(x.used)}</span></td><td class="num">${fmt(x.forecast)}</td><td class="small">${spendVar(x)}</td></tr>`).join('')}
+        </tbody></table></div>` : ''}
+        <p class="small muted" style="margin-top:8px">The bar is budget used (spent plus encumbered); the line marks how much of the year has gone. ${BA.method === 'budget' ? 'Forecast: the budget, unless spending plus encumbrances (or revenue received) has already passed it.' : BA.method === 'pace' ? 'Forecast: actual so far plus the budget’s share for the rest of the year; suits steady items such as salaries, not front-loaded projects.' : 'Forecast: this year so far, extended to twelve months. Lumpy items, such as property taxes received in autumn and spring, can mislead this method.'}</p></div>` : ''}`;
   }
+
   // ---------------------------------------------------------------- scenario work: toolbar, project editor, financing, levers
   function scenarioToolbar(c) {
     const sc = CAP.sc || {}, btn = (a, label, cls) => `<button type="button" class="btn ${cls || ''}" data-action="${a}">${label}</button>`;
@@ -2336,6 +2376,7 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async baFund(el) { BA.fund = el.dataset.k; here(); },
     async piOpen(el) { PI.open = PI.open === el.dataset.id ? null : el.dataset.id; here(); },
     async piSavePhase(el) { await piSavePhase(el); },
     async piUseLedger(el) { const tr = el.closest('[data-pi-phase]'); tr.querySelector('[name=actual]').value = Number(el.dataset.amount).toLocaleString('en-US'); tr.querySelector('[name=status]').value = 'done'; },
@@ -2565,6 +2606,8 @@
     if (ua && UP.kind === 'gl_monthly' && document.getElementById('gl-balances')) { document.getElementById('gl-balances').innerHTML = glBalancesHtml(); }
     const pk = e.target.closest('[data-pick-init]');
     if (pk) { openProjectEditor(pk.value || null); return; }
+    const bs = e.target.closest('[data-ba]');
+    if (bs) { BA[bs.dataset.ba] = bs.dataset.ba === 'fy' ? Number(bs.value) : bs.value; return here(); }
     const pf = e.target.closest('[data-pi-fy]');
     if (pf) { PI.fy = Number(pf.value); return here(); }
     const isd = e.target.closest('[data-ini-sid]');

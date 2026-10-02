@@ -20,6 +20,7 @@ demo_data.js          fictional demo districts; Bridger Hollow (about 925 studen
 uploads.js            reads project and balance spreadsheets (.csv, .xlsx); templates
 compare.js            compares scenarios and explains why their gaps differ
 ranking.js            tiers, rank order, the funding line, flags, fund in rank order
+budget.js             budget vs. actual vs. forecast by fund and function (three forecast methods)
 actuals.js            project actuals: spending per initiative from linked GL accounts; link suggestions
 gl.js                 reads month-end general-ledger exports (Iowa account codes), suggests account matches, computes balances
 tax.js                what a scenario adds to property taxes (Iowa rules, sourced; update rollbacks each November)
@@ -41,6 +42,7 @@ send_invitation_test.mjs  node --experimental-strip-types send_invitation_test.m
 test_ui.py            browser test against a simulated Supabase (Playwright)
 engine_test.js        node engine_test.js: engine vs. the working planner, 32 cases
 capital_test.js       node capital_test.js: demo data through database-shaped rows and back, 32 cases
+budget_test.js        node budget_test.js: budget, actual and forecasts against hand-worked figures
 actuals_test.js       node actuals_test.js: link suggestions and spending per initiative on the demo
 gl_test.js            node gl_test.js: columns, Iowa codes, suggestions and balances, against hand-worked figures
 demo_test.js          node demo_test.js: Bridger Hollow demo holds together and tells its story
