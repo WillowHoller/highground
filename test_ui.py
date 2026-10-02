@@ -93,6 +93,7 @@ async def handler(route):
     b=json.loads(body)
     return await (ok({"error":"Email isn’t set up on the server yet."},500) if FN["fail"] else ok({"status":"sent","to":"x"}))
   if path=="/rest/v1/rpc/claim_my_access": return await route.fulfill(status=204,body="")
+  if path=="/rest/v1/rpc/set_phase_progress": return await ok(json.loads(body))
   if path=="/rest/v1/rpc/request_access": return await ok("sent")
   if path=="/auth/v1/user":
     if not em: return await ok({"msg":"JWT expired"},401)
@@ -659,6 +660,44 @@ async def main():
     TABLES["assumption_set"]=[]
     for sc in TABLES["scenario"]:
       if sc["id"]==_ph_sid: sc["assumption_set_id"]=None
+    # Phase 3B: Progress → Initiatives
+    TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/initiatives"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view")
+    check("progress: against the board version, before any ledger", "No monthly ledger for FY2027 yet" in t and "District baseline" in t and "Middle school HVAC replacement" in t and "$900,000" in t, t[:400])
+    GL=json.loads(subprocess.check_output(["node","-e","""
+      const G=require('./gl.js');const P=G.parse(G.sampleExport());
+      process.stdout.write(JSON.stringify(P.lines.map((l,k)=>Object.assign({id:'gla'+k,district_id:'d1',code:l.code,description:l.description,project_code:l.parts.project||null,function_code:l.parts.function||null,initiative_id:null,needs_review:false,_ytd:l.ytd,_enc:l.encumbered,_bud:l.budget},G.suggest(l.parts)))))"""],cwd=os.path.dirname(os.path.abspath(__file__))))
+    TABLES["gl_account"]=[{k:v for k,v in a.items() if not k.startswith("_")} for a in GL]
+    TABLES["gl_amount"]=[{"district_id":"d1","batch_id":"glb1","account_id":a["id"],"ytd_amount":a["_ytd"],"encumbered":a["_enc"],"budget_amount":a["_bud"]} for a in GL]
+    TABLES["import_batch"]=TABLES["import_batch"]+[{"id":"glb1","district_id":"d1","kind":"gl_monthly","status":"applied","period_end":"2026-09-30","fiscal_year":2027,"file_name":"gl.csv","row_count":21,"uploaded_at":"2026-10-01T10:00:00Z"}]
+    await pg.reload(); await pg.wait_for_timeout(900)
+    t=await pg.inner_text("#view")
+    roof_init=next(i["id"] for i in TABLES["initiative"] if i["name"].startswith("High school roof"))
+    roof_acct=next(a["id"] for a in GL if a["code"]=="33-0000-4700-000-1001-450")
+    check("progress: link card suggests initiatives for capital spending", "Link spending to initiatives" in t and await pg.input_value("select[data-pi-link='%s']"%roof_acct)==roof_init and "through Sep 30, 2026" in t, t[:300])
+    check("progress: debt payments and General Fund aren't offered for linking", await pg.locator("select[data-pi-link='%s']"%next(a["id"] for a in GL if a["code"]=="36-0000-5000-000-0000-831")).count()==0
+          and await pg.locator("select[data-pi-link='%s']"%next(a["id"] for a in GL if a["code"].startswith("10-0109"))).count()==0)
+    n0=len(calls); await pg.click("button[data-action=piLinkAll]"); await pg.wait_for_timeout(900)
+    lk=[(c[1].split("id=eq.")[1], json.loads(c[2])) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/gl_account?" in c[1]]
+    check("progress: Link all suggested links each, as initiative spending", lk and any(i==roof_acct and b=={"initiative_id":roof_init,"maps_to":"initiative"} for i,b in lk), str(lk)[:300])
+    for a in TABLES["gl_account"]:
+      if a["id"]==roof_acct: a["initiative_id"]=roof_init; a["maps_to"]="initiative"
+    await pg.reload(); await pg.wait_for_timeout(900)
+    t=await pg.inner_text("table.pitable")
+    check("progress: spending and encumbrances from the ledger, flagged when nothing was planned this year", "$262,750" in t and "$147,250" in t and "Spending, but nothing planned this year" in t, t[:500])
+    await pg.click("a[data-action=piOpen][data-id='%s']"%roof_init); await pg.wait_for_timeout(500)
+    await pg.locator("#view").screenshot(path=SHOTS+"/progress.png")
+    first=pg.locator("tr[data-pi-phase]").first
+    await first.locator("select[name=status]").select_option("done"); await first.locator("input[name=actual]").fill("")
+    await first.locator("button[data-action=piSavePhase]").click(); await pg.wait_for_timeout(300)
+    check("progress: done needs an actual cost", "Enter the actual cost when a phase is done" in (await pg.inner_text("#toasts")).replace("’","'").replace("'","’"))
+    TABLES_ph=[p for p in TABLES["phase"] if p["initiative_id"]==roof_init and p["scenario_id"]!=_ph_sid]
+    await first.locator("input[name=done]").fill("2026-09-25"); await first.locator("input[name=actual]").fill("401,500")
+    n0=len(calls); await first.locator("button[data-action=piSavePhase]").click(); await pg.wait_for_timeout(600)
+    sp=[json.loads(c[2]) for c in calls[n0:] if "rpc/set_phase_progress" in c[1]]
+    check("progress: recorded through the progress-only function, even on the locked plan", sp and sp[0]["p_status"]=="done" and sp[0]["p_actual"]==401500 and sp[0]["p_done"]=="2026-09-25" and sp[0]["p_phase"]==sorted(TABLES_ph,key=lambda p:(p["fy"],p["seq"]))[0]["id"], str(sp))
+    TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]; TABLES["import_batch"]=[b for b in TABLES["import_batch"] if b["id"]!="glb1"]
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;

@@ -151,7 +151,7 @@
       { id: 'assumptions', label: 'Assumption sets', status: 'live', lede: 'Base, Conservative and Growth: the world the plan has to survive.', render: vAssumptions },
     ] },
     { id: 'progress', label: 'Progress', tabs: [
-      { id: 'initiatives', label: 'Initiatives', status: 'wip', phase: 3, lede: 'Status, budget against actual, schedule and owner.', render: vProgInitiatives },
+      { id: 'initiatives', label: 'Initiatives', status: 'live', lede: 'Each initiative against the adopted plan: spending, phases and dates.', render: vProgInitiatives },
       { id: 'measures', label: 'Measures', status: 'wip', phase: 5, lede: 'Results against targets over time.', render: vProgMeasures },
       { id: 'actuals', label: 'Budget vs. actual', status: 'wip', phase: 3, lede: 'Monthly actuals from the business office, by fund.', render: vActuals },
       { id: 'uploads', label: 'Uploads', status: 'partial', phase: 3, lede: 'Every file brought in, and what happened to it.', render: vUploads },
@@ -901,9 +901,101 @@
   }
 
   // ------------------------------------------------------------------ views: Progress
-  async function vProgInitiatives() {
-    return wip({ phase: 3, items: ['Status and percent complete', 'Budget against actual, from matched GL accounts', 'Start, due and done dates; owner', 'Mark a phase done with its actual cost'], uses: 'phase, gl_account (initiative mapping), gl_current' });
+  const PI = { key: null, fy: null, open: null };
+  async function vProgInitiatives(c) {
+    const d = c.district, rows = await loadCapitalRows(d);
+    if (!rows.settings || !rows.scenarios.length) return notReady(c, { rows });
+    const board = rows.scenarios.find((x) => x.is_board_version);
+    if (!board) return `<div class="card"><h3>No board version yet</h3><p>Progress is tracked against the plan the board adopted. On the capital plan, make one scenario the board version.</p>
+      <a class="btn primary" href="#/d/${enc(d.slug)}/resources/capital">Capital plan</a></div>`;
+    const [accounts, batches] = await Promise.all([
+      HG.db.selectAll('gl_account', `select=*&district_id=eq.${d.id}`).catch(() => []),
+      HG.db.select('import_batch', `select=id,kind,status,period_end,fiscal_year&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc`).catch(() => []),
+    ]);
+    const latest = HGActuals.latestByYear(batches), batchIds = Object.values(latest).map((x) => x.id);
+    const sugg = c.finance ? HGActuals.suggestLinks(accounts, rows.initiatives) : [];
+    const wanted = accounts.filter((a) => a.initiative_id).map((a) => a.id).concat(sugg.map((x) => x.account.id));
+    const amounts = batchIds.length && wanted.length
+      ? await HG.db.selectAll('gl_amount', `select=batch_id,account_id,ytd_amount,encumbered,budget_amount&batch_id=in.(${batchIds.join(',')})&account_id=in.(${wanted.join(',')})`).catch(() => []) : [];
+    const act = HGActuals.actuals(accounts, amounts, batches);
+    const inp = HGCapital.buildInputs(rows, board.id), cfg = inp.cfg;
+    if (PI.key !== d.id) { PI.key = d.id; PI.fy = null; PI.open = null; }
+    const fys = Object.keys(latest).map(Number).sort((x, y) => y - x);
+    const fy = PI.fy || fys[0] || cfg.start;
+    PI.ctx = { rows, board, inp, act, accounts, amounts, latest, fy, sugg };
+    const plan = HGActuals.planned(inp.projects, inp.levers, cfg, fy);
+    const INIT = new Map(rows.initiatives.map((i) => [i.id, i])), STATUS = Object.fromEntries(INIT_STATUS);
+    const ids = [...new Set(inp.projects.map((p) => String(p.id)).concat(Object.keys(act.byInitiative)))].filter((id) => INIT.has(id));
+    const fmt = (v) => '$' + Math.round(v || 0).toLocaleString('en-US');
+    const through = act.through[fy];
+    const items = ids.map((id) => {
+      const i = INIT.get(id), p = inp.projects.find((x) => String(x.id) === id), a = (act.byInitiative[id] || {})[fy] || null;
+      const phases = p ? p.phases : [], done = phases.filter((ph) => ph.status === 'done').length;
+      const pl = plan[id] || 0, spent = a ? a.spent : 0, encd = a ? a.encumbered : 0;
+      let note = '';
+      if (pl > 0.5 && spent + encd > pl * 1.05) note = `<span class="gaptext">Over plan by ${fmt(spent + encd - pl)}</span>`;
+      else if (pl < 0.5 && spent > 0.5) note = '<span class="gaptext">Spending, but nothing planned this year</span>';
+      else if (pl > 0.5 && through && spent + encd < 0.5) note = '<span class="muted">No spending yet</span>';
+      return { id, i, p, phases, done, pl, spent, encd, a, note };
+    }).filter((x) => x.pl > 0.5 || x.a || x.phases.some((ph) => cfg.start + ph.year === fy));
+    items.sort((x, y) => (y.pl - x.pl) || x.i.name.localeCompare(y.i.name));
+    const tot = items.reduce((t, x) => ({ pl: t.pl + x.pl, spent: t.spent + x.spent, encd: t.encd + x.encd }), { pl: 0, spent: 0, encd: 0 });
+    const nameOf = (id) => (INIT.get(id) || {}).name || '';
+    const linkCard = c.finance && sugg.length ? `<div class="card"><h3>Link spending to initiatives</h3>
+      <p class="small muted">Capital-fund spending accounts from the monthly ledger that aren’t linked to an initiative yet. Linking counts their spending toward that initiative; it doesn’t change the fund balances.</p>
+      <div class="scroll"><table class="data"><thead><tr><th>Account</th><th>Description</th><th>Initiative</th><th></th></tr></thead><tbody>
+        ${sugg.map((x) => `<tr><td><code>${esc(x.account.code)}</code></td><td>${esc(x.account.description || '')}</td>
+          <td><select data-pi-link="${esc(x.account.id)}" aria-label="Initiative for ${esc(x.account.code)}"><option value="">Not an initiative</option>${rows.initiatives.map((i) => `<option value="${esc(i.id)}" ${i.id === x.initiativeId ? 'selected' : ''}>${esc(i.name)}</option>`).join('')}</select>
+            ${x.initiativeId ? `<br><span class="small muted">Suggested: ${esc(x.why)}</span>` : ''}</td>
+          <td><button type="button" class="btn small" data-action="piLink" data-id="${esc(x.account.id)}">Link</button></td></tr>`).join('')}
+      </tbody></table></div>
+      ${sugg.some((x) => x.initiativeId) ? '<div style="margin-top:10px"><button type="button" class="btn primary" data-action="piLinkAll">Link all suggested</button></div>' : ''}</div>` : '';
+    const detail = (x) => {
+      const ph = rows.phases.filter((r) => r.scenario_id === board.id && r.initiative_id === x.id).sort((a2, b2) => a2.fy - b2.fy || a2.seq - b2.seq);
+      const linked = accounts.filter((a) => a.initiative_id === x.id);
+      const canEdit = c.plan || c.finance;
+      return `<tr class="pidetail"><td colspan="9"><div class="stack" style="gap:10px">
+        ${ph.length ? `<table class="data"><thead><tr><th>Year</th><th>Phase</th><th class="num">Planned (today’s $)</th><th>Status</th><th>Started</th><th>Finished</th><th class="num">Actual cost</th><th></th></tr></thead><tbody>
+          ${ph.map((r) => { const ledger = ((act.byInitiative[x.id] || {})[r.fy] || {}).spent; return `<tr data-pi-phase="${esc(r.id)}">
+            <td>FY${r.fy}</td><td>${esc(r.label || '')}</td><td class="num">${fmt(r.cost)}</td>
+            <td>${canEdit ? `<select name="status">${[['planned', 'Planned'], ['underway', 'Underway'], ['done', 'Done']].map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select>` : esc(r.status)}</td>
+            <td>${canEdit ? `<input type="date" name="start" value="${esc(r.start_date || '')}">` : esc(r.start_date || '')}</td>
+            <td>${canEdit ? `<input type="date" name="done" value="${esc(r.done_date || '')}">` : esc(r.done_date || '')}</td>
+            <td class="num">${canEdit ? `<input name="actual" inputmode="decimal" value="${r.actual_cost == null ? '' : Number(r.actual_cost).toLocaleString('en-US')}" placeholder="When done">` : (r.actual_cost == null ? '' : fmt(r.actual_cost))}
+              ${canEdit && ledger ? `<br><a href="#" class="small" data-action="piUseLedger" data-amount="${Math.round(ledger * 100) / 100}">Use the ledger: ${fmt(ledger)}</a>` : ''}</td>
+            <td>${canEdit ? '<button type="button" class="btn small" data-action="piSavePhase">Save</button>' : ''}</td></tr>`; }).join('')}
+        </tbody></table>` : '<p class="muted">No one-time phases in the board version.</p>'}
+        <div class="small"><b>Linked spending accounts:</b> ${linked.length ? linked.map((a) => `<code>${esc(a.code)}</code> ${esc(a.description || '')}${c.finance ? ` <a href="#" data-action="piUnlink" data-id="${esc(a.id)}">Unlink</a>` : ''}`).join(' · ') : '<span class="muted">none yet</span>'}</div>
+        <p class="small muted">The board version stays locked: recording progress changes only status, dates and actual cost, and each change is in the activity log. A finished phase’s actual cost replaces its estimate in the capital plan.</p>
+      </div></td></tr>`;
+    };
+    return `
+      <div class="row">
+        <label class="chip"><span class="small muted">Fiscal year</span><select data-pi-fy aria-label="Fiscal year">${cfg.years.map((y) => `<option value="${y}" ${y === fy ? 'selected' : ''}>FY${y}${act.through[y] ? '' : ' (no ledger yet)'}</option>`).join('')}</select></label>
+        <span class="small muted">${through ? `Spending from the monthly ledger through ${esc(day(through))}.` : `No monthly ledger for FY${fy} yet.${c.finance ? ` <a href="#/d/${enc(d.slug)}/progress/uploads">Upload the month-end export</a>.` : ''}`} Against <b>${esc(board.name)}</b>, the board version.</span>
+      </div>
+      ${linkCard}
+      <div class="card"><div class="scroll"><table class="data pitable"><thead><tr><th>Initiative</th><th>Priority</th><th>Status</th><th>Phases done</th><th class="num">Planned FY${fy}</th><th class="num">Spent</th><th class="num">Encumbered</th><th class="num">Remaining</th><th></th></tr></thead><tbody>
+        ${items.map((x) => `<tr><td><a href="#" data-action="piOpen" data-id="${esc(x.id)}" aria-expanded="${PI.open === x.id}">${esc(x.i.name)}</a></td>
+          <td>${esc(HGUploads.TIER_WORD[HGRanking.tierOf(x.i).tier] || '')}</td><td><span class="st st-${esc(x.i.status || 'proposed')}">${esc(STATUS[x.i.status || 'proposed'])}</span></td>
+          <td>${x.phases.length ? `${x.done} of ${x.phases.length}` : '<span class="muted">yearly only</span>'}</td>
+          <td class="num">${fmt(x.pl)}</td><td class="num">${x.a ? fmt(x.spent) : '<span class="muted">—</span>'}</td><td class="num">${x.a ? fmt(x.encd) : ''}</td>
+          <td class="num">${x.pl > 0.5 ? fmt(x.pl - x.spent - x.encd) : ''}</td><td>${x.note}</td></tr>${PI.open === x.id ? detail(x) : ''}`).join('') || '<tr><td colspan="9" class="muted">Nothing planned or spent in this year.</td></tr>'}
+      </tbody>${items.length ? `<tfoot><tr><th colspan="4">${items.length} initiative${items.length === 1 ? '' : 's'}</th><th class="num">${fmt(tot.pl)}</th><th class="num">${fmt(tot.spent)}</th><th class="num">${fmt(tot.encd)}</th><th class="num">${fmt(tot.pl - tot.spent - tot.encd)}</th><th></th></tr></tfoot>` : ''}</table></div>
+      <p class="small muted" style="margin-top:8px">Planned is the board version’s cost for the year, with inflation (finished phases at their actual cost). Spent and encumbered come from spending accounts linked to each initiative. Click an initiative to record progress.</p></div>`;
   }
+  async function piSavePhase(el) {
+    const tr = el.closest('[data-pi-phase]'), v = (n) => tr.querySelector(`[name=${n}]`).value;
+    const status = v('status'), actual = toNum(v('actual'));
+    if (actual !== null && (isNaN(actual) || actual < 0)) throw new UserError('Actual cost must be a number of dollars.');
+    if (status === 'done' && actual === null) throw new UserError('Enter the actual cost when a phase is done (use the ledger amount if it’s right).');
+    await HG.db.rpc('set_phase_progress', { p_phase: tr.dataset.piPhase, p_status: status, p_start: v('start') || null, p_done: v('done') || null, p_actual: status === 'done' ? actual : null });
+    toast('Progress saved', status === 'done' ? 'The phase is done; its actual cost now counts in the capital plan.' : 'Saved.'); here();
+  }
+  async function piLink(id, initiativeId) {
+    await HG.db.update('gl_account', `id=eq.${enc(id)}`, initiativeId ? { initiative_id: initiativeId, maps_to: 'initiative' } : { initiative_id: null, maps_to: 'expense' });
+  }
+
   async function vProgMeasures() {
     return wip({ phase: 5, items: ['Each measure’s trend against its target', 'Updates owed by each owner'], uses: 'measure, measure_value' });
   }
@@ -2244,6 +2336,12 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async piOpen(el) { PI.open = PI.open === el.dataset.id ? null : el.dataset.id; here(); },
+    async piSavePhase(el) { await piSavePhase(el); },
+    async piUseLedger(el) { const tr = el.closest('[data-pi-phase]'); tr.querySelector('[name=actual]').value = Number(el.dataset.amount).toLocaleString('en-US'); tr.querySelector('[name=status]').value = 'done'; },
+    async piLink(el) { const sel = document.querySelector(`[data-pi-link="${el.dataset.id}"]`); await piLink(el.dataset.id, sel.value || null); toast(sel.value ? 'Linked' : 'Marked as not an initiative'); here(); },
+    async piLinkAll() { const list = PI.ctx.sugg.filter((x) => x.initiativeId); for (const x of list) { const sel = document.querySelector(`[data-pi-link="${x.account.id}"]`); await piLink(x.account.id, (sel && sel.value) || x.initiativeId); } toast('Linked', `${list.length} account${list.length === 1 ? '' : 's'} linked to initiatives.`); here(); },
+    async piUnlink(el) { await piLink(el.dataset.id, null); toast('Unlinked'); here(); },
     async editSet(el) { openSetEditor(el.dataset.id || null); },
     async starterSets() { await starterSets(); },
     async deleteSet(el) { if (!confirm('Delete this assumption set? Scenarios using it go back to the starting numbers.')) return; await HG.db.remove('assumption_set', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Deleted'); here(); },
@@ -2467,6 +2565,8 @@
     if (ua && UP.kind === 'gl_monthly' && document.getElementById('gl-balances')) { document.getElementById('gl-balances').innerHTML = glBalancesHtml(); }
     const pk = e.target.closest('[data-pick-init]');
     if (pk) { openProjectEditor(pk.value || null); return; }
+    const pf = e.target.closest('[data-pi-fy]');
+    if (pf) { PI.fy = Number(pf.value); return here(); }
     const isd = e.target.closest('[data-ini-sid]');
     if (isd) { INI.sid = isd.value; return here(); }
     const it = e.target.closest('[data-ini-type]');
