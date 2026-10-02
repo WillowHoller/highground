@@ -134,8 +134,8 @@
       { id: 'today', label: 'Today', status: 'partial', phase: 5, lede: 'How the district is doing, and what needs attention.', render: vOverview },
     ] },
     { id: 'direction', label: 'Direction', tabs: [
-      { id: 'priorities', label: 'Priorities', status: 'partial', phase: 5, lede: 'The strategic plan: priorities and the outcomes behind them.', render: vPriorities },
-      { id: 'measures', label: 'Measures', status: 'partial', phase: 5, lede: 'How each outcome is measured, with a starting point and a target.', render: vMeasures },
+      { id: 'priorities', label: 'Priorities', status: 'live', lede: 'The strategic plan: priorities and the outcomes behind them.', render: vPriorities },
+      { id: 'measures', label: 'Measures', status: 'live', lede: 'How each outcome is measured, with a starting point and a target.', render: vMeasures },
       { id: 'community', label: 'Community', status: 'wip', phase: 5, lede: 'What the community told us, and where it shows up in the plan.', render: vCommunity },
     ] },
     { id: 'decisions', label: 'Decisions', tabs: [
@@ -152,7 +152,7 @@
     ] },
     { id: 'progress', label: 'Progress', tabs: [
       { id: 'initiatives', label: 'Initiatives', status: 'live', lede: 'Each initiative against the adopted plan: spending, phases and dates.', render: vProgInitiatives },
-      { id: 'measures', label: 'Measures', status: 'wip', phase: 5, lede: 'Results against targets over time.', render: vProgMeasures },
+      { id: 'measures', label: 'Measures', status: 'live', lede: 'Record results, and see who owes an update.', render: vProgMeasures },
       { id: 'actuals', label: 'Budget vs. actual', status: 'live', lede: 'Each fund’s budget, actual and year-end forecast, from the monthly ledger.', render: vActuals },
       { id: 'uploads', label: 'Uploads', status: 'partial', phase: 5, lede: 'Every file brought in, and what happened to it.', render: vUploads },
     ] },
@@ -267,29 +267,167 @@
   }
 
   // ------------------------------------------------------------------ views: Direction
-  async function vPriorities(c) {
-    const rows = await HG.db.select('priority', `select=position,name,statement,community_importance&district_id=eq.${c.district.id}&order=position`);
-    return `
-      <div class="row">${nb('Add a priority', 'Adding priorities', 5)}${nb('Upload goals', 'Goals upload', 5)}</div>
-      <div class="card">${table([
-        { label: 'Priority', get: (r) => r.name },
-        { label: 'Statement', get: (r) => r.statement },
-        { label: 'Community importance', num: true, get: (r) => r.community_importance },
-      ], rows, 'No priorities yet. Adding them and uploading them both arrive in Phase 5.')}</div>
-      ${wip({ phase: 5, items: ['Outcomes under each priority', 'Initiatives and dollars linked to each priority', 'Reorder by dragging'], uses: 'priority, outcome, initiative' })}`;
+  /* ---- the strategic plan: priorities, outcomes, measures ---- */
+  async function loadDirection(d) {
+    const rows = await loadCapitalRows(d), q = (t, extra) => HG.db.selectAll(t, `select=*&district_id=eq.${d.id}${extra || ''}`).catch(() => []);
+    const [outcomes, measures, values] = await Promise.all([q('outcome', '&order=position'), q('measure', '&order=name'), q('measure_value')]);
+    const priorities = (rows.priorities || []).slice().sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+    const st = new Map(measures.map((m) => [m.id, HGDirection.status(m, values.filter((v) => v.measure_id === m.id))]));
+    return { rows, priorities, outcomes, measures, values, st };
   }
-  async function vMeasures(c) {
-    const rows = await HG.db.select('measure', `select=name,unit,baseline_value,baseline_period,target_value,target_period,owner_name,cadence&district_id=eq.${c.district.id}&order=name`);
+  const STATE_CLASS = { met: 'st-done', ontrack: 'st-approved', offtrack: 'st-declined-red', tracking: 'st-proposed', nodata: 'st-proposed' };
+  const stateBadge = (x) => `<span class="st ${STATE_CLASS[x.state]}">${HGDirection.STATE_NAME[x.state]}</span>${x.owed ? ' <span class="st st-owed">Update owed</span>' : ''}`;
+  const mVal = (m, v) => {
+    if (v == null) return '';
+    const n = Number(v), num = n.toLocaleString('en-US', { maximumFractionDigits: 2 }), u = m.unit || '';
+    if (u === '%') return num + '%';
+    if (u === '$') return '$' + num;
+    return u ? `${num} ${n === 1 && /s$/.test(u) ? u.slice(0, -1) : u}` : num;   // 1 building, 3 buildings
+  };
+  function spark(m, x) {
+    const v = x.values; if (v.length < 2) return '';
+    const ys = v.map((p) => p.value).concat(m.target_value != null ? [Number(m.target_value)] : []), lo = Math.min(...ys), hi = Math.max(...ys), span = hi - lo || 1;
+    const W = 110, H = 28, X = (i) => 2 + (i / (v.length - 1)) * (W - 4), Y = (y) => H - 3 - ((y - lo) / span) * (H - 6);
+    const pts = v.map((p, i) => `${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(' ');
+    const tgt = m.target_value != null ? `<line x1="0" x2="${W}" y1="${Y(Number(m.target_value)).toFixed(1)}" y2="${Y(Number(m.target_value)).toFixed(1)}" stroke="#C9A24A" stroke-dasharray="3 3"/>` : '';
+    return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Trend for ${esc(m.name)}">${tgt}<polyline fill="none" stroke="#2F6B4F" stroke-width="2" points="${pts}"/><circle cx="${X(v.length - 1).toFixed(1)}" cy="${Y(v[v.length - 1].value).toFixed(1)}" r="2.6" fill="#2F6B4F"/></svg>`;
+  }
+
+  async function vPriorities(c) {
+    const D = await loadDirection(c.district); DIR.D = D;
+    const rows = D.rows, board = rows.scenarios.find((x) => x.is_board_version);
+    const costOf = (id) => (board ? rows.phases.filter((p) => p.scenario_id === board.id && p.initiative_id === id).reduce((t, p) => t + Number(p.cost), 0) : 0);
+    const STATUS = Object.fromEntries(INIT_STATUS), f = HGReport.fmt;
+    const unlinked = rows.initiatives.filter((i) => !i.priority_id && !['declined', 'deferred'].includes(i.status)).length;
+    if (!D.priorities.length) return `<div class="card"><h3>No priorities yet</h3><p>Start with the strategic plan’s priorities: the few things the district most wants to achieve. Each gets outcomes and measures, and initiatives link to the priority they serve.</p>
+      ${c.plan ? '<button type="button" class="btn primary" data-action="editPriority" data-id="">Add a priority</button>' : ''}</div>`;
     return `
-      <div class="row">${nb('Add a measure', 'Adding measures', 5)}${nb('Upload measure results', 'Measure results upload', 5)}</div>
-      <div class="card">${table([
-        { label: 'Measure', get: (r) => r.name },
-        { label: 'Starting point', get: (r) => [r.baseline_value, r.unit, r.baseline_period && `(${r.baseline_period})`].filter((x) => x != null && x !== '').join(' ') },
-        { label: 'Target', get: (r) => [r.target_value, r.unit, r.target_period && `(${r.target_period})`].filter((x) => x != null && x !== '').join(' ') },
-        { label: 'Owner', get: (r) => r.owner_name },
-        { label: 'Updated', get: (r) => r.cadence },
-      ], rows, 'No measures yet.')}</div>
-      ${wip({ phase: 5, items: ['Status against target', 'Measures filled automatically from Progress and uploads (projects on budget, solvency)'], uses: 'measure, measure_value' })}`;
+      <div class="row">${c.plan ? '<button type="button" class="btn primary" data-action="editPriority" data-id="">Add a priority</button>' : ''}
+        <a class="btn" href="#/d/${enc(c.district.slug)}/direction/measures">Measures</a>
+        ${unlinked ? `<span class="small muted">${unlinked} initiative${unlinked === 1 ? ' isn’t' : 's aren’t'} linked to a priority yet. <a href="#/d/${enc(c.district.slug)}/decisions/initiatives">Link them on Decisions</a>.</span>` : ''}</div>
+      ${D.priorities.map((pr, k) => {
+        const outs = D.outcomes.filter((o) => o.priority_id === pr.id), ms = D.measures.filter((m) => m.priority_id === pr.id), inits = rows.initiatives.filter((i) => i.priority_id === pr.id);
+        return `<div class="card prio"><div class="row" style="justify-content:space-between;align-items:flex-start">
+          <div><div class="small muted">Priority ${k + 1}</div><h3 style="margin:2px 0">${esc(pr.name)}</h3>${pr.statement ? `<p>${esc(pr.statement)}</p>` : ''}</div>
+          ${c.plan ? `<div class="row moves"><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="-1" ${k ? '' : 'disabled'} aria-label="Move up">▲</button><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="1" ${k < D.priorities.length - 1 ? '' : 'disabled'} aria-label="Move down">▼</button><button type="button" class="btn small" data-action="editPriority" data-id="${esc(pr.id)}">Edit</button></div>` : ''}</div>
+          <div class="pgrid">
+            <div><div class="small muted">Outcomes</div>${outs.length ? `<ul>${outs.map((o) => `<li>${esc(o.name)}</li>`).join('')}</ul>` : '<p class="muted small">None yet.</p>'}</div>
+            <div><div class="small muted">Measures</div>${ms.length ? `<ul>${ms.map((m) => `<li>${esc(m.name)} ${stateBadge(D.st.get(m.id))}</li>`).join('')}</ul>` : '<p class="muted small">None yet.</p>'}</div>
+            <div><div class="small muted">Initiatives serving it</div>${inits.length ? `<ul>${inits.map((i) => `<li>${esc(i.name)} <span class="small muted">· ${esc(STATUS[i.status || 'proposed'])}${costOf(i.id) ? ' · ' + f(costOf(i.id)) : ''}</span></li>`).join('')}</ul>` : '<p class="muted small">None linked.</p>'}</div>
+          </div></div>`; }).join('')}`;
+  }
+  const DIR = { D: null };
+  function openPriorityEditor(id) {
+    const D = DIR.D, pr = id ? D.priorities.find((x) => x.id === id) : { name: '', statement: '' };
+    const outs = id ? D.outcomes.filter((o) => o.priority_id === id) : [];
+    modal(`<form class="stack" data-form="savePriority" data-id="${esc(id || '')}" novalidate>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${id ? 'Edit priority' : 'Add a priority'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <label class="field">Priority<input name="name" maxlength="120" value="${esc(pr.name)}" required placeholder="Every graduate ready for what’s next"></label>
+      <label class="field">What it means <span class="small muted">(optional)</span><textarea name="statement" maxlength="600">${esc(pr.statement || '')}</textarea></label>
+      <div class="field"><span>Outcomes <span class="small muted">(one per line; the results that would show this priority is being achieved)</span></span>
+        <textarea name="outcomes" rows="4" placeholder="Graduation and readiness&#10;Career and technical pathways">${esc(outs.map((o) => o.name).join('\n'))}</textarea></div>
+      <div class="notice error" data-form-errors hidden></div>
+      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
+        ${id ? `<span style="flex:1"></span><button type="button" class="btn danger" data-action="deletePriority" data-id="${esc(id)}">Delete</button>` : ''}</div></form>`);
+  }
+  async function savePriority(f, form) {
+    const D = DIR.D, d = S.district.id, name = (f.name || '').trim(), box = form.querySelector('[data-form-errors]');
+    if (!name) { box.hidden = false; box.textContent = 'Name the priority.'; return; }
+    let id = form.dataset.id;
+    if (id) await HG.db.update('priority', `id=eq.${enc(id)}`, { name: name.slice(0, 120), statement: (f.statement || '').trim() || null });
+    else { id = crypto.randomUUID(); await HG.db.insert('priority', { id, district_id: d, name: name.slice(0, 120), statement: (f.statement || '').trim() || null, position: D.priorities.length + 1 }); }
+    // outcomes: keep those still listed (by name), add new ones, remove the rest
+    const want = String(f.outcomes || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 12);
+    const have = D.outcomes.filter((o) => o.priority_id === id);
+    for (const o of have) if (!want.includes(o.name)) await HG.db.remove('outcome', `id=eq.${enc(o.id)}`);
+    const add = want.filter((w) => !have.some((o) => o.name === w));
+    if (add.length) await HG.db.insert('outcome', add.map((w) => ({ district_id: d, priority_id: id, name: w.slice(0, 200), position: want.indexOf(w) + 1 })));
+    closeModal(); toast('Saved', name); here();
+  }
+
+  async function vMeasures(c) {
+    const D = await loadDirection(c.district); DIR.D = D;
+    if (!D.priorities.length) return `<div class="card"><h3>Add priorities first</h3><p>Measures sit under a priority (and optionally one of its outcomes).</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/direction/priorities">Priorities</a></div>`;
+    const CAD = { monthly: 'Monthly', quarterly: 'Quarterly', semester: 'Each semester', annual: 'Yearly' };
+    const counts = { met: 0, ontrack: 0, offtrack: 0, owed: 0 };
+    D.measures.forEach((m) => { const x = D.st.get(m.id); if (counts[x.state] != null) counts[x.state]++; if (x.owed) counts.owed++; });
+    return `
+      <div class="row">${c.plan ? '<button type="button" class="btn primary" data-action="editMeasure" data-id="">Add a measure</button>' : ''}
+        <a class="btn" href="#/d/${enc(c.district.slug)}/progress/measures">Record results</a>
+        <span class="small muted">${D.measures.length} measure${D.measures.length === 1 ? '' : 's'}: ${counts.met} met, ${counts.ontrack} on track, ${counts.offtrack} off track${counts.owed ? `, ${counts.owed} with an update owed` : ''}.</span></div>
+      ${D.priorities.map((pr) => { const ms = D.measures.filter((m) => m.priority_id === pr.id); const outs = new Map(D.outcomes.map((o) => [o.id, o.name]));
+        return `<div class="card"><h3>${esc(pr.name)}</h3>${ms.length ? `<div class="scroll"><table class="data"><thead><tr><th>Measure</th><th>Start → target</th><th>Latest</th><th>Status</th><th>Toward target</th><th>Owner</th><th>Updates</th><th></th></tr></thead><tbody>
+          ${ms.map((m) => { const x = D.st.get(m.id); return `<tr><td>${esc(m.name)}${m.outcome_id ? `<br><span class="small muted">${esc(outs.get(m.outcome_id) || '')}</span>` : ''}</td>
+            <td>${mVal(m, m.baseline_value)} <span class="small muted">${esc(m.baseline_period || '')}</span> → <b>${mVal(m, m.target_value)}</b> <span class="small muted">${esc(m.target_period || '')}</span>${m.better === 'down' ? '<br><span class="small muted">lower is better</span>' : ''}</td>
+            <td>${x.latest ? `${mVal(m, x.latest.value)} <span class="small muted">${esc(x.latest.period)}</span>` : ''} ${spark(m, x)}</td>
+            <td>${stateBadge(x)}</td>
+            <td>${x.progress != null ? `<span class="ubar"><i style="width:${(x.progress * 100).toFixed(0)}%"></i></span> <span class="small muted">${Math.round(x.progress * 100)}%</span>` : ''}</td>
+            <td>${esc(m.owner_name || '')}</td><td class="small">${esc(CAD[m.cadence] || '')}${x.due ? `<br><span class="muted">next by ${esc(day(x.due))}</span>` : ''}</td>
+            <td>${c.plan ? `<a href="#" data-action="editMeasure" data-id="${esc(m.id)}">Edit</a>` : ''}</td></tr>`; }).join('')}
+        </tbody></table></div>` : '<p class="muted">No measures yet.</p>'}</div>`; }).join('')}
+      <p class="small muted">On track: at or ahead of a straight path from the starting point to the target. Update owed: no result within the measure’s cadence, plus a month.</p>`;
+  }
+  function openMeasureEditor(id) {
+    const D = DIR.D, m = id ? D.measures.find((x) => x.id === id) : { better: 'up', cadence: 'annual', is_public: true, priority_id: D.priorities[0].id };
+    const opt = (list, v) => list.map(([k, t]) => `<option value="${esc(k)}" ${v === k ? 'selected' : ''}>${esc(t)}</option>`).join('');
+    modal(`<form class="stack" data-form="saveMeasure" data-id="${esc(id || '')}" novalidate>
+      <div class="row" style="justify-content:space-between"><h2 id="modal-title">${id ? 'Edit measure' : 'Add a measure'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <div class="fgrid">
+        <label class="field">Measure<input name="name" maxlength="160" value="${esc(m.name || '')}" required placeholder="Four-year graduation rate"></label>
+        <label class="field">Priority<select name="priority_id" data-me-prio>${opt(D.priorities.map((p) => [p.id, p.name]), m.priority_id)}</select></label>
+        <label class="field">Outcome <span class="small muted">(optional)</span><select name="outcome_id"><option value="">None</option>${opt(D.outcomes.filter((o) => o.priority_id === m.priority_id).map((o) => [o.id, o.name]), m.outcome_id)}</select></label>
+        <label class="field">Unit<input name="unit" maxlength="20" value="${esc(m.unit || '')}" placeholder="%, $, students, days"></label>
+        <label class="field">Better is<select name="better">${opt([['up', 'Higher'], ['down', 'Lower']], m.better === 'down' ? 'down' : 'up')}</select></label>
+        <label class="field">Starting point<input name="baseline_value" inputmode="decimal" value="${m.baseline_value == null ? '' : m.baseline_value}"></label>
+        <label class="field">…in<input name="baseline_period" maxlength="20" value="${esc(m.baseline_period || '')}" placeholder="2024-25"></label>
+        <label class="field">Target<input name="target_value" inputmode="decimal" value="${m.target_value == null ? '' : m.target_value}"></label>
+        <label class="field">…by<input name="target_period" maxlength="20" value="${esc(m.target_period || '')}" placeholder="2028-29"></label>
+        <label class="field">Owner<input name="owner_name" maxlength="80" value="${esc(m.owner_name || '')}" placeholder="Name or role"></label>
+        <label class="field">Updated<select name="cadence">${opt([['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['semester', 'Each semester'], ['annual', 'Yearly']], m.cadence || 'annual')}</select></label>
+        <label class="row" style="align-self:end"><input type="checkbox" name="is_public" ${m.is_public !== false ? 'checked' : ''}> Can appear on the community page</label>
+      </div>
+      <p class="small muted">Periods can be written as a school year (2025-26), a fiscal year (FY2027), a month (2026-09) or a year (2026).</p>
+      <div class="notice error" data-form-errors hidden></div>
+      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
+        ${id ? `<span style="flex:1"></span><button type="button" class="btn danger" data-action="deleteMeasure" data-id="${esc(id)}">Delete</button>` : ''}</div></form>`);
+  }
+  async function saveMeasure(f, form) {
+    const box = form.querySelector('[data-form-errors]'), errs = [], num = (v) => (String(v || '').trim() === '' ? null : toNum(v));
+    const row = { name: (f.name || '').trim().slice(0, 160), priority_id: f.priority_id, outcome_id: f.outcome_id || null, unit: (f.unit || '').trim() || null, better: f.better,
+      baseline_value: num(f.baseline_value), baseline_period: (f.baseline_period || '').trim() || null, target_value: num(f.target_value), target_period: (f.target_period || '').trim() || null,
+      owner_name: (f.owner_name || '').trim() || null, cadence: f.cadence, is_public: !!f.is_public };
+    if (!row.name) errs.push('Name the measure.');
+    ['baseline_value', 'target_value'].forEach((k) => { if (row[k] != null && isNaN(row[k])) errs.push(`${k === 'baseline_value' ? 'Starting point' : 'Target'} must be a number.`); });
+    ['baseline_period', 'target_period'].forEach((k) => { if (row[k] && !HGDirection.periodEnd(row[k])) errs.push(`“${row[k]}” isn’t a period HighGround can read: use 2025-26, FY2027, 2026-09 or 2026.`); });
+    if (row.baseline_period && row.target_period && HGDirection.periodEnd(row.target_period) <= HGDirection.periodEnd(row.baseline_period)) errs.push('The target date must come after the starting point.');
+    if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return; }
+    const id = form.dataset.id;
+    if (id) await HG.db.update('measure', `id=eq.${enc(id)}`, row); else await HG.db.insert('measure', Object.assign({ district_id: S.district.id, source: 'manual' }, row));
+    closeModal(); toast('Saved', row.name); here();
+  }
+
+  async function vProgMeasures(c) {
+    const D = await loadDirection(c.district); DIR.D = D;
+    if (!D.measures.length) return `<div class="card"><h3>No measures yet</h3><p>Add measures under Direction, then record their results here.</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/direction/measures">Measures</a></div>`;
+    const can = c.plan || c.finance, owed = D.measures.filter((m) => D.st.get(m.id).owed);
+    const byOwner = {}; owed.forEach((m) => { (byOwner[m.owner_name || 'No owner'] = byOwner[m.owner_name || 'No owner'] || []).push(m); });
+    return `
+      ${owed.length ? `<div class="card"><h3>Updates owed</h3>${Object.entries(byOwner).map(([o, list]) => `<p><b>${esc(o)}</b>: ${list.map((m) => `${esc(m.name)} <span class="small muted">(due ${esc(day(D.st.get(m.id).due))})</span>`).join(', ')}</p>`).join('')}</div>` : '<div class="notice ok">Every measure is up to date.</div>'}
+      <div class="card"><h3>Record results</h3><div class="scroll"><table class="data"><thead><tr><th>Measure</th><th>Latest</th><th>Trend</th><th>Status</th>${can ? '<th>Period</th><th>Result</th><th>Note</th><th></th>' : ''}</tr></thead><tbody>
+        ${D.measures.map((m) => { const x = D.st.get(m.id); return `<tr data-mv="${esc(m.id)}"><td>${esc(m.name)}<br><span class="small muted">${esc(m.owner_name || '')}</span></td>
+          <td>${x.latest ? `${mVal(m, x.latest.value)} <span class="small muted">${esc(x.latest.period)}</span>` : '<span class="muted">none</span>'}</td><td>${spark(m, x)}</td><td>${stateBadge(x)}</td>
+          ${can ? `<td><input name="period" maxlength="20" value="${esc(HGDirection.nextPeriod(m))}" style="width:90px"></td><td><input name="value" inputmode="decimal" style="width:90px" placeholder="${esc(m.unit || '')}"></td>
+            <td><input name="note" maxlength="300" style="width:180px"></td><td><button type="button" class="btn small" data-action="saveResult">Save</button></td>` : ''}</tr>`; }).join('')}
+      </tbody></table></div>
+      <p class="small muted" style="margin-top:6px">Saving a result for a period that already has one replaces it. Periods: 2025-26, FY2027, 2026-09 or 2026.</p></div>`;
+  }
+  async function saveResult(el) {
+    const tr = el.closest('[data-mv]'), v = (n) => tr.querySelector(`[name=${n}]`).value.trim();
+    const period = v('period'), value = toNum(v('value'));
+    if (!HGDirection.periodEnd(period)) throw new UserError(`“${period}” isn’t a period HighGround can read: use 2025-26, FY2027, 2026-09 or 2026.`);
+    if (value === null || isNaN(value)) throw new UserError('Enter the result as a number.');
+    await HG.db.upsert('measure_value', [{ district_id: S.district.id, measure_id: tr.dataset.mv, period, period_end: HGDirection.periodEnd(period), value, note: v('note') || null }], 'measure_id,period');
+    toast('Result saved', `${period}: ${value}`); here();
   }
   async function vCommunity() {
     return `<div class="row">${nb('Upload survey results', 'Survey upload', 5)}</div>
@@ -1003,9 +1141,7 @@
     await HG.db.update('gl_account', `id=eq.${enc(id)}`, initiativeId ? { initiative_id: initiativeId, maps_to: 'initiative' } : { initiative_id: null, maps_to: 'expense' });
   }
 
-  async function vProgMeasures() {
-    return wip({ phase: 5, items: ['Each measure’s trend against its target', 'Updates owed by each owner'], uses: 'measure, measure_value' });
-  }
+
   /* business staff: is the monthly ledger current? */
   function ledgerNote(c, batches) {
     if (!c.finance) return '';
@@ -2435,7 +2571,7 @@
   }
   async function writeDemo(d, set) {
     const did = d.id, R = HGCapital.demoRows(window.HG_DEMOS[set], did, () => crypto.randomUUID());
-    const order = ['district_settings', 'fund_balance', 'debt_obligation', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing'];
+    const order = ['district_settings', 'fund_balance', 'debt_obligation', 'priority', 'outcome', 'measure', 'measure_value', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing'];
     try {
       for (const t of order) if (R[t].length) await HG.db.insert(t, R[t]);
       for (const sid of R.lock) await HG.db.update('scenario', `id=eq.${sid}`, { is_locked: true });
@@ -2453,8 +2589,8 @@
     const did = card.querySelector('[data-demo-district]').value, set = card.querySelector('[data-demo-set]').value;
     const d = S.districts.find((x) => x.id === did) || (S.staffDistricts || []).find((x) => x.id === did);
     if (!d || !d.is_demo) throw new UserError('Only a demo district can be reset.');
-    if (!confirm(`Erase everything in ${d.name}’s plan (starting numbers, balances, debt, initiatives, scenarios, uploads and publishing history) and load ${window.HG_DEMOS[set].name} again? People and access stay as they are.`)) return;
-    for (const t of ['publication', 'scenario', 'initiative', 'debt_obligation', 'fund_balance', 'import_batch', 'district_settings']) {
+    if (!confirm(`Erase everything in ${d.name}’s plan (starting numbers, balances, debt, the strategic plan, initiatives, scenarios, uploads and publishing history) and load ${window.HG_DEMOS[set].name} again? People and access stay as they are.`)) return;
+    for (const t of ['publication', 'scenario', 'initiative', 'measure', 'priority', 'debt_obligation', 'fund_balance', 'import_batch', 'district_settings']) {
       await HG.db.removeAll(t, `district_id=eq.${did}`);
     }
     await writeDemo(d, set);
@@ -2603,6 +2739,17 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async editPriority(el) { if (!DIR.D) DIR.D = await loadDirection(S.district); openPriorityEditor(el.dataset.id || null); },
+    async deletePriority(el) { if (!confirm('Delete this priority, its outcomes and its measures? Initiatives linked to it are kept, unlinked.')) return; await HG.db.remove('priority', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Deleted'); here(); },
+    async prioMove(el) {
+      const list = DIR.D.priorities, k = list.findIndex((x) => x.id === el.dataset.id), j = k + Number(el.dataset.d); if (j < 0 || j >= list.length) return;
+      const order = list.map((x) => x.id); [order[k], order[j]] = [order[j], order[k]];
+      for (let i = 0; i < order.length; i++) await HG.db.update('priority', `id=eq.${enc(order[i])}`, { position: i + 1 });
+      here();
+    },
+    async editMeasure(el) { if (!DIR.D) DIR.D = await loadDirection(S.district); openMeasureEditor(el.dataset.id || null); },
+    async deleteMeasure(el) { if (!confirm('Delete this measure and its recorded results?')) return; await HG.db.remove('measure', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Deleted'); here(); },
+    async saveResult(el) { await saveResult(el); },
     async previewPublic() { await previewPublic(); },
     async pkCreate() { await makePacket(document.querySelector('[data-pk-init]').value, document.querySelector('[data-pk-sc]').value); },
     async pkFromEditor(el) { closeModal(); await makePacket(el.dataset.id, null); },
@@ -2728,6 +2875,8 @@
     },
   };
   const FORMS = {
+    async savePriority(f, form) { await savePriority(f, form); },
+    async saveMeasure(f, form) { await saveMeasure(f, form); },
     async saveSet(f, form) { await saveSet(f, form); },
     async twoStep(f) { await HG.auth.mfa.verify(S.mfaFactor, f.code); S.mfaFactor = null; S.loaded = false; document.getElementById('toasts').innerHTML = ''; go('#/'); },
     async mfaConfirm(f, form) { await HG.auth.mfa.verify(form.dataset.id, f.code); closeModal(); await loadContext(true); toast('Two-step sign-in is on', 'From now on you’ll enter a code after your password.'); here(); },
@@ -2823,6 +2972,8 @@
       if (!on.length) { cp.checked = true; return; }
       CMP.ids = on; document.getElementById('cmp-table').innerHTML = compareTableHtml(); return;
     }
+    const mp = e.target.closest('[data-me-prio]');
+    if (mp) { const sel = mp.closest('form').querySelector('[name=outcome_id]'); sel.innerHTML = '<option value="">None</option>' + DIR.D.outcomes.filter((o) => o.priority_id === mp.value).map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join(''); return; }
     const ph2 = e.target.closest('[data-pub-hold]');
     if (ph2) { CP.holdBack = ph2.checked; CP.note = (document.querySelector('[data-pub-note]') || {}).value; here(); return; }
     const rs2 = e.target.closest('[data-rank-sid]');

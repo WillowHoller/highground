@@ -132,7 +132,22 @@
     const s = demo.settings;
     const startFY = E.fyOfDate(s.balances.asOf);
     const out = { district_settings: [], fund_balance: [], debt_obligation: [], initiative: [], scenario: [],
-                  scenario_initiative: [], phase: [], phase_funding: [], financing: [], recurring_cost: [], lock: [] };
+                  scenario_initiative: [], phase: [], phase_funding: [], financing: [], recurring_cost: [], lock: [],
+                  priority: [], outcome: [], measure: [], measure_value: [] };
+    // the strategic plan (priorities, outcomes, measures and their results), if the demo has one
+    const prioId = new Map(), outId = new Map(), dir = demo.direction || null;
+    if (dir) dir.priorities.forEach((pr, k) => {
+      const pid = newId(); prioId.set(pr.key, pid);
+      out.priority.push({ id: pid, district_id: districtId, position: k + 1, name: pr.name, statement: pr.statement || null });
+      (pr.outcomes || []).forEach((o, j) => { const oid = newId(); outId.set(o.key, oid); out.outcome.push({ id: oid, district_id: districtId, priority_id: pid, position: j + 1, name: o.name }); });
+      (pr.measures || []).forEach((m) => {
+        const mid = newId();
+        out.measure.push({ id: mid, district_id: districtId, priority_id: pid, outcome_id: m.outcome ? outId.get(m.outcome) || null : null, name: m.name, unit: m.unit || null, better: m.better || 'up',
+          baseline_value: m.baseline_value, baseline_period: m.baseline_period || null, target_value: m.target_value, target_period: m.target_period || null,
+          owner_name: m.owner_name || null, cadence: m.cadence || null, source: 'manual', is_public: true });
+        (m.values || []).forEach(([period, value]) => out.measure_value.push({ district_id: districtId, measure_id: mid, period, value, note: null }));
+      });
+    });
     out.district_settings.push({
       district_id: districtId, plan_start_fy: startFY, plan_years: s.plan.years, enrollment: demo.enrollment,
       ...(demo.enrollmentYear ? { enrollment_year: demo.enrollmentYear } : {}),
@@ -152,6 +167,7 @@
       out.initiative.push({ id: id, district_id: districtId, name: p.name, type: p.type || 'capital', status: p.status || 'proposed', engine_priority: p.pri || null,
         tier: p.tier || ({ High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' })[p.pri] || null,
         owner_name: p.owner_name || null,   // every row carries every field: the database rejects bulk rows that differ
+        priority_id: dir && dir.links && dir.links[String(p.id)] ? prioId.get(dir.links[String(p.id)]) || null : null,
         focus_area: p.area || null, cost_confidence: p.est === false ? 'firm' : 'estimate', condition: p.cond ? p.cond.toLowerCase() : null,
         remaining_life: p.life == null ? null : p.life });
     }));

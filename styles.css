@@ -302,3 +302,10 @@ table.batable td{vertical-align:middle}
 .pub-mono{display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:12px;color:#fff;font-weight:700;font-size:18px;flex-shrink:0}
 .pubnote p{margin:0 0 8px;font-size:16px}
 .pubpreview{border:1px dashed var(--border);border-radius:12px;padding:14px;background:var(--bg);max-height:70vh;overflow:auto}
+
+/* ---------- direction ---------- */
+.prio .pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:6px}
+.prio ul{margin:4px 0;padding-left:18px}.prio li{margin:3px 0}
+.st-declined-red{color:#fff;background:#B42318;border-color:#B42318}
+.st-owed{color:#8A5A00;background:#FDF6E7;border-color:#E9C98A}
+.spark{vertical-align:middle;margin-left:6px}
