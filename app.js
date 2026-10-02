@@ -119,7 +119,8 @@
       if (!S.districts.length) return S.isStaff ? go('#/staff', flash) : renderNoDistrict();
       let last = null; try { last = localStorage.getItem('highground-last-district'); } catch (e) {}
       const first = S.districts.find((x) => x.slug === last) || S.districts[0];
-      return go(`#/d/${enc(first.slug)}/overview/today`, flash);
+      S.landing = true;
+      return go(`#/d/${enc(first.slug)}/${homePath(roleIn(first))}`, flash);
     } catch (err) {
       if (err instanceof HG.ApiError && err.status === 401) { await HG.auth.signOut(); S.loaded = false; return go('#/signin', 'Your session ended. Sign in again.'); }
       renderFatal(err);
@@ -171,15 +172,35 @@
       { id: 'account', label: 'Your account', status: 'live', lede: 'Your name, password and sign-in security.', render: vAccount },
     ] },
     { id: 'help', label: 'Help', tabs: [
-      { id: 'built', label: 'What’s built', status: 'live', lede: 'Every screen, and whether it works yet.', render: vBuilt },
+      { id: 'guide', label: 'Guide', status: 'live', lede: 'How to do the common things, and what the terms mean.', render: vGuide },
+      { id: 'built', label: 'What’s built', status: 'live', lede: 'Every screen, and whether it works yet (Willow Holler staff).', render: vBuilt },
     ] },
   ];
   const ALL = [...SECTIONS, ...FOOT];
 
   // ------------------------------------------------------------------ frame
+  /* ---- what each role sees in the menu (permissions are unchanged; a direct link still opens) ---- */
+  const BOARD_VIEW = { overview: ['today'], direction: ['priorities', 'measures'], resources: ['summary', 'general', 'capital'], reports: ['board', 'community'], settings: ['account'], help: ['guide'] };
+  const LEAD_VIEW = { overview: ['today'], direction: null, decisions: null, resources: ['summary', 'general', 'capital', 'funds', 'assumptions'], progress: ['initiatives', 'measures', 'actuals', 'uploads'],
+    reports: ['board', 'community'], settings: ['account'], help: ['guide'] };
+  const FINANCE_VIEW = { overview: ['today'], progress: ['uploads', 'actuals', 'initiatives', 'measures'], resources: ['summary', 'general', 'funds', 'capital'], reports: ['board', 'exports'],
+    settings: ['setup', 'account'], help: ['guide'] };
+  const VIEWS = { board: BOARD_VIEW, viewer: BOARD_VIEW, superintendent: LEAD_VIEW, editor: LEAD_VIEW, business_manager: FINANCE_VIEW };
+  const showAllKey = () => `highground-show-all-${(S.user && S.user.id) || ''}`;
+  function showAll() { try { return localStorage.getItem(showAllKey()) === '1'; } catch (e) { return false; } }
+  function visibleTabs(section) {
+    const tabs = section.tabs.filter((t) => t.id !== 'built' || S.isStaff);   // “What’s built” is for Willow Holler staff
+    const v = VIEWS[S.role];
+    if (S.isStaff || S.role === 'admin' || !v || showAll()) return tabs;
+    if (!(section.id in v)) return [];
+    const want = v[section.id];
+    return want === null ? tabs : want.map((id) => tabs.find((t) => t.id === id)).filter(Boolean);
+  }
+  /** where each role starts: board members and viewers on the latest board report */
+  const homePath = (role) => (['board', 'viewer'].includes(role) ? 'reports/board' : 'overview/today');
   function frame({ slug, sectionId, body }) {
     const d = S.district;
-    const navLink = (s) => `<a href="#/d/${enc(slug)}/${s.id}/${s.tabs[0].id}" ${s.id === sectionId ? 'aria-current="page"' : ''}>${esc(s.label)}${s.tabs.every((t) => t.status === 'wip') ? '<span class="dot" title="Not built yet"></span>' : ''}</a>`;
+    const navLink = (s) => { const vt = visibleTabs(s); if (!vt.length) return ''; return `<a href="#/d/${enc(slug)}/${s.id}/${vt[0].id}" ${s.id === sectionId ? 'aria-current="page"' : ''}>${esc(s.label)}${s.tabs.every((t) => t.status === 'wip') ? '<span class="dot" title="Not built yet"></span>' : ''}</a>`; };
     const options = S.districts.map((x) => `<option value="${esc(x.slug)}" ${d && x.slug === d.slug ? 'selected' : ''}>${esc(x.name)}${x.is_demo ? ' (demo)' : ''}</option>`).join('');
     const name = (S.profile && S.profile.full_name) || (S.user && S.user.email) || '';
     app.innerHTML = `
@@ -219,8 +240,9 @@
     try { localStorage.setItem('highground-last-district', d.slug); } catch (e) {}
     const section = ALL.find((s) => s.id === sectionId) || SECTIONS[0];
     const tab = section.tabs.find((t) => t.id === tabId) || section.tabs[0];
-    const tabs = section.tabs.length > 1
-      ? `<nav class="tabs" aria-label="${esc(section.label)}">${section.tabs.map((t) => `<a href="#/d/${enc(slug)}/${section.id}/${t.id}" ${t.id === tab.id ? 'aria-current="page"' : ''}>${esc(t.label)}</a>`).join('')}</nav>` : '';
+    const shown = visibleTabs(section), barTabs = shown.some((t) => t.id === tab.id) ? shown : shown.concat([tab]);
+    const tabs = barTabs.length > 1
+      ? `<nav class="tabs" aria-label="${esc(section.label)}">${barTabs.map((t) => `<a href="#/d/${enc(slug)}/${section.id}/${t.id}" ${t.id === tab.id ? 'aria-current="page"' : ''}>${esc(t.label)}</a>`).join('')}</nav>` : '';
     frame({ slug, sectionId: section.id, body: `
       <div class="page-head"><div><h1>${esc(section.label)}</h1>
         <div class="lede">${esc(tab.lede)}</div></div>
@@ -270,11 +292,11 @@
     return `
       ${ledgerNote(c, batches)}
       <div class="grid tiles">
-        ${tile('Gap to close', gap == null ? '—' : f(gap), board ? esc(board.name) : 'no board version yet')}
-        ${tile('SAVE balance', sb ? f(Number(sb.amount)) : '—', sb ? 'as of ' + esc(day(sb.as_of)) : '')}
-        ${tile('PPEL balance', pb ? f(Number(pb.amount)) : '—', pb ? 'as of ' + esc(day(pb.as_of)) : '')}
+        ${tile('Gap to close ' + def('gap'), gap == null ? '—' : f(gap), board ? esc(board.name) : 'no board version yet')}
+        ${tile('SAVE balance ' + def('save'), sb ? f(Number(sb.amount)) : '—', sb ? 'as of ' + esc(day(sb.as_of)) : '')}
+        ${tile('PPEL balance ' + def('ppel'), pb ? f(Number(pb.amount)) : '—', pb ? 'as of ' + esc(day(pb.as_of)) : '')}
         ${tile('Ledger', gl ? 'Through ' + esc(day(gl.period_end).replace(/, \d{4}$/, '')) : 'None yet', gl ? 'monthly GL' : (c.finance ? link('progress/uploads', 'upload the month-end export') : ''))}
-        ${tile('Measures on track', D.measures.length ? `${on} of ${D.measures.length}` : '—', D.measures.length ? `${off.length} off track` : link('direction/measures', 'add measures'))}
+        ${tile('Measures on track ' + def('measure_status'), D.measures.length ? `${on} of ${D.measures.length}` : '—', D.measures.length ? `${off.length} off track` : link('direction/measures', 'add measures'))}
         ${tile('Decisions ahead', pending.length, pending.length ? 'not yet approved' : '')}
         ${tile('Latest board report', latestRep[0] ? esc(day(latestRep[0].period_end).replace(/, \d{4}$/, '')) : 'None yet', latestRep[0] ? link('reports/board', 'open reports') : link('reports/board', 'create one'))}
         ${tile('People with access', mem.length, `${rows.initiatives.length} initiatives · ${rows.scenarios.length} scenarios`)}
@@ -292,7 +314,7 @@
   const SRCH = { key: null, items: [] };
   async function openSearch() {
     const d = S.district;
-    if (SRCH.key !== d.id) {
+    {   // rebuilt every time, so something added a moment ago is found
       const D = await loadDirection(d), reps = await HG.db.select('report_snapshot', `select=id,kind,title,period_end&district_id=eq.${d.id}&order=period_end.desc&limit=50`).catch(() => []);
       SRCH.items = [].concat(
         D.rows.initiatives.map((i) => ({ k: 'initiative', id: i.id, name: i.name, what: 'Initiative' })),
@@ -577,7 +599,8 @@
       const start = D.results.filter((r) => r.survey_id === sid).length;
       await HG.db.insert('survey_result', P.items.map((x, k) => ({ district_id: d, survey_id: sid, kind: x.kind, label: x.label, value: x.value, mentions: x.mentions, position: start + k + 1, priority_id: x.priority_id, initiative_id: null })));
     }
-    toast('Upload applied', `${P.items.length} row${P.items.length === 1 ? '' : 's'} added.`); DIRUP.parsed = null; here();
+    const what = DIRUP.kind === 'results' ? (P.items.length === 1 ? 'result' : 'results') : (P.items.length === 1 ? 'survey result' : 'survey results');
+    toast('Upload applied', DIRUP.kind === 'goals' ? 'The priorities, outcomes and measures from the spreadsheet are in.' : `${P.items.length} ${what} added.`); DIRUP.parsed = null; here();
   }
 
 
@@ -779,7 +802,7 @@
   async function vResSummary(c) {
     const b = await boardRun(c.district);
     if (b.none) return notReady(c, b);
-    const { sc, inp, r, paths } = b, cfg = inp.cfg, fmt = (v) => '$' + Math.round(v).toLocaleString('en-US');
+    const { sc, inp, r, paths } = b, cfg = inp.cfg, fmt = fmtK;
     b.rows = b.rows || (await loadCapitalRows(c.district));
     const byY = HGCapital.recurByYear(inp.levers, cfg), recY = byY.find((y) => y.total > 0.5), rec = recY ? recY.total : 0;
     const funds = HGCapital.CAP_FUNDS.filter((k) => k !== 'vppel' || cfg.vStatus !== 'none' || paths[k].open > 0);
@@ -859,8 +882,8 @@
     const extraYears = ys.filter((y) => y.extra > 0.5);
     return `
       <div class="grid tiles">
-        <div class="card tile-card"><div class="small muted">Solvency ratio</div><div class="stat">${pct1(first.solvency)} → ${pct1(last.solvency)}</div><div class="small muted">FY${first.fy} to FY${last.fy}; lowest ${pct1(ls.solvency)} in FY${ls.fy}</div></div>
-        <div class="card tile-card"><div class="small muted">Unspent balance ratio</div><div class="stat">${pct1(first.unspentRatio)} → ${pct1(last.unspentRatio)}</div><div class="small muted">lowest ${pct1(lu.unspentRatio)} in FY${lu.fy}</div></div>
+        <div class="card tile-card"><div class="small muted">Solvency ratio ${def('solvency')}</div><div class="stat">${pct1(first.solvency)} → ${pct1(last.solvency)}</div><div class="small muted">FY${first.fy} to FY${last.fy}; lowest ${pct1(ls.solvency)} in FY${ls.fy}</div></div>
+        <div class="card tile-card"><div class="small muted">Unspent balance ratio ${def('unspent')}</div><div class="stat">${pct1(first.unspentRatio)} → ${pct1(last.unspentRatio)}</div><div class="small muted">lowest ${pct1(lu.unspentRatio)} in FY${lu.fy}</div></div>
         <div class="card tile-card"><div class="small muted">Ending fund balance, FY${last.fy}</div><div class="stat">${f(last.balance)}</div><div class="small muted">unassigned and assigned</div></div>
         <div class="card tile-card"><div class="small muted">Revenue vs. spending, FY${last.fy}</div><div class="stat">${f(last.net)}</div><div class="small muted">${last.net < 0 ? 'spending more than revenue' : 'revenue covers spending'}</div></div>
       </div>
@@ -1028,7 +1051,8 @@
   }
   // ---------------------------------------------------------------- capital plan (live engine)
   const CAP = { key: null, rows: null, scenarioId: null, inputs: null, levers: null, pub: false };
-  const fmtK = (v) => { const sgn = v < 0 ? '-' : ''; v = Math.abs(v); if (v >= 1e6) return sgn + '$' + (v / 1e6).toFixed(2) + 'M'; if (v >= 1000) return sgn + '$' + Math.round(v / 1000) + 'k'; return sgn + '$' + Math.round(v); };
+  // money: rounded ($3.02M, $420k) on summaries, tiles and sentences; exact dollars in accounting tables (ledger, budget, spending)
+  const fmtK = (v) => HGReport.fmt(v);
   const pct = (v, dp) => (v * 100).toFixed(dp) + '%';
   const FUND_LABEL = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants', boost: 'Boosters', camp: 'Campaign/bond' };
   const LEVERS = [
@@ -1662,7 +1686,7 @@
         ${dec ? `
         <label class="field">Owner<input name="owner_name" maxlength="80" value="${esc(i.owner_name || '')}" placeholder="Name or role"></label>
         <label class="field">Strategic priority<select name="priority_id"><option value="">None</option>${(rows.priorities || []).map((p) => `<option value="${esc(p.id)}" ${i.priority_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
-          ${(rows.priorities || []).length ? '' : '<span class="hint">Strategic priorities come from Direction (Phase 5).</span>'}</label>
+          ${(rows.priorities || []).length ? '' : '<span class="hint">Add strategic priorities on Direction → Priorities.</span>'}</label>
         <label class="field">Board approved it on<input name="approved_on" type="date" value="${esc(i.approved_on || '')}"></label>` : ''}
       </div>
       ${dec ? `<label class="field">Description<textarea name="description" maxlength="2000">${esc(i.description || '')}</textarea></label>
@@ -2113,6 +2137,8 @@
       HG.db.select('import_batch', `select=id,period_end&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc&limit=1`).catch(() => []),
     ]);
     const packets = snaps.filter((x) => x.kind === 'decision_packet');
+    if (S.landing && !RP.open) { const latest = snaps.find((x) => x.kind === 'board_monthly'); if (latest) RP.open = latest.id; }
+    S.landing = false;
     RP.snaps = snaps = snaps.filter((x) => x.kind !== 'decision_packet');
     if (RP.open) {
       const pk = packets.find((x) => x.id === RP.open);
@@ -2213,7 +2239,7 @@
       <div class="rhead"><div class="small muted">${esc(P.district)}</div><h2>Board report · ${esc(day(P.periodEnd))}</h2>
         <div class="small muted">Board version: ${esc(P.scenario.name)} · ${P.ledgerThrough ? `Ledger through ${esc(day(P.ledgerThrough))}` : 'No monthly ledger in this report'} · Fiscal year ${P.fiscalYear}</div></div>
       <div class="grid tiles">
-        <div class="card tile-card"><div class="small muted">Gap to close</div><div class="stat">${f(P.plan.gap)}</div>${Q ? delta(P.plan.gap, Q.plan.gap, false) : ''}</div>
+        <div class="card tile-card"><div class="small muted">Gap to close ${def('gap')}</div><div class="stat">${f(P.plan.gap)}</div>${Q ? delta(P.plan.gap, Q.plan.gap, false) : ''}</div>
         <div class="card tile-card"><div class="small muted">SAVE balance</div><div class="stat">${bal('save') == null ? '—' : f(bal('save'))}</div>${Q && bal('save') != null ? delta(bal('save'), pbal('save'), true) : ''}</div>
         <div class="card tile-card"><div class="small muted">PPEL balance</div><div class="stat">${bal('ppel') == null ? '—' : f(bal('ppel'))}</div>${Q && bal('ppel') != null ? delta(bal('ppel'), pbal('ppel'), true) : ''}</div>
         <div class="card tile-card"><div class="small muted">General Fund spending forecast</div><div class="stat">${gen ? f(gen.spending.forecast) : '—'}</div>${gen && gen.spending.budget ? `<div class="small muted">budget ${f(gen.spending.budget)}</div>` : ''}</div>
@@ -2306,7 +2332,7 @@
 
   const BACKUP_TABLES = ['district_settings', 'fund_balance', 'debt_obligation', 'assumption_set', 'priority', 'outcome', 'measure', 'measure_value',
     'survey', 'survey_result', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing',
-    'project_request', 'import_batch', 'publication', 'report_snapshot'];
+    'project_request', 'import_batch', 'gl_account', 'gl_amount', 'budget_line', 'publication', 'report_snapshot'];
   async function vExports(c) {
     const rows = await loadCapitalRows(c.district);
     const opts = rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.is_board_version ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}</option>`).join('');
@@ -2364,14 +2390,16 @@
     const backup = { kind: 'HighGround district backup', version: 1, exported_at: new Date().toISOString(), exported_by: S.user.email,
       engine: HGEngine.VERSION, district, tables: data };
     saveFile(`${fileStem()}-backup.json`, JSON.stringify(backup, null, 1), 'application/json');
-    toast('Backup downloaded', `${Object.values(data).reduce((a, x) => a + x.length, 0).toLocaleString()} rows from ${BACKUP_TABLES.length} tables.`);
+    toast('Backup downloaded', `The whole plan, as one file. Keep it somewhere safe.`);
   }
 
   const RESTORE = { data: null };
   // order matters: parents before the rows that point to them
   const RESTORE_ORDER = ['district_settings', 'assumption_set', 'priority', 'outcome', 'measure', 'measure_value', 'survey', 'survey_result', 'initiative', 'scenario',
-    'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing', 'import_batch', 'fund_balance', 'debt_obligation', 'project_request', 'publication', 'report_snapshot'];
-  const ERASE_ORDER = ['publication', 'report_snapshot', 'project_request', 'scenario', 'measure', 'outcome', 'survey', 'initiative', 'priority', 'assumption_set',
+    'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing', 'import_batch', 'gl_account', 'gl_amount', 'budget_line', 'fund_balance', 'debt_obligation',
+    'project_request', 'publication', 'report_snapshot'];
+  // everything in a district's plan, children first; used by restore and by the demo reset (people and access are never touched)
+  const ERASE_ORDER = ['publication', 'report_snapshot', 'project_request', 'budget_line', 'gl_amount', 'gl_account', 'scenario', 'measure', 'outcome', 'survey', 'initiative', 'priority', 'assumption_set',
     'debt_obligation', 'fund_balance', 'import_batch', 'district_settings'];
   async function restoreRead(file) {
     const box = document.querySelector('[data-restore-review]');
@@ -2380,7 +2408,7 @@
     if (!b.district || b.district.id !== S.district.id) throw new UserError(`That backup is from ${b.district && b.district.name ? '“' + b.district.name + '”' : 'another district'}. Only a backup of ${S.district.name} can be restored here.`);
     RESTORE.data = b;
     const counts = [['scenario', 'scenario', 'scenarios'], ['initiative', 'initiative', 'initiatives'], ['phase', 'phase', 'phases'], ['recurring_cost', 'yearly cost', 'yearly costs'],
-      ['financing', 'financing item', 'financing items'], ['fund_balance', 'fund balance', 'fund balances'], ['debt_obligation', 'debt', 'debts'], ['assumption_set', 'assumption set', 'assumption sets']]
+      ['financing', 'financing item', 'financing items'], ['fund_balance', 'fund balance', 'fund balances'], ['debt_obligation', 'debt', 'debts'], ['gl_amount', 'ledger amount', 'ledger amounts'], ['report_snapshot', 'report', 'reports'], ['assumption_set', 'assumption set', 'assumption sets']]
       .map(([t, one, many]) => { const n = (b.tables[t] || []).length; return `${n} ${n === 1 ? one : many}`; }).join(' · ');
     box.innerHTML = `<div class="notice" style="margin-top:12px"><p><b>Backup from ${esc(new Date(b.exported_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }))}</b>${b.exported_by ? `, made by ${esc(b.exported_by)}` : ''}.</p>
       <p class="small">${counts}.</p>
@@ -2389,8 +2417,8 @@
   async function restoreRun() {
     const b = RESTORE.data, d = S.district;
     if (!b) return;
-    const typed = prompt(`This replaces ${d.name}’s whole plan with the backup. A backup of the current plan downloads first.\n\nType the district’s link id (${d.slug}) to continue.`);
-    if ((typed || '').trim().toLowerCase() !== d.slug) { toast('Not restored', 'The link id didn’t match, so nothing changed.', 'notbuilt'); return; }
+    const typed = prompt(`This replaces ${d.name}’s whole plan with the backup. A backup of the current plan downloads first.\n\nTo confirm, type ${d.slug} (the end of the district’s web address).`);
+    if ((typed || '').trim().toLowerCase() !== d.slug) { toast('Not restored', 'What you typed didn’t match, so nothing changed.', 'notbuilt'); return; }
     await exportBackup();   // the safety net, before anything is erased
     try { await restoreWrite(b, d); }
     catch (err) {
@@ -2423,7 +2451,9 @@
   }
 
   // ---------------------------------------------------------------- activity (audit log)
-  const TABLE_NAMES = { district: 'District', district_member: 'Member', invitation: 'Invitation', district_settings: 'Starting numbers',
+  const TABLE_NAMES = { assumption_set: 'Assumption set', report_snapshot: 'Report', scenario_initiative: 'Ranking', survey: 'Survey', survey_result: 'Survey result',
+    budget_line: 'Adopted budget', gl_amount: 'Ledger amount', project_request: 'Project request', initiative_note: 'Note', attachment: 'Attachment', access_request: 'Access request',
+    profile: 'Profile', district: 'District', district_member: 'Member', invitation: 'Invitation', district_settings: 'Starting numbers',
     debt_obligation: 'Debt', fund_balance: 'Fund balance', initiative: 'Project', scenario: 'Scenario', phase: 'Phase', phase_funding: 'Fund split',
     recurring_cost: 'Yearly cost', financing: 'Financing', priority: 'Priority', outcome: 'Outcome', measure: 'Measure', measure_value: 'Measure result',
     import_batch: 'Upload', gl_account: 'GL account', publication: 'Publication' };
@@ -2556,9 +2586,14 @@
       toast('Invitation saved, but not emailed', `${err.message} Tell them to create an account at ${HG.appUrl()} with ${email}.`, 'notbuilt');
     }
   }
-  async function vAccount() {
+  function showAllHtml(c) {
+    if (S.isStaff || c.role === 'admin' || !VIEWS[c.role]) return '';
+    return `<div class="card"><h3>Your menu</h3><p class="small muted">HighGround shows the screens most useful to your role. You can see every screen instead; what you’re allowed to change stays the same.</p>
+      <label class="row"><input type="checkbox" data-show-all ${showAll() ? 'checked' : ''}> Show every screen</label></div>`;
+  }
+  async function vAccount(c) {
     const p = S.profile || {};
-    return `
+    return `${showAllHtml(c)}
       <div class="card"><h3>You</h3>
         <form class="stack" data-form="saveProfile">
           <label class="field">Name<input name="full_name" maxlength="120" value="${esc(p.full_name)}"></label>
@@ -2580,6 +2615,59 @@
             <button type="button" class="btn primary" data-action="mfaOn">Turn on two-step sign-in</button>`;
       })()}</div>`;
   }
+  /* ---- plain-English definitions, used by the Guide and by the little “?” buttons beside terms ---- */
+  const TERMS = {
+    save: ['SAVE', 'Secure an Advanced Vision for Education: Iowa’s statewide one-cent sales tax for school buildings, equipment and technology. It’s shared by student count, can pay for projects directly, and can back revenue bonds.'],
+    ppel: ['PPEL', 'Physical Plant and Equipment Levy: a property tax for buildings, equipment, buses and technology. A school board can levy up to 33 cents per $1,000 of taxable value without a vote.'],
+    vppel: ['V-PPEL', 'Voter-approved PPEL: the same uses as PPEL, up to $1.34 per $1,000 of taxable value, for up to 10 years after a public vote.'],
+    board_version: ['Board version', 'The scenario the board adopted. Board reports, progress tracking and the community page all use it. It’s usually locked so it can’t change by accident.'],
+    scenario: ['Scenario', 'One version of the plan: which projects happen, when, and how they’re paid for. Scenarios can be copied and compared.'],
+    gap: ['Gap to close', 'Capital costs in the plan that SAVE, PPEL, V-PPEL and grants can’t cover. Closing it takes a campaign or bond, changes to the plan, or both.'],
+    funding_line: ['Funding line', 'Where the money runs out when initiatives are paid for in priority order: everything above it fits; everything below it needs another source or a later year.'],
+    encumbered: ['Encumbered', 'Money already committed by a purchase order or contract but not yet paid out.'],
+    solvency: ['Solvency ratio', 'The General Fund’s cushion: unassigned and assigned fund balance divided by General Fund revenue (less AEA flowthrough). Many districts aim for 5–10%.'],
+    authority: ['Spending authority', 'The most a district may spend from the General Fund in a year: formula funding, plus miscellaneous income, plus unspent balance carried forward.'],
+    unspent: ['Unspent balance', 'Spending authority not used, carried into next year. Spending more than the authority requires a corrective plan; two years in a row brings state review.'],
+    guarantee: ['Budget guarantee', 'Iowa’s formula guarantees at least 101% of last year’s regular program funding, which matters most when enrollment falls.'],
+    ssa: ['State supplemental aid', 'The yearly percentage increase in per-student funding, set by the Legislature. It is 2% for FY2027 ($8,148 state cost per pupil).'],
+    dcpp: ['District cost per pupil', 'The per-student amount the school funding formula provides: the state cost per pupil plus any district adjustment.'],
+    go_bond: ['General obligation bond', 'Borrowing approved by voters (60% in Iowa), repaid by a property tax called the debt service levy.'],
+    rev_bond: ['Revenue bond', 'Borrowing repaid from SAVE receipts. It usually needs a public hearing rather than a vote.'],
+    rollback: ['Rollback', 'The share of a property’s assessed value that is actually taxed. The state sets it each year by property type.'],
+    assumptions: ['Assumption set', 'The outlook a scenario plans for: inflation, revenue growth, enrollment, settlements and health insurance. Base, Conservative and Growth are common sets.'],
+    measure_status: ['Measure status', 'On track: at or ahead of a straight path from the starting point to the target. Off track: behind it. Met: the target is reached. Update owed: no result within the measure’s schedule.'],
+    fiscal_year: ['Fiscal year', 'July 1 to June 30, named for the year it ends: FY2027 runs from July 2026 to June 2027.'],
+    turnover: ['Turnover savings', 'When experienced staff leave and newer staff join on lower pay, total salaries grow a little slower than the settlement.'],
+  };
+  /** a small “?” beside a term; tapping it shows the definition */
+  const def = (key) => (TERMS[key] ? `<button type="button" class="defn" data-action="define" data-term="${key}" aria-label="What is ${esc(TERMS[key][0])}?">?</button>` : '');
+  async function vGuide(c) {
+    const r = c.role, link = (path, text) => `<a href="#/d/${enc(c.district.slug)}/${path}">${text}</a>`;
+    const start = ['board', 'viewer'].includes(r) && !c.staff ? [
+      `Each month, open the latest ${link('reports/board', 'board report')}: what changed, the capital plan, the funds, progress and decisions ahead.`,
+      `Before a vote, read the ${link('reports/board', 'decision packet')} for that initiative: its costs, its effect on the plan and where it falls on the funding line.`,
+      `For the bigger picture, see ${link('resources/summary', 'Resources')} (the money) and ${link('direction/priorities', 'Direction')} (the strategic plan and its measures).`]
+      : r === 'business_manager' ? [
+      `Each month, upload the month-end ledger on ${link('progress/uploads', 'Uploads')}, check the balances it shows, and apply it.`,
+      `Then link any new spending accounts to initiatives on ${link('progress/initiatives', 'Progress → Initiatives')}, and check ${link('progress/actuals', 'Budget vs. actual')}.`,
+      `Create the month’s ${link('reports/board', 'board report')}. Keep ${link('settings/setup', 'Starting numbers')} and the ${link('resources/general', 'General Fund')} figures current.`]
+      : [
+      `Start on ${link('overview/today', 'Overview')}: what needs attention, and where the plan stands.`,
+      `Shape the plan on ${link('decisions/initiatives', 'Decisions')} (initiatives, ranking, scenarios) and the ${link('resources/capital', 'capital plan')}.`,
+      `Keep ${link('direction/priorities', 'Direction')} current, then ${link('reports/board', 'report to the board')} and ${link('reports/community', 'publish to the community')}.`];
+    const tasks = [
+      ['See where the money runs out', 'Decisions → Ranking & funding line'], ['Compare two versions of the plan', 'Decisions → Scenarios'],
+      ['Test a different future (inflation, settlements, enrollment)', 'the what-if levers on the capital plan and the General Fund'], ['See what a bond would cost a homeowner', 'the capital plan’s “What it means for taxpayers”'],
+      ['Record a measure’s result', 'Progress → Measures'], ['Share the plan with the public', 'Reports → Community page'], ['Find anything', 'Search, at the top of every page'],
+    ];
+    return `
+      <div class="card"><h3>Where to start</h3><ol>${start.map((x) => `<li>${x}</li>`).join('')}</ol>
+        <p class="small muted">The menu shows the screens most useful to your role. To see every screen, use Account → Your menu.</p></div>
+      <div class="card"><h3>How do I…</h3><table class="data"><tbody>${tasks.map(([q, a]) => `<tr><td>${esc(q)}</td><td class="small">${esc(a)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="card"><h3>What the terms mean</h3><dl class="glossary">${Object.values(TERMS).sort((x, y) => x[0].localeCompare(y[0])).map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl>
+        <p class="small muted">Iowa figures were checked on ${esc(day(HGGF.RULES.checked))}. HighGround is a planning tool; confirm decisions with the district’s auditor, attorney or financial advisor.</p></div>
+      <div class="card"><h3>Questions</h3><p>Email <a href="mailto:hello@willowholler.com">hello@willowholler.com</a>.</p></div>`;
+  }
   async function vBuilt() {
     const rows = [];
     ALL.forEach((s) => s.tabs.forEach((t) => rows.push({ s: s.label, t: t.label, status: t.status, phase: t.phase })));
@@ -2591,7 +2679,7 @@
       { label: 'Section', get: (r) => r.s }, { label: 'Screen', get: (r) => r.t },
       { label: 'Status', html: (r) => badge(r.status) }, { label: 'Rest arrives', get: (r) => (r.status === 'live' ? '' : r.phase ? 'Phase ' + r.phase : '') },
     ], rows, '')}</div>
-    <p class="small muted">Anything dashed or orange is not built. Buttons with a dashed border say so when you click them.</p>`;
+`;
   }
 
   // ------------------------------------------------------------------ Willow Holler staff
@@ -2865,7 +2953,7 @@
     if (!d.public_link_enabled) throw new UserError('The public link is turned off for this district. Turn it on in Settings, District.');
     const { board, payload } = await publicationPayload(d, publishOpts());
     if (!payload.shownCount) throw new UserError('Nothing would show: every initiative in the board version is still unapproved. Untick “Hold back” or approve initiatives first.');
-    if (!confirm(`Publish “${board.name}” to the public link? Anyone with the link will see ${payload.shownCount} initiative${payload.shownCount === 1 ? '' : 's'}${payload.heldBack ? `; ${payload.heldBack} not yet approved will be held back` : ''}.`)) return;
+    if (!confirm(`Publish to the public link? Anyone with it will see ${payload.shownCount} initiative${payload.shownCount === 1 ? '' : 's'}.`)) return;
     await HG.db.insert('publication', { district_id: d.id, kind: 'board_plan', title: board.name, scenario_id: board.id, payload });
     toast('Published', 'The public link now shows this version.');
     here();
@@ -2924,10 +3012,8 @@
     const did = card.querySelector('[data-demo-district]').value, set = card.querySelector('[data-demo-set]').value;
     const d = S.districts.find((x) => x.id === did) || (S.staffDistricts || []).find((x) => x.id === did);
     if (!d || !d.is_demo) throw new UserError('Only a demo district can be reset.');
-    if (!confirm(`Erase everything in ${d.name}’s plan (starting numbers, balances, debt, the strategic plan, initiatives, scenarios, uploads and publishing history) and load ${window.HG_DEMOS[set].name} again? People and access stay as they are.`)) return;
-    for (const t of ['publication', 'scenario', 'survey', 'initiative', 'measure', 'priority', 'debt_obligation', 'fund_balance', 'import_batch', 'district_settings']) {
-      await HG.db.removeAll(t, `district_id=eq.${did}`);
-    }
+    if (!confirm(`Erase everything in ${d.name}’s plan (starting numbers, balances, debt, the strategic plan, initiatives, scenarios, assumption sets, the monthly ledger, uploads, reports and publishing history) and load ${window.HG_DEMOS[set].name} again? People and access stay as they are.`)) return;
+    for (const t of ERASE_ORDER) await HG.db.removeAll(t, `district_id=eq.${did}`);
     await writeDemo(d, set);
     let published = false;
     if (d.public_link_enabled) {
@@ -3082,6 +3168,7 @@
     async gfStaffRemove(el) { el.closest('[data-gf-staff]').remove(); },
     async gfReset() { GF.over = {}; here(); },
     async openSearch() { await openSearch(); },
+    async define(el) { const t = TERMS[el.dataset.term]; if (t) toast(t[0], t[1]); },
     async searchGo(el) {
       const k = el.dataset.k, id = el.dataset.id, slug = S.district.slug; closeModal();
       if (k === 'initiative') { INI.key = S.district.id; go(`#/d/${enc(slug)}/decisions/initiatives`); setTimeout(() => openDecisionEditor(id), 600); }
@@ -3341,6 +3428,8 @@
     const ma = e.target.closest('[data-me-auto]');
     if (ma && ma.value) { const a = HGDirection.AUTO[ma.value], fm = ma.closest('form'), set = (n, v) => { const el = fm.querySelector(`[name=${n}]`); if (el && !el.value) el.value = v; };
       set('name', a.name); set('unit', a.unit); fm.querySelector('[name=better]').value = a.better; fm.querySelector('[name=cadence]').value = a.cadence; return; }
+    const sa = e.target.closest('[data-show-all]');
+    if (sa) { try { localStorage.setItem(showAllKey(), sa.checked ? '1' : '0'); } catch (x) {} toast(sa.checked ? 'Every screen shown' : 'Menu for your role', 'The menu has changed.'); return here(); }
     const gsc = e.target.closest('[data-gf-sc]');
     if (gsc) { GF.sid = gsc.value; GF.over = {}; return here(); }
     const mp = e.target.closest('[data-me-prio]');

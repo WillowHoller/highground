@@ -9,7 +9,10 @@ USERS={"admin@example.test":("u-admin","Pat Admin",[("d1","admin"),("d2","viewer
        "new@example.test":("u-new","Nia New",[],False),
        "staff@example.test":("u-staff","Sam Staff",[],True),
        "empty.staff@example.test":("u-estaff","Eve Staff",[],True),
-       "mfa@example.test":("u-mfa","Mo Factor",[],False)}
+       "mfa@example.test":("u-mfa","Mo Factor",[],False),
+       "board@example.test":("u-board","Bo Board",[("d1","board")],False),
+       "bm@example.test":("u-bm","Bea Manager",[("d1","business_manager")],False),
+       "sup@example.test":("u-sup","Sue Super",[("d1","superintendent")],False)}
 PW="correct horse battery"
 TABLES={"initiative":[{"district_id":"d1","name":"Middle school HVAC","type":"capital","status":"approved","focus_area":"Facilities","tier":"must","cost_confidence":"firm","condition":"poor","id":"i1"}],
  "scenario":[{"district_id":"d1","id":"s1","name":"District baseline","is_board_version":True,"is_locked":True,"updated_at":"2026-09-23T12:00:00Z"}],
@@ -34,7 +37,7 @@ for sc in TABLES["scenario"]:
   if sc["id"] in IRON["lock"]: sc["is_locked"]=True
 GOLD=json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),"golden_engine.json")))["districts"]["demo-medium"]
 def fmtK(v):
-  s="-" if v<0 else ""; v=abs(v)
+  s="−" if v<0 else ""; v=abs(v)
   if v>=1e6: return s+"$%.2fM"%(v/1e6)
   if v>=1000: return s+"$%dk"%round(v/1000)
   return s+"$%d"%round(v)
@@ -180,7 +183,7 @@ async def main():
     await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(700)
     body=await pg.inner_text("body")
     check("access refresh runs on load", any("/rest/v1/rpc/claim_my_access" in c[1] for c in calls))
-    check("admin lands on first district overview", "cottonwood-ridge/overview" in pg.url and "initiatives" in body, pg.url)
+    check("lands where the role starts: a viewer in that district lands on its board reports", "cottonwood-ridge/reports/board" in pg.url, pg.url)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(500); body=await pg.inner_text("body")
     check("overview live counts", "District baseline" in body)
     await pg.screenshot(path=SHOTS+"/overview.png",full_page=True)
@@ -960,6 +963,15 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(500)
     rowtxt=[r for r in (await pg.inner_text("#view")).split("\n") if r.startswith("Public link")]
     check("help: the public link row matches the finished community page", rowtxt and "Live" in rowtxt[0] and "Phase" not in rowtxt[0], str(rowtxt))
+    # step A: search is never stale
+    await pg.click("button[data-action=openSearch]"); await pg.wait_for_timeout(400)
+    await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(100)
+    TABLES["initiative"].append({"district_id":"d1","id":"ini-new","name":"Greenhouse for the ag program","type":"capital","status":"idea"})
+    await pg.click("button[data-action=openSearch]"); await pg.wait_for_timeout(500)
+    await pg.fill("[data-search]","greenhouse"); await pg.wait_for_timeout(200)
+    check("search: finds something added a moment ago", "Greenhouse for the ag program" in await pg.inner_text("[data-search-results]"))
+    await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(100)
+    TABLES["initiative"]=[i for i in TABLES["initiative"] if i.get("id")!="ini-new"]
     # Phase 6: the General Fund
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/general"); await pg.wait_for_timeout(800)
     t=await pg.inner_text("#view")
@@ -1014,7 +1026,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pg.wait_for_timeout(500)
     t=await pg.inner_text("#view")
     check("summary: board version totals", "$14.79M" in t and "$5.35M" in t and "District baseline" in t)
-    check("summary: each fund's low point", money(EXP["saveLow"])+" (FY"+str(EXP["saveLowFY"])+")" in t, money(EXP["saveLow"]))
+    check("summary: each fund's low point, rounded on the summary", fmtK(EXP["saveLow"])+" (FY"+str(EXP["saveLowFY"])+")" in t, fmtK(EXP["saveLow"]))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(500)
     t=await pg.inner_text("#view")
     check("all funds: year-by-year from the engine", "SAVE" in t and money(EXP["save27"]) in t and "Borrowing room" in t and "$4.59M" in t, money(EXP["save27"]))
@@ -1034,6 +1046,8 @@ async def main():
     f=await dl.value; bk=json.load(open(await f.path()))
     BACKUP_PATH=await f.path()
     check("exports: full backup has the plan, not people", bk["kind"]=="HighGround district backup" and len(bk["tables"]["phase"])==EXP["phases"] and "district_member" not in bk["tables"] and "audit_log" not in bk["tables"])
+    check("exports: the backup includes the monthly ledger and adopted budget", all(t in bk["tables"] for t in ["gl_account","gl_amount","budget_line","report_snapshot"]))
+    check("exports: the backup message is plain", "The whole plan, as one file" in await pg.inner_text("#toasts"))
     # restore from a backup
     import shutil; shutil.copy(BACKUP_PATH,"/tmp/hg-backup.json")
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/exports"); await pg.wait_for_timeout(500)
@@ -1055,7 +1069,7 @@ async def main():
     locks=[c for c in new if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1] and '"is_locked": true' in (c[2] or "").replace('":true','": true')]
     first_del=next(k for k,c in enumerate(new) if c[0]=="DELETE")
     check("restore: a safety backup downloads before anything is erased", safety.suggested_filename.endswith("-backup.json") and first_del>0)
-    check("restore: erases the plan, then puts every table back in order", dels==["publication","report_snapshot","project_request","scenario","measure","outcome","survey","initiative","priority","assumption_set","debt_obligation","fund_balance","import_batch","district_settings"]
+    check("restore: erases the plan, then puts every table back in order", dels==["publication","report_snapshot","project_request","budget_line","gl_amount","gl_account","scenario","measure","outcome","survey","initiative","priority","assumption_set","debt_obligation","fund_balance","import_batch","district_settings"]
           and posts[:3]==["district_settings","initiative","scenario"] and posts.index("phase")>posts.index("scenario") and posts.index("fund_balance")>posts.index("phase"), str(posts))
     scen=[json.loads(c[2]) for c in new if c[0]=="POST" and c[1].split("?")[0].endswith("/scenario")][0]
     check("restore: scenarios go back unlocked, then the locked ones are locked again", all(x["is_locked"] is False for x in scen) and len(locks)==sum(1 for sc in TABLES["scenario"] if sc.get("is_locked")), f"{len(locks)} locks")
@@ -1130,7 +1144,7 @@ async def main():
     n0=len(calls); await pg.click("button[data-action=resetDemo]"); await pg.wait_for_timeout(1200)
     dels=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="DELETE"]
     posts=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="POST"]
-    check("reset: erases the demo district's plan, then reloads it", dels==["publication","scenario","survey","initiative","measure","priority","debt_obligation","fund_balance","import_batch","district_settings"]
+    check("reset: erases the demo district's plan, then reloads it", dels==["publication","report_snapshot","project_request","budget_line","gl_amount","gl_account","scenario","measure","outcome","survey","initiative","priority","assumption_set","debt_obligation","fund_balance","import_batch","district_settings"]
           and posts[:16]==["district_settings","fund_balance","debt_obligation","priority","outcome","measure","measure_value","initiative","scenario","scenario_initiative","phase","phase_funding","recurring_cost","financing","survey","survey_result"], str(dels)+str(posts))
     check("reset: only that district is touched", all("district_id=eq.d2" in c[1] for c in calls[n0:] if c[0]=="DELETE"))
     check("reset: says it's done", "Demo reset" in await pg.inner_text("#toasts"))
@@ -1155,6 +1169,49 @@ async def main():
     await pg.goto("http://localhost:8765/#error=access_denied&error_description=Email+link+is+invalid+or+has+expired"); await pg.wait_for_timeout(500)
     check("expired link explained", "expired" in await pg.inner_text("body"))
     # public page, opened by someone with no account (fresh browser, no session)
+    # step A: menus by role, landing on the board report, the guide, definitions
+    TABLES["report_snapshot"]=[{"id":"rep-sep","district_id":"d1","kind":"board_monthly","title":"Board report, September 2026","period_end":"2026-09-30","created_at":"2026-10-01T15:00:00Z",
+      "payload":{"version":1,"periodEnd":"2026-09-30","fiscalYear":2027,"district":"Ironwood Valley Community School District","scenario":{"id":"s1","name":"District baseline"},"ledgerThrough":None,
+        "plan":{"need":14790000,"levyFunded":9190000,"financed":0,"gap":5350000,"overflow":0,"start":2027,"years":10},"balances":{},"budget":[],"progress":[],"initiatives":{},"done":[],"pending":[],"pendingCount":0,"tax":None,"gf":None}}]
+    async def session(email):
+      cx=await b.new_context(viewport={"width":1360,"height":900}); await cx.route("**/config.js",cfg); await cx.route(SB+"/**",handler); await cx.route("**/fonts.g*/**",lambda r:r.abort())
+      pp=await cx.new_page(); pp.on("pageerror",lambda e:errs.append(str(e)))
+      await pp.goto("http://localhost:8765/"); await pp.evaluate("localStorage.clear()"); await pp.goto("http://localhost:8765/"); await pp.wait_for_timeout(400)
+      await pp.fill("input[name=email]",email); await pp.fill("input[name=password]",PW); await pp.click("button[type=submit]"); await pp.wait_for_timeout(900)
+      return cx,pp
+    menu=lambda pp: pp.locator("nav.rail .nav:not(.nav-foot) a").all_inner_texts()
+    cx,pp=await session("board@example.test")
+    check("board member: lands on the latest board report", "/reports/board" in pp.url and "Board report · Sep 30, 2026" in await pp.inner_text("#view"), pp.url)
+    m=[x.strip() for x in await menu(pp)]
+    check("board member: a short menu (no Decisions or Progress)", m==["Overview","Direction","Resources","Reports"], str(m))
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pp.wait_for_timeout(500)
+    check("board member: Resources shows Summary, General fund, Capital plan", [x.strip() for x in await pp.locator("nav.tabs a").all_inner_texts()]==["Summary","General fund","Capital plan"])
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/account"); await pp.wait_for_timeout(500)
+    await pp.check("input[data-show-all]"); await pp.wait_for_timeout(600)
+    m2=[x.strip() for x in await menu(pp)]
+    check("show every screen: the full menu comes back", "Decisions" in m2 and "Progress" in m2, str(m2))
+    await pp.uncheck("input[data-show-all]"); await pp.wait_for_timeout(500)
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pp.wait_for_timeout(500)
+    check("a direct link to a screen outside the menu still opens", "Decisions" in await pp.inner_text("h1"))
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/help/guide"); await pp.wait_for_timeout(500)
+    g=await pp.inner_text("#view")
+    check("guide: where to start for a board member, how-to, and the glossary", "open the latest board report" in g and "How do I" in g and "Solvency ratio" in g and "Encumbered" in g and "hello@willowholler.com" in g, g[:300])
+    check("guide: no “What’s built” tab for districts", "What’s built" not in await pp.inner_text("nav.tabs") if await pp.locator("nav.tabs").count() else True)
+    await cx.close()
+    cx,pp=await session("bm@example.test")
+    m=[x.strip() for x in await menu(pp)]
+    check("business manager: lands on Overview; menu for the monthly close", "/overview/today" in pp.url and m==["Overview","Resources","Progress","Reports"], str(m)+pp.url)
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pp.wait_for_timeout(500)
+    check("business manager: Uploads first in Progress", [x.strip() for x in await pp.locator("nav.tabs a").all_inner_texts()][0]=="Uploads")
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(600)
+    await pp.click("button.defn[data-term=gap]"); await pp.wait_for_timeout(200)
+    check("definitions: tapping “?” explains the term", "Capital costs in the plan that SAVE, PPEL, V-PPEL and grants can’t cover" in await pp.inner_text("#toasts"))
+    await cx.close()
+    cx,pp=await session("sup@example.test")
+    m=[x.strip() for x in await menu(pp)]
+    check("superintendent: the planning menu", m==["Overview","Direction","Decisions","Resources","Progress","Reports"], str(m))
+    await cx.close()
+    TABLES["report_snapshot"]=[]
     anonctx=await b.new_context(viewport={"width":1360,"height":900}); await anonctx.route("**/config.js",cfg); await anonctx.route(SB+"/**",handler); await anonctx.route("**/fonts.g*/**",lambda r:r.abort())
     pub=await anonctx.new_page(); pub.on("pageerror",lambda e:errs.append(str(e)))
     n0=len(calls); await pub.goto("http://localhost:8765/#/p/ironwood-valley"); await pub.wait_for_timeout(700)
