@@ -375,9 +375,9 @@ async def main():
     pl=json.loads(pp[0][2])["payload"] if pp else {}
     check("publish: sends the board version as a frozen copy", pp and len(pl.get("projects",[]))==16 and pl["settings"]["save"]["receipts"]==1420000 and json.loads(pp[0][2])["kind"]=="board_plan" and pl["note"].startswith("The board adopts"), str(len(pl.get("projects",[]))))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(300)
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/community"); await pg.wait_for_timeout(400)
-    await pg.click("text=Upload survey results"); await pg.wait_for_timeout(200)
-    check("not-built button throws and shows message", "Survey upload isn't built yet (planned for Phase 5)" in (await pg.inner_text("#toasts")).replace("’","'"))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(400)
+    await pg.click("text=Adopted budget (for the general-fund forecast)"); await pg.wait_for_timeout(200)
+    check("not-built button throws and shows message", "Budget upload isn't built yet (planned for Phase 6)" in (await pg.inner_text("#toasts")).replace("’","'"))
     # invite
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/people"); await pg.wait_for_timeout(400)
     await pg.fill("form[data-form=invite] input[name=email]","New.Person@Example.test"); await pg.select_option("form[data-form=invite] select","editor")
@@ -767,7 +767,7 @@ async def main():
       if(!/(auto|scroll)/.test(cs.overflowY)||el.matches('.modal-back'))return false; return el.scrollHeight>el.clientHeight;}).map(el=>el.className||el.tagName).slice(0,5)"""
     stray={}
     for route in ["overview/today","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/capital","resources/funds","resources/assumptions",
-                  "progress/initiatives","progress/actuals","progress/uploads","reports/exports","reports/community","settings/setup","settings/people","settings/activity","settings/built"]:
+                  "progress/initiatives","progress/actuals","progress/uploads","reports/exports","reports/community","settings/setup","settings/people","settings/activity","help/built"]:
       await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+route); await pg.wait_for_timeout(450)
       found=await pg.evaluate(stray_js)
       if found: stray[route]=found
@@ -861,7 +861,7 @@ async def main():
     check("priorities: each with outcomes, measures and their status, and initiatives serving it", "Every graduate ready for what’s next" in t and "Career and technical pathways" in t and "On track" in t and "Off track" in t and "Secure entrances — three buildings" in t, t[:500])
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/measures"); await pg.wait_for_timeout(700)
     t=await pg.inner_text("#view")
-    check("measures: start → target, latest, status, progress, owner", "6 measures:" in t and "Four-year graduation rate" in t and "88% 2024-25 → 94% 2028-29" in t.replace("\t"," ").replace("  "," ") and "lower is better" in t and "Principal, high school" in t, t[:600])
+    check("measures: start → target, latest, status, progress, owner", "7 measures:" in t and "Four-year graduation rate" in t and "88% 2024-25 → 94% 2028-29" in t.replace("\t"," ").replace("  "," ") and "lower is better" in t and "Principal, high school" in t, t[:600])
     await pg.screenshot(path=SHOTS+"/measures.png", full_page=True)
     await pg.click("a[data-action=editMeasure] >> nth=0"); await pg.wait_for_timeout(300)
     await pg.fill("[data-modal] input[name=target_period]","someday"); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
@@ -879,8 +879,83 @@ async def main():
           and "on_conflict=measure_id%2Cperiod" in next(c[1] for c in calls[n0:] if c[1].startswith("/rest/v1/measure_value")), str(mv))
     await row.locator("input[name=period]").fill("next year"); await row.locator("button[data-action=saveResult]").click(); await pg.wait_for_timeout(300)
     check("record results: an unreadable period is explained", "isn’t a period HighGround can read" in await pg.inner_text("#toasts"))
-    for t in ["priority","outcome","measure","measure_value"]: TABLES[t]=[]
+    # Phase 5B: an automatic measure (phases finished in their planned year) fills itself in
+    TABLES["measure"]=TABLES["measure"]+[{"id":"m-auto","district_id":"d1","priority_id":DIRR["priority"][2]["id"],"outcome_id":None,"name":"Capital phases finished in their planned year","unit":"%","better":"up",
+      "baseline_value":80,"baseline_period":"2024-25","target_value":100,"target_period":"2027-28","owner_name":"Facilities director","cadence":"annual","source":"progress","is_public":True,"auto_metric":"phases_on_schedule"}]
+    bph=[p0 for p0 in TABLES["phase"] if p0["scenario_id"]!=_ph_sid][:2]
+    saved_ph=[dict(p0) for p0 in bph]
+    bph[0].update(status="done", done_date="2026-09-20", actual_cost=bph[0]["cost"]); bph[1].update(status="done", done_date="2027-09-20", actual_cost=bph[1]["cost"])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/measures"); await pg.wait_for_timeout(700)
+    ar=await pg.inner_text("tr[data-mv='m-auto']")
+    check("automatic measure: updates itself from finished phases, no typing", "Updates itself" in ar and await pg.locator("tr[data-mv='m-auto'] input[name=value]").count()==0 and ("FY2027" in ar or "FY2028" in ar), ar)
+    for p0,sv0 in zip(bph,saved_ph): p0.clear(); p0.update(sv0)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/measures"); await pg.wait_for_timeout(600)
+    await pg.click("button[data-action=editMeasure][data-id='']"); await pg.wait_for_timeout(300)
+    await pg.select_option("[data-modal] select[data-me-auto]","save_balance"); await pg.wait_for_timeout(150)
+    check("automatic measure: choosing one fills in its name, unit and cadence", await pg.input_value("[data-modal] input[name=name]")=="SAVE balance" and await pg.input_value("[data-modal] input[name=unit]")=="$" and await pg.input_value("[data-modal] select[name=cadence]")=="monthly")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(500)
+    am=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/measure"]
+    check("automatic measure: saved with its source", am and am[0]["auto_metric"]=="save_balance" and am[0]["source"]=="import", str(am))
+    # Phase 5C: community survey, and the uploads for the plan
+    SV=json.loads(subprocess.check_output(["node","-e","""
+      const C=require('./capital.js'),D=require('./demo_data.js');let i=0;const R=C.demoRows(D['bridger-hollow'],'d1',()=>'dir-'+(++i));
+      process.stdout.write(JSON.stringify({survey:R.survey,survey_result:R.survey_result.map((r,k)=>Object.assign({id:'sr'+k},r))}))"""],cwd=os.path.dirname(os.path.abspath(__file__))))
+    TABLES["survey"]=SV["survey"]; TABLES["survey_result"]=SV["survey_result"]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/community"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view")
+    check("community: the survey, importance of each priority, themes by mentions", "Community survey, spring 2026" in t and "612 responses" in t and "4.7" in t and t.find("Elementary classrooms are crowded")<t.find("Fix the track"), t[:400])
+    n0=len(calls); await pg.select_option("select[data-sr-link='sr8'][data-f=priority_id]", DIRR["priority"][1]["id"]); await pg.wait_for_timeout(500)
+    check("community: link a theme to a priority", any(c[0]=="PATCH" and "/rest/v1/survey_result?id=eq.sr8" in c[1] and DIRR["priority"][1]["id"] in (c[2] or "") for c in calls[n0:]))
+    svcsv=b"Kind,Label,Value,Mentions,Priority\r\nTheme,Longer library hours,,33,\r\nQuestion,Would support a bond for a CTE building,58,,\r\n"
+    await pg.set_input_files("input[data-dir-upload=survey]", files=[{"name":"survey.csv","mimeType":"text/csv","buffer":svcsv}]); await pg.wait_for_timeout(500)
+    check("community: survey results upload reviewed first", "2 survey results" in await pg.inner_text("#dir-upload"))
+    n0=len(calls); await pg.click("button[data-action=dirUploadApply]"); await pg.wait_for_timeout(600)
+    su=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/survey_result"]
+    check("community: uploaded results added to the survey", su and len(su[0])==2 and su[0][0]["survey_id"]==SV["survey"][0]["id"] and su[0][1]["kind"]=="question", str(su)[:200])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/community"); await pg.wait_for_timeout(700)
+    await pg.uncheck("input[data-pub-hold]"); await pg.wait_for_timeout(700)
+    check("community page: offers “What you told us” from the latest survey", "(Community survey, spring 2026)" in await pg.inner_text("#view") and await pg.is_checked("input[data-pub-survey]"))
+    await pg.click("button[data-action=previewPublic]"); await pg.wait_for_timeout(600)
+    pv=await pg.inner_text("[data-modal]")
+    check("community page: the preview shows what people said, linked to the plan", "What you told us" in pv and "Elementary classrooms are crowded" in pv and "141 mentions" in pv and "out of 5" in pv, pv[pv.find("What you told us"):pv.find("What you told us")+300])
+    await pg.click("[data-modal] button[data-action=closeModal] >> nth=0"); await pg.wait_for_timeout(200)
+    await pg.fill("textarea[data-pub-note]","The board adopts the plan in October. Thank you for the survey responses.")
+    n0=len(calls); await pg.click("button[data-action=publishBoard]"); await pg.wait_for_timeout(700)
+    ps=[json.loads(c[2])["payload"] for c in calls[n0:] if c[0]=="POST" and "/rest/v1/publication" in c[1]]
+    check("community page: the published copy carries the survey summary, not individual answers", ps and ps[0]["survey"]["responses"]==612 and len(ps[0]["survey"]["themes"])==6 and "results" not in ps[0]["survey"], str(ps[0].get("survey") if ps else None)[:200])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/priorities"); await pg.wait_for_timeout(700)
+    check("priorities: community importance from the latest survey", "Community importance: 4.7 out of 5" in await pg.inner_text("#view"))
+    gcsv=b"Priority,Outcome,Measure,Unit,Better,Start,Start period,Target,Target period,Owner,Cadence\r\nStrong partnerships,Business partners,Active business partners,partners,Higher,4,2024-25,12,2027-28,Superintendent,Yearly\r\n\"Safe, modern places to learn\",Safe and secure buildings,Buildings with a secure entry,buildings,Higher,1,2024-25,3,2026-27,,Yearly\r\n"
+    await pg.set_input_files("input[data-dir-upload=goals]", files=[{"name":"goals.csv","mimeType":"text/csv","buffer":gcsv}]); await pg.wait_for_timeout(500)
+    n0=len(calls); await pg.click("button[data-action=dirUploadApply]"); await pg.wait_for_timeout(800)
+    gp=[json.loads(c[2])["name"] for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/priority"]
+    gm=[json.loads(c[2])["name"] for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/measure"]
+    check("goals upload: new priorities and measures added; existing ones kept by name", gp==["Strong partnerships"] and gm==["Active business partners"], str(gp)+str(gm))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/measures"); await pg.wait_for_timeout(600)
+    rcsv=b"Measure,Period,Result,Note\r\nFour-year graduation rate,2026-27,90.7,Preliminary\r\nNo such measure,2026-27,1,\r\n"
+    await pg.set_input_files("input[data-dir-upload=results]", files=[{"name":"results.csv","mimeType":"text/csv","buffer":rcsv}]); await pg.wait_for_timeout(500)
+    check("results upload: an unknown measure blocks Apply, explained", "no measure called “No such measure”" in await pg.inner_text("#dir-upload") and await pg.is_disabled("button[data-action=dirUploadApply]"))
+    # Phase 5D: Overview → Today, and search
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(800)
+    t=await pg.inner_text("#view")
+    check("overview: gap, balances, ledger, measures, decisions ahead, latest report", "Gap to close" in t and "$5.35M" in t and "SAVE balance" in t and "Measures on track" in t and "4 of 8" in t and "Decisions ahead" in t and "Latest board report" in t, t[:600])
+    await pg.locator("#view").screenshot(path=SHOTS+"/today.png")
+    check("overview: needs attention lists what's off track", "Needs attention" in t and "is off track" in t and "The strategic plan" in t)
+    check("overview: recent changes for admins", "Recent changes" in t)
+    await pg.click("button[data-action=openSearch]"); await pg.wait_for_timeout(500)
+    await pg.fill("[data-search]","roof"); await pg.wait_for_timeout(200)
+    hits=await pg.inner_text("[data-search-results]")
+    check("search: finds initiatives as you type", "High school roof" in hits and "Initiative" in hits, hits)
+    await pg.fill("[data-search]","graduation"); await pg.wait_for_timeout(200)
+    check("search: finds measures too", "Four-year graduation rate" in await pg.inner_text("[data-search-results]"))
+    await pg.click("[data-search-results] a >> nth=0"); await pg.wait_for_timeout(700)
+    check("search: going to a result", "/direction/measures" in pg.url)
+    for t in ["priority","outcome","measure","measure_value","survey","survey_result"]: TABLES[t]=[]
     for i0 in TABLES["initiative"]: i0.pop("priority_id", None)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(500)
+    rowtxt=[r for r in (await pg.inner_text("#view")).split("\n") if r.startswith("Public link")]
+    check("help: the public link row matches the finished community page", rowtxt and "Live" in rowtxt[0] and "Phase" not in rowtxt[0], str(rowtxt))
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;
@@ -967,7 +1042,7 @@ async def main():
     # no-district user
     await pg.fill("input[name=email]","new@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
     check("no-district welcome", "don’t have access to a district yet" in await pg.inner_text("body"))
-    check("no Search button outside a district", await pg.locator("[data-notbuilt='Search']").count()==0)
+    check("no Search button outside a district", await pg.locator("[data-action=openSearch]").count()==0)
     await pg.fill("form[data-form=requestAccess] input[name=slug]","ironwood-valley"); await pg.fill("form[data-form=requestAccess] textarea","I'm the new principal")
     n0=len(calls); await pg.click("form[data-form=requestAccess] button"); await pg.wait_for_timeout(500)
     rq=[json.loads(c[2]) for c in calls[n0:] if "rpc/request_access" in c[1]]
@@ -1008,8 +1083,8 @@ async def main():
     n0=len(calls); await pg.click("button[data-action=resetDemo]"); await pg.wait_for_timeout(1200)
     dels=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="DELETE"]
     posts=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="POST"]
-    check("reset: erases the demo district's plan, then reloads it", dels==["publication","scenario","initiative","measure","priority","debt_obligation","fund_balance","import_batch","district_settings"]
-          and posts[:14]==["district_settings","fund_balance","debt_obligation","priority","outcome","measure","measure_value","initiative","scenario","scenario_initiative","phase","phase_funding","recurring_cost","financing"], str(dels)+str(posts))
+    check("reset: erases the demo district's plan, then reloads it", dels==["publication","scenario","survey","initiative","measure","priority","debt_obligation","fund_balance","import_batch","district_settings"]
+          and posts[:16]==["district_settings","fund_balance","debt_obligation","priority","outcome","measure","measure_value","initiative","scenario","scenario_initiative","phase","phase_funding","recurring_cost","financing","survey","survey_result"], str(dels)+str(posts))
     check("reset: only that district is touched", all("district_id=eq.d2" in c[1] for c in calls[n0:] if c[0]=="DELETE"))
     check("reset: says it's done", "Demo reset" in await pg.inner_text("#toasts"))
     await pg.screenshot(path=SHOTS+"/staff.png",full_page=True)

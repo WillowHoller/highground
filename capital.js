@@ -133,7 +133,7 @@
     const startFY = E.fyOfDate(s.balances.asOf);
     const out = { district_settings: [], fund_balance: [], debt_obligation: [], initiative: [], scenario: [],
                   scenario_initiative: [], phase: [], phase_funding: [], financing: [], recurring_cost: [], lock: [],
-                  priority: [], outcome: [], measure: [], measure_value: [] };
+                  priority: [], outcome: [], measure: [], measure_value: [], survey: [], survey_result: [] };
     // the strategic plan (priorities, outcomes, measures and their results), if the demo has one
     const prioId = new Map(), outId = new Map(), dir = demo.direction || null;
     if (dir) dir.priorities.forEach((pr, k) => {
@@ -144,7 +144,8 @@
         const mid = newId();
         out.measure.push({ id: mid, district_id: districtId, priority_id: pid, outcome_id: m.outcome ? outId.get(m.outcome) || null : null, name: m.name, unit: m.unit || null, better: m.better || 'up',
           baseline_value: m.baseline_value, baseline_period: m.baseline_period || null, target_value: m.target_value, target_period: m.target_period || null,
-          owner_name: m.owner_name || null, cadence: m.cadence || null, source: 'manual', is_public: true });
+          owner_name: m.owner_name || null, cadence: m.cadence || null, source: m.auto ? (/balance|gap/.test(m.auto) ? 'import' : 'progress') : 'manual', is_public: true,
+          auto_metric: m.auto || null });
         (m.values || []).forEach(([period, value]) => out.measure_value.push({ district_id: districtId, measure_id: mid, period, value, note: null }));
       });
     });
@@ -195,6 +196,13 @@
         amount: f.amount, rate: f.rate || 0, years: f.years || 0,
         repay_from: f.kind === 'rev' ? 'save' : f.kind === 'lease' ? (f.repay === 'save' ? 'save' : 'ppel') : f.kind === 'gift' ? 'none' : 'levy' }));
     });
+    if (dir && dir.survey) {   // after the initiatives exist, so themes can link to them
+      const sv = dir.survey, sid = newId();
+      out.survey.push({ id: sid, district_id: districtId, name: sv.name, opened_on: sv.opened_on || null, closed_on: sv.closed_on || null, response_count: sv.response_count == null ? null : sv.response_count, notes: sv.notes || null });
+      (sv.results || []).forEach((r, k) => out.survey_result.push({ district_id: districtId, survey_id: sid, kind: r.kind, label: r.label, value: r.value == null ? null : r.value,
+        mentions: r.mentions == null ? null : r.mentions, position: k + 1, priority_id: r.priority ? prioId.get(r.priority) || null : null,
+        initiative_id: r.project != null ? initId.get(r.project) || null : null }));
+    }
     return out;
   }
 

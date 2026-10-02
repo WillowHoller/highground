@@ -20,7 +20,7 @@ demo_data.js          fictional demo districts; Bridger Hollow (about 925 studen
 uploads.js            reads project and balance spreadsheets (.csv, .xlsx); templates
 compare.js            compares scenarios and explains why their gaps differ
 ranking.js            tiers, rank order, the funding line, flags, fund in rank order
-direction.js          strategic measures: on track, met, off track, update owed; reading periods like 2025-26 and FY2027
+direction.js          strategic measures (status, automatic values) and the goals, results and survey spreadsheets
 packet.js             the decision packet: one initiative, its costs, effects and place on the funding line
 report.js             the monthly board report: a dated snapshot, and what changed since the last one
 budget.js             budget vs. actual vs. forecast by fund and function (three forecast methods)
@@ -39,6 +39,7 @@ styles.css            HighGround design tokens
 09_priority_tiers.sql database: one priority (Must-have / Strategic / Nice to have), converted from High/Med/Low (1 row PASS)
 10_tax_impact.sql     database: tax estimate settings and the Iowa rules they use (1 row PASS)
 11_gl_import.sql      database: remembers each district's GL export layout; balances from the ledger (2 rows PASS)
+13_direction.sql      database: measures that update themselves from HighGround's own data (1 row PASS)
 12_progress.sql       database: record progress (status, dates, actual cost) on the locked board version (1 row PASS)
 send-invitation.ts    Supabase Edge Function: emails invitations through Postmark
 send_invitation_test.mjs  node --experimental-strip-types send_invitation_test.mjs

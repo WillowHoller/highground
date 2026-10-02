@@ -309,3 +309,7 @@ table.batable td{vertical-align:middle}
 .st-declined-red{color:#fff;background:#B42318;border-color:#B42318}
 .st-owed{color:#8A5A00;background:#FDF6E7;border-color:#E9C98A}
 .spark{vertical-align:middle;margin-left:6px}
+
+.card h4{margin:12px 0 4px;font-size:14px;color:var(--muted)}
+
+ul.srch{list-style:none;padding:0;margin:0}ul.srch li{padding:8px 0;border-bottom:1px solid var(--border)}
