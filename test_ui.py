@@ -745,6 +745,46 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(500)
     check("reminder: before any ledger, business staff are invited to start", "Bring in the business office’s month-end export each month" in await pg.inner_text("#view"))
     TABLES["import_batch"]=TABLES["import_batch"]+kept_gl
+    # no unexpected scroll bars anywhere: a box may scroll sideways, never show up/down arrows for a few pixels
+    stray_js="""[...document.querySelectorAll('#app *')].filter(el=>{const cs=getComputedStyle(el);
+      if(!/(auto|scroll)/.test(cs.overflowY)||el.matches('.modal-back'))return false; return el.scrollHeight>el.clientHeight;}).map(el=>el.className||el.tagName).slice(0,5)"""
+    stray={}
+    for route in ["overview/today","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/capital","resources/funds","resources/assumptions",
+                  "progress/initiatives","progress/actuals","progress/uploads","reports/exports","reports/community","settings/setup","settings/people","settings/activity","settings/built"]:
+      await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+route); await pg.wait_for_timeout(450)
+      found=await pg.evaluate(stray_js)
+      if found: stray[route]=found
+    check("no unexpected scroll bars on any page", not stray, str(stray))
+    # Phase 4A: monthly board report
+    TABLES["report_snapshot"]=[]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/board"); await pg.wait_for_timeout(600)
+    check("board reports: none yet, create offered", "No board reports yet" in await pg.inner_text("#view") and await pg.locator("button[data-action=rpCreate]").count()==1)
+    await pg.fill("input[data-rp-date]","2026-09-30")
+    n0=len(calls); await pg.click("button[data-action=rpCreate]"); await pg.wait_for_timeout(900)
+    rs=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/report_snapshot"]
+    ok_rs = rs and rs[0]["kind"]=="board_monthly" and rs[0]["period_end"]=="2026-09-30" and rs[0]["title"]=="Board report, September 2026" and abs(rs[0]["payload"]["plan"]["gap"]-5350000)<1
+    check("board reports: made from the district's data and saved as it was", ok_rs, str(rs)[:300])
+    snap=dict(rs[0], district_id="d1", created_at="2026-10-01T15:00:00Z") if rs else None
+    if snap:
+      prev=json.loads(json.dumps(snap)); prev.update(id="snap-aug", period_end="2026-08-31", created_at="2026-09-05T15:00:00Z")
+      prev["payload"]["periodEnd"]="2026-08-31"; prev["payload"]["plan"]["gap"]=5600000
+      for k in prev["payload"]["balances"]: prev["payload"]["balances"][k]["amount"]+=50000
+      TABLES["report_snapshot"]=[snap]
+      await pg.reload(); await pg.wait_for_timeout(600)
+      await pg.click("a[data-action=rpOpen]"); await pg.wait_for_timeout(500)
+      t=await pg.inner_text("#view")
+      check("board report: the first one says there's nothing to compare yet", "Board report · Sep 30, 2026" in t and "This is the first board report" in t and "District baseline" in t, t[:300])
+      check("board report: the capital plan, decisions ahead, and no hand editing", "left to close" in t and "Decisions ahead" in t and "with no hand editing" in t)
+      TABLES["report_snapshot"]=[snap, prev]
+      await pg.reload(); await pg.wait_for_timeout(600)
+      await pg.click("a[data-action=rpOpen][data-id='%s']"%snap["id"]); await pg.wait_for_timeout(500)
+      t=await pg.inner_text("#view")
+      check("board report: what changed since the previous report", "What changed since Aug 31, 2026" in t and "The gap to close shrank by $250k, to $5.35M." in t and "SAVE balance down $50k" in t and "▼ $250k since Aug 31, 2026" in t, t[t.find("What changed"):t.find("What changed")+400])
+      await pg.screenshot(path=SHOTS+"/report.png", full_page=True)
+      await pg.emulate_media(media="print")
+      check("board report: printing hides the app's menus and buttons", not await pg.locator("nav.rail").is_visible() and not await pg.locator("button[data-action=rpPrint]").is_visible() and await pg.locator(".report .rhead").is_visible())
+      await pg.emulate_media(media="screen")
+    TABLES["report_snapshot"]=[]
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;

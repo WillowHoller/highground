@@ -157,7 +157,7 @@
       { id: 'uploads', label: 'Uploads', status: 'partial', phase: 5, lede: 'Every file brought in, and what happened to it.', render: vUploads },
     ] },
     { id: 'reports', label: 'Reports', tabs: [
-      { id: 'board', label: 'Board reports', status: 'wip', phase: 4, lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
+      { id: 'board', label: 'Board reports', status: 'partial', phase: 4, lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
       { id: 'community', label: 'Community page', status: 'partial', phase: 4, lede: 'What the public link shows.', render: vCommunityPage },
       { id: 'exports', label: 'Exports', status: 'live', lede: 'Download the district’s data, for spreadsheets or backup.', render: vExports },
     ] },
@@ -1650,15 +1650,91 @@
   }
 
   // ------------------------------------------------------------------ views: Reports
-  async function vBoardReports() {
-    return `<div class="row">${nb('Create this month’s board report', 'Monthly board report', 4)}</div>` + wip({ phase: 4, items: [
-      'Monthly board report: a dated snapshot, with what changed since last month',
-      'Capital summary',
-      'Decision packet: one initiative across all funds over five years',
-      'Strategic progress',
-      'PDF packet',
-    ], uses: 'report_snapshot' });
+  const RP = { key: null, open: null };
+  async function vBoardReports(c) {
+    const d = c.district;
+    if (RP.key !== d.id) { RP.key = d.id; RP.open = null; }
+    const [snaps, batches] = await Promise.all([
+      HG.db.select('report_snapshot', `select=id,title,period_end,created_at,payload&district_id=eq.${d.id}&kind=eq.board_monthly&order=period_end.desc,created_at.desc`),
+      HG.db.select('import_batch', `select=id,period_end&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc&limit=1`).catch(() => []),
+    ]);
+    RP.snaps = snaps;
+    if (RP.open) {
+      const snap = snaps.find((x) => x.id === RP.open);
+      if (snap) {
+        const prev = snaps.filter((x) => x.period_end < snap.period_end || (x.period_end === snap.period_end && x.created_at < snap.created_at))[0] || null;
+        return reportHtml(c, snap, prev);
+      }
+    }
+    const last = new Date(); last.setDate(0);
+    const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    const dflt = batches[0] ? batches[0].period_end : iso(last);
+    return `
+      ${c.plan || c.finance ? `<div class="card"><h3>Create a board report</h3>
+        <p class="small muted">Built entirely from HighGround: the board version, fund balances, the month’s ledger, progress on initiatives and decisions ahead. It’s saved exactly as it was made, and the next report compares itself with it.</p>
+        <div class="inline-form"><label class="field">Month end<input type="date" data-rp-date value="${esc(dflt)}"></label>
+          <button type="button" class="btn primary" data-action="rpCreate">Create the report</button></div>
+        ${batches[0] ? `<p class="small muted">The latest monthly ledger is through ${esc(day(batches[0].period_end))}.</p>` : '<p class="small muted">No monthly ledger yet: the report will leave out budget vs. actual and spending.</p>'}</div>` : ''}
+      <div class="card"><h3>Board reports</h3>${table([
+        { label: 'Month end', html: (r) => `<a href="#" data-action="rpOpen" data-id="${esc(r.id)}">${esc(day(r.period_end))}</a>` },
+        { label: 'Report', get: (r) => r.title },
+        { label: 'Board version', get: (r) => (r.payload && r.payload.scenario ? r.payload.scenario.name : '') },
+        { label: 'Made', get: (r) => day(r.created_at) },
+      ], snaps, 'No board reports yet.')}</div>
+      ${wip({ title: 'Still to come here', phase: 4, items: ['Decision packet: one initiative across all funds over five years'] })}`;
   }
+  function reportHtml(c, snap, prev) {
+    const P = snap.payload, Q = prev ? prev.payload : null, ch = HGReport.changes(P, Q), f = HGReport.fmt;
+    const delta = (a, b, goodUp) => { if (b == null || Math.abs(a - b) < 0.5) return ''; const up = a > b; return `<div class="small ${up === goodUp ? 'ok' : 'gaptext'}">${up ? '▲' : '▼'} ${f(Math.abs(a - b))} since ${esc(day(Q.periodEnd))}</div>`; };
+    const bal = (k) => (P.balances[k] ? P.balances[k].amount : null), pbal = (k) => (Q && Q.balances[k] ? Q.balances[k].amount : null);
+    const gen = (P.budget || []).find((x) => x.key === 'general');
+    const STATUS = Object.fromEntries(INIT_STATUS);
+    return `<div class="report">
+      <div class="row noprint"><a href="#" data-action="rpClose">← All board reports</a><span style="flex:1"></span>
+        <button type="button" class="btn" data-action="rpPrint">Print or save as PDF</button>
+        ${c.admin ? `<button type="button" class="btn danger" data-action="rpDelete" data-id="${esc(snap.id)}">Delete</button>` : ''}</div>
+      <div class="rhead"><div class="small muted">${esc(P.district)}</div><h2>Board report · ${esc(day(P.periodEnd))}</h2>
+        <div class="small muted">Board version: ${esc(P.scenario.name)} · ${P.ledgerThrough ? `Ledger through ${esc(day(P.ledgerThrough))}` : 'No monthly ledger in this report'} · Fiscal year ${P.fiscalYear}</div></div>
+      <div class="grid tiles">
+        <div class="card tile-card"><div class="small muted">Gap to close</div><div class="stat">${f(P.plan.gap)}</div>${Q ? delta(P.plan.gap, Q.plan.gap, false) : ''}</div>
+        <div class="card tile-card"><div class="small muted">SAVE balance</div><div class="stat">${bal('save') == null ? '—' : f(bal('save'))}</div>${Q && bal('save') != null ? delta(bal('save'), pbal('save'), true) : ''}</div>
+        <div class="card tile-card"><div class="small muted">PPEL balance</div><div class="stat">${bal('ppel') == null ? '—' : f(bal('ppel'))}</div>${Q && bal('ppel') != null ? delta(bal('ppel'), pbal('ppel'), true) : ''}</div>
+        <div class="card tile-card"><div class="small muted">General Fund spending forecast</div><div class="stat">${gen ? f(gen.spending.forecast) : '—'}</div>${gen && gen.spending.budget ? `<div class="small muted">budget ${f(gen.spending.budget)}</div>` : ''}</div>
+      </div>
+      <div class="card"><h3>What changed${ch.first ? '' : ` since ${esc(day(ch.since))}`}</h3><ul>${ch.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
+      <div class="card"><h3>The capital plan</h3>
+        <p>${esc(P.scenario.name)}, FY${P.plan.start}–FY${P.plan.start + P.plan.years - 1}: <b>${f(P.plan.need)}</b> of capital need; levies and grants pay <b>${f(P.plan.levyFunded)}</b>${P.plan.financed > 0.5 ? `, borrowing or gifts <b>${f(P.plan.financed)}</b>` : ''}; <b class="${P.plan.gap > 0.5 ? 'gaptext' : ''}">${f(P.plan.gap)}</b> left to close.</p>
+        ${P.tax ? `<p class="small">Added property tax at its highest (FY${P.tax.fy}): about <b>$${Math.round(P.tax.home).toLocaleString('en-US')} a year</b> for a $${Math.round(P.tax.homeValue).toLocaleString('en-US')} home.</p>` : ''}</div>
+      ${(P.budget || []).length ? `<div class="card"><h3>Funds</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Balance</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">Encumbered</th><th class="num">Spending forecast</th></tr></thead><tbody>
+        ${P.budget.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${P.balances[x.key] ? f(P.balances[x.key].amount) : ''}</td><td class="num">${f(x.revenue.budget)}</td><td class="num">${f(x.revenue.actual)}</td><td class="num">${f(x.spending.budget)}</td><td class="num">${f(x.spending.actual)}</td><td class="num">${f(x.spending.encumbered)}</td><td class="num">${f(x.spending.forecast)}</td></tr>`).join('')}
+      </tbody></table></div></div>` : ''}
+      <div class="card"><h3>Initiatives this year</h3>${(P.progress || []).length ? `<div class="scroll"><table class="data"><thead><tr><th>Initiative</th><th>Status</th><th>Phases done</th><th class="num">Planned FY${P.fiscalYear}</th><th class="num">Spent</th><th class="num">Encumbered</th></tr></thead><tbody>
+        ${P.progress.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(STATUS[x.status] || x.status)}</td><td>${x.phases ? `${x.phasesDone} of ${x.phases}` : ''}</td><td class="num">${f(x.planned)}</td><td class="num">${x.spent ? f(x.spent) : ''}</td><td class="num">${x.encumbered ? f(x.encumbered) : ''}</td></tr>`).join('')}
+      </tbody></table></div>` : '<p class="muted">Nothing planned or spent this year.</p>'}</div>
+      <div class="card"><h3>Decisions ahead</h3>${(P.pending || []).length ? `<p class="small muted">${P.pendingCount} initiative${P.pendingCount === 1 ? '' : 's'} not yet approved, largest first.</p><ul>${P.pending.map((x) => `<li>${esc(x.name)} <span class="small muted">· ${esc(STATUS[x.status] || x.status)}${x.cost ? ' · ' + f(x.cost) + ' in the board version' : ''}</span></li>`).join('')}</ul>` : '<p class="muted">No proposals waiting.</p>'}</div>
+      <p class="small muted">Made by HighGround on ${esc(day(snap.created_at))} from the district’s own data, with no hand editing. Figures are as they stood at the month end and don’t change afterwards.</p>
+    </div>`;
+  }
+  async function rpCreate() {
+    const d = S.district, date = (document.querySelector('[data-rp-date]') || {}).value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) throw new UserError('Choose the month end the report is for.');
+    const rows = await loadCapitalRows(d), board = rows.scenarios.find((x) => x.is_board_version);
+    if (!board) throw new UserError('Choose a board version on the capital plan first; the report is built from it.');
+    const [batches, accounts, balances] = await Promise.all([
+      HG.db.select('import_batch', `select=id,kind,status,period_end,fiscal_year&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc`).catch(() => []),
+      HG.db.selectAll('gl_account', `select=*&district_id=eq.${d.id}`).catch(() => []),
+      HG.db.select('fund_balance', `select=fund,as_of,amount&district_id=eq.${d.id}`),
+    ]);
+    const batch = batches.find((b) => b.period_end <= date) || null;
+    const amounts = batch ? await HG.db.selectAll('gl_amount', `select=account_id,batch_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${batch.id}`) : [];
+    const payload = HGReport.build({ district: d, rows, periodEnd: date, batch, accounts, amounts, batches: batch ? [batch] : [], balances });
+    const id = crypto.randomUUID();
+    const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    await HG.db.insert('report_snapshot', { id, district_id: d.id, kind: 'board_monthly', title: `Board report, ${label}`, period_end: date, scenario_id: board.id, batch_id: batch ? batch.id : null, payload });
+    RP.open = id; toast('Report made', `Board report for ${label}.`); here();
+  }
+
+
   async function vCommunityPage(c) {
     const pubs = await HG.db.select('publication', `select=id,kind,title,published_at,is_current,withdrawn_at&district_id=eq.${c.district.id}&order=published_at.desc&limit=20`);
     const link = `${HG.appUrl()}#/p/${enc(c.district.slug)}`;
@@ -2419,6 +2495,11 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async rpCreate() { await rpCreate(); },
+    async rpOpen(el) { RP.open = el.dataset.id; here(); },
+    async rpClose() { RP.open = null; here(); },
+    async rpPrint() { window.print(); },
+    async rpDelete(el) { if (!confirm('Delete this board report? Later reports will compare with the one before it.')) return; await HG.db.remove('report_snapshot', `id=eq.${enc(el.dataset.id)}`); RP.open = null; toast('Deleted'); here(); },
     async baFund(el) { BA.fund = el.dataset.k; here(); },
     async piOpen(el) { PI.open = PI.open === el.dataset.id ? null : el.dataset.id; here(); },
     async piSavePhase(el) { await piSavePhase(el); },
