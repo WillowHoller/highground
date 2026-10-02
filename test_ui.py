@@ -197,7 +197,7 @@ async def main():
       if "couldn’t load" in v or "Loading" in v: bad.append(s+": "+v[:80])
       if s in("resources/capital","settings/people","progress/uploads","resources/funds"): await pg.screenshot(path=SHOTS+"/"+s.replace("/","-")+".png",full_page=True)
     check("all 23 screens render", visited==23 and not bad, "; ".join(bad))
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(300)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(900); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view"); check("latest balance only", "$2,150,000" in t and "$1\n" not in t)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/capital"); await pg.wait_for_timeout(500)
     t=await pg.inner_text("#view"); base=gold("orig",None)
@@ -747,7 +747,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(500)
     check("uploads: balances-only is now a labelled fallback", "Fund balances only (if you can’t export the ledger)" in await pg.inner_text("select[data-upload-kind]"))
     TABLES["fund_balance"]=TABLES["fund_balance"]+[{"district_id":"d1","fund":"save","as_of":"2026-09-30","amount":1309086,"source":"gl_import"},{"district_id":"d1","fund":"ppel","as_of":"2026-09-30","amount":788200,"source":"gl_import"}]
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(700)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(900); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view")
     hist=t[t.find("Balances month by month"):]
     check("all funds: balances month by month, newest first, with where they came from", "Balances month by month" in t and hist.find("Sep 30, 2026")<hist.find("Jul 1, 2026") and "$1,309,086" in hist and "Monthly GL" in hist, t[t.find("Balances month by month"):t.find("Balances month by month")+300])
@@ -875,17 +875,19 @@ async def main():
     check("measures: a period HighGround can't read is explained", "isn’t a period HighGround can read" in await pg.inner_text("[data-modal] [data-form-errors]"))
     await pg.fill("[data-modal] input[name=target_period]","2029-30"); n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
     check("measures: edit saves", any(c[0]=="PATCH" and "/rest/v1/measure?" in c[1] and '"2029-30"' in (c[2] or "") for c in calls[n0:]))
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/measures"); await pg.wait_for_timeout(700)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/measures"); await pg.wait_for_timeout(800)
+    check("moved: the old Progress → Measures link lands on Direction → Measures", "/direction/measures" in pg.url)
     grad=next(m["id"] for m in DIRR["measure"] if m["name"]=="Four-year graduation rate")
-    row=pg.locator("tr[data-mv='%s']"%grad)
-    check("record results: next period suggested by cadence, with a trend line", await row.locator("input[name=period]").input_value() in ("2026-27","2025-26","2027-28") and await row.locator("svg.spark").count()==1)
-    await row.locator("input[name=period]").fill("2026-27"); await row.locator("input[name=value]").fill("90.7")
-    n0=len(calls); await row.locator("button[data-action=saveResult]").click(); await pg.wait_for_timeout(600)
+    check("measures: one place, led by how many are on track", "measures are on track or met" in await pg.inner_text("p.lead") and await pg.locator("button[data-action=recordResult]").count()>=6)
+    await pg.click("button[data-action=recordResult][data-id='%s']"%grad); await pg.wait_for_timeout(300)
+    check("record results: next period suggested by cadence", await pg.input_value("[data-modal] input[name=period]") in ("2026-27","2025-26","2027-28"))
+    await pg.fill("[data-modal] input[name=period]","next year"); await pg.fill("[data-modal] input[name=value]","90.7"); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
+    check("record results: an unreadable period is explained", "isn’t a period HighGround can read" in await pg.inner_text("[data-modal] [data-form-errors]"))
+    await pg.fill("[data-modal] input[name=period]","2026-27")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(600)
     mv=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].startswith("/rest/v1/measure_value")]
     check("record results: saved for the period (replacing any earlier one)", mv and mv[0][0]["period"]=="2026-27" and mv[0][0]["period_end"]=="2027-06-30" and mv[0][0]["value"]==90.7
           and "on_conflict=measure_id%2Cperiod" in next(c[1] for c in calls[n0:] if c[1].startswith("/rest/v1/measure_value")), str(mv))
-    await row.locator("input[name=period]").fill("next year"); await row.locator("button[data-action=saveResult]").click(); await pg.wait_for_timeout(300)
-    check("record results: an unreadable period is explained", "isn’t a period HighGround can read" in await pg.inner_text("#toasts"))
     # Phase 5B: an automatic measure (phases finished in their planned year) fills itself in
     TABLES["measure"]=TABLES["measure"]+[{"id":"m-auto","district_id":"d1","priority_id":DIRR["priority"][2]["id"],"outcome_id":None,"name":"Capital phases finished in their planned year","unit":"%","better":"up",
       "baseline_value":80,"baseline_period":"2024-25","target_value":100,"target_period":"2027-28","owner_name":"Facilities director","cadence":"annual","source":"progress","is_public":True,"auto_metric":"phases_on_schedule"}]
@@ -893,9 +895,9 @@ async def main():
     saved_ph=[dict(p0) for p0 in bph]
     bph[0].update(status="done", done_date="2026-09-20", actual_cost=bph[0]["cost"]); bph[1].update(status="done", done_date="2027-09-20", actual_cost=bph[1]["cost"])
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(200)
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/measures"); await pg.wait_for_timeout(700)
-    ar=await pg.inner_text("tr[data-mv='m-auto']")
-    check("automatic measure: updates itself from finished phases, no typing", "Updates itself" in ar and await pg.locator("tr[data-mv='m-auto'] input[name=value]").count()==0 and ("FY2027" in ar or "FY2028" in ar), ar)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/measures"); await pg.wait_for_timeout(700)
+    ar=await pg.locator("tr", has=pg.locator("a[data-action=editMeasure][data-id='m-auto']")).inner_text()
+    check("automatic measure: updates itself from finished phases, no typing", "Updates itself" in ar and await pg.locator("button[data-action=recordResult][data-id='m-auto']").count()==0 and ("FY2027" in ar or "FY2028" in ar), ar)
     for p0,sv0 in zip(bph,saved_ph): p0.clear(); p0.update(sv0)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/measures"); await pg.wait_for_timeout(600)
     await pg.click("button[data-action=editMeasure][data-id='']"); await pg.wait_for_timeout(300)
@@ -939,7 +941,7 @@ async def main():
     gp=[json.loads(c[2])["name"] for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/priority"]
     gm=[json.loads(c[2])["name"] for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/measure"]
     check("goals upload: new priorities and measures added; existing ones kept by name", gp==["Strong partnerships"] and gm==["Active business partners"], str(gp)+str(gm))
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/measures"); await pg.wait_for_timeout(600)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/measures"); await pg.wait_for_timeout(600)
     rcsv=b"Measure,Period,Result,Note\r\nFour-year graduation rate,2026-27,90.7,Preliminary\r\nNo such measure,2026-27,1,\r\n"
     await pg.set_input_files("input[data-dir-upload=results]", files=[{"name":"results.csv","mimeType":"text/csv","buffer":rcsv}]); await pg.wait_for_timeout(500)
     check("results upload: an unknown measure blocks Apply, explained", "no measure called “No such measure”" in await pg.inner_text("#dir-upload") and await pg.is_disabled("button[data-action=dirUploadApply]"))
@@ -963,6 +965,30 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(500)
     rowtxt=[r for r in (await pg.inner_text("#view")).split("\n") if r.startswith("Public link")]
     check("help: the public link row matches the finished community page", rowtxt and "Live" in rowtxt[0] and "Phase" not in rowtxt[0], str(rowtxt))
+    # step B: lead with the answer; Funds chart; folds open for editors; moved screens
+    leads={}
+    for route in ["overview/today","direction/priorities","direction/measures","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","progress/initiatives"]:
+      await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+route); await pg.wait_for_timeout(600)
+      leads[route]=await pg.locator("p.lead").first.inner_text() if await pg.locator("p.lead").count() else ""
+    check("lead sentences on the main screens", all(leads[r] for r in ["overview/today","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","progress/initiatives"]), str({k:v[:60] for k,v in leads.items()}))
+    check("funds: leads with the shortfall, the lowest fund and General Fund solvency", "short" in leads["resources/summary"] and "is at its lowest" in leads["resources/summary"] and "Grants" not in leads["resources/summary"] and "General Fund solvency" in leads["resources/summary"], leads["resources/summary"])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pg.wait_for_timeout(600)
+    await pg.screenshot(path=SHOTS+"/funds-new.png", full_page=True)
+    check("funds: a chart of each capital fund's balance by year", await pg.locator("svg[aria-label=\"Each capital fund's balance at the end of each year\"]").count()==1)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/capital"); await pg.wait_for_timeout(700)
+    folds=await pg.evaluate("[...document.querySelectorAll('details.fold')].map(d=>d.open)")
+    check("capital plan: details open for people who edit", folds and all(folds), str(folds))
+    lead0=await pg.inner_text("#cap-lead")
+    await pg.evaluate("(()=>{const el=document.querySelector('[data-lever=infl]'); el.value='0.08'; el.dispatchEvent(new Event('input',{bubbles:true}));})()"); await pg.wait_for_timeout(300)
+    check("capital plan: the lead sentence follows the levers", await pg.inner_text("#cap-lead")!=lead0)
+    await pg.click("button[data-action=capReset]"); await pg.wait_for_timeout(300)
+    moved={}
+    for old,new in [("resources/assumptions","settings/assumptions"),("reports/exports","settings/exports"),("resources/funds","resources/summary"),("progress/measures","direction/measures")]:
+      await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+old); await pg.wait_for_timeout(500); moved[old]=new in pg.url
+    check("moved screens: old links land in their new homes", all(moved.values()), str(moved))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/district"); await pg.wait_for_timeout(500)
+    st=[x.strip() for x in await pg.locator("nav.tabs a").all_inner_texts()]
+    check("settings: assumption sets and exports live here now", "Assumption sets" in st and "Exports" in st, str(st))
     # step A: search is never stale
     await pg.click("button[data-action=openSearch]"); await pg.wait_for_timeout(400)
     await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(100)
@@ -1023,11 +1049,11 @@ async def main():
       const sc=R.scenario.find(s=>s.is_board_version);const inp=C.buildInputs(rows,sc.id);const r=E.compute(inp.projects,inp.levers,inp.cfg);
       const P=C.fundPaths(r,inp.cfg);process.stdout.write(JSON.stringify({save27:P.save.years[0].end,saveLow:P.save.low,saveLowFY:P.save.lowFY,phases:R.phase.length}));"""],cwd=os.path.dirname(os.path.abspath(__file__))))
     money=lambda v: "$"+format(round(v),",")
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pg.wait_for_timeout(500)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pg.wait_for_timeout(700); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)"); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view")
     check("summary: board version totals", "$14.79M" in t and "$5.35M" in t and "District baseline" in t)
     check("summary: each fund's low point, rounded on the summary", fmtK(EXP["saveLow"])+" (FY"+str(EXP["saveLowFY"])+")" in t, fmtK(EXP["saveLow"]))
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(500)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(900); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view")
     check("all funds: year-by-year from the engine", "SAVE" in t and money(EXP["save27"]) in t and "Borrowing room" in t and "$4.59M" in t, money(EXP["save27"]))
     check("all funds: what each fund may pay for, with a caution", "423F" in t and "298.3" in t and "not legal advice" in t)
@@ -1185,7 +1211,12 @@ async def main():
     m=[x.strip() for x in await menu(pp)]
     check("board member: a short menu (no Decisions or Progress)", m==["Overview","Direction","Resources","Reports"], str(m))
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pp.wait_for_timeout(500)
-    check("board member: Resources shows Summary, General fund, Capital plan", [x.strip() for x in await pp.locator("nav.tabs a").all_inner_texts()]==["Summary","General fund","Capital plan"])
+    check("board member: Resources shows Funds, General fund, Capital plan", [x.strip() for x in await pp.locator("nav.tabs a").all_inner_texts()]==["Funds","General fund","Capital plan"])
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/resources/capital"); await pp.wait_for_timeout(800)
+    folds=await pp.evaluate("[...document.querySelectorAll('details.fold')].map(d=>d.open)")
+    await pp.screenshot(path=SHOTS+"/board-capital.png", full_page=True)
+    check("board member: no editing notices", "Copy it to try changes" not in await pp.inner_text("#view"))
+    check("board member: the capital plan leads with the answer, details folded away", "of projects over 10 years" in await pp.inner_text("#cap-lead") and folds and not any(folds), str(folds))
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/account"); await pp.wait_for_timeout(500)
     await pp.check("input[data-show-all]"); await pp.wait_for_timeout(600)
     m2=[x.strip() for x in await menu(pp)]
@@ -1200,7 +1231,7 @@ async def main():
     await cx.close()
     cx,pp=await session("bm@example.test")
     m=[x.strip() for x in await menu(pp)]
-    check("business manager: lands on Overview; menu for the monthly close", "/overview/today" in pp.url and m==["Overview","Resources","Progress","Reports"], str(m)+pp.url)
+    check("business manager: lands on Overview; menu for the monthly close", "/overview/today" in pp.url and m==["Overview","Direction","Resources","Progress","Reports"], str(m)+pp.url)
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pp.wait_for_timeout(500)
     check("business manager: Uploads first in Progress", [x.strip() for x in await pp.locator("nav.tabs a").all_inner_texts()][0]=="Uploads")
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(600)

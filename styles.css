@@ -328,3 +328,12 @@ dl.glossary{display:grid;grid-template-columns:minmax(140px,220px) 1fr;gap:8px 1
 dl.glossary dt{font-weight:700}
 dl.glossary dd{margin:0}
 @media (max-width:640px){dl.glossary{grid-template-columns:1fr}dl.glossary dd{margin-bottom:8px}}
+
+/* ---------- step B: lead sentences and folded details ---------- */
+p.lead{font-size:18px;line-height:1.45;margin:2px 0 4px;max-width:900px}
+details.fold{border:1px solid var(--border);border-radius:12px;background:var(--card);padding:0 16px}
+details.fold > summary{cursor:pointer;font-weight:600;padding:12px 0;list-style-position:inside}
+details.fold[open] > summary{border-bottom:1px solid var(--border);margin-bottom:12px}
+details.fold > .stack{padding-bottom:14px}
+details.fold .card{box-shadow:none}
+td.nowrap{white-space:nowrap}
