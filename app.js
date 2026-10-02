@@ -158,7 +158,7 @@
     ] },
     { id: 'reports', label: 'Reports', tabs: [
       { id: 'board', label: 'Board reports', status: 'live', lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
-      { id: 'community', label: 'Community page', status: 'partial', phase: 4, lede: 'What the public link shows.', render: vCommunityPage },
+      { id: 'community', label: 'Community page', status: 'live', lede: 'What the public link shows.', render: vCommunityPage },
       { id: 'exports', label: 'Exports', status: 'live', lede: 'Download the district’s data, for spreadsheets or backup.', render: vExports },
     ] },
   ];
@@ -1800,30 +1800,53 @@
 
 
   async function vCommunityPage(c) {
-    const pubs = await HG.db.select('publication', `select=id,kind,title,published_at,is_current,withdrawn_at&district_id=eq.${c.district.id}&order=published_at.desc&limit=20`);
-    const link = `${HG.appUrl()}#/p/${enc(c.district.slug)}`;
-    const current = pubs.find((p) => p.kind === 'board_plan' && p.is_current && !p.withdrawn_at);
-    const history = pubs.filter((p) => p.kind === 'board_plan');
+    const d = c.district;
+    const pubs = await HG.db.select('publication', `select=id,kind,title,published_at,published_by,is_current,withdrawn_at,payload&district_id=eq.${d.id}&kind=eq.board_plan&order=published_at.desc&limit=30`);
+    const link = `${HG.appUrl()}#/p/${enc(d.slug)}`, current = pubs.find((p) => p.is_current && !p.withdrawn_at);
+    const who = [...new Set(pubs.map((p) => p.published_by).filter(Boolean))];
+    const prof = who.length ? await HG.db.select('profile', `select=user_id,full_name,email&user_id=in.(${who.map(enc).join(',')})`).catch(() => []) : [];
+    const NAME = Object.fromEntries(prof.map((x) => [x.user_id, x.full_name || x.email]));
+    if (CP.key !== d.id) { CP.key = d.id; CP.note = null; CP.holdBack = true; }
+    let draft = null;
+    if (c.admin && d.public_link_enabled) {
+      try { draft = (await publicationPayload(d, { holdBack: CP.holdBack, note: '' })).payload; } catch (e) { draft = { error: e.message }; }
+    }
+    const lastNote = current && current.payload ? current.payload.note || '' : (pubs[0] && pubs[0].payload ? pubs[0].payload.note || '' : '');
+    const f = HGReport.fmt;
     return `
       <div class="card"><h3>Public link</h3>
-        ${c.district.public_link_enabled
+        ${d.public_link_enabled
           ? `<p>Anyone with this link sees the published board version, with what-if levers they can move. They can’t change anything, and they see nothing else: <a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a></p>`
           : '<p>The public link is turned off for this district (Settings, District).</p>'}
-        <p>${current ? `Showing <b>${esc(current.title)}</b>, published ${esc(day(current.published_at))}.` : '<b>Nothing is published.</b> The link says so.'}</p>
+        <p>${current ? `Showing <b>${esc(current.title)}</b>, published ${esc(day(current.published_at))}${current.payload && current.payload.heldBack ? ` (${current.payload.heldBack} unapproved held back)` : ''}.` : '<b>Nothing is published.</b> The link says so.'}</p>
         <div class="row">
-          ${c.admin && c.district.public_link_enabled ? '<button type="button" class="btn primary" data-action="publishBoard">Publish the board version</button>' : ''}
           ${c.admin && current ? `<button type="button" class="btn danger" data-action="withdrawBoard" data-id="${esc(current.id)}">Take it down</button>` : ''}
           ${current ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open the public page</a>` : ''}
         </div>
         ${c.admin ? '' : '<p class="small muted">Only a district admin can publish.</p>'}</div>
-      <div class="card"><h3>Publish history</h3>${table([
+      ${draft ? (draft.error ? `<div class="notice">${esc(draft.error)}</div>` : `<div class="card"><h3>Publish the community page</h3>
+        <label class="field">A note to the community <span class="small muted">(optional)</span><textarea data-pub-note maxlength="1500" placeholder="A few sentences about where the plan stands and what the board is deciding next.">${esc(CP.note != null ? CP.note : lastNote)}</textarea></label>
+        <label class="row"><input type="checkbox" data-pub-hold ${CP.holdBack ? 'checked' : ''}> Hold back initiatives the board hasn’t approved (ideas, proposals, items being analysed, deferred or declined)</label>
+        <p class="small">${draft.shownCount} initiative${draft.shownCount === 1 ? '' : 's'} will show${draft.heldBack ? `; ${draft.heldBack} held back` : ''}. ${draft.holdBack && Math.abs(draft.gap.public - draft.gap.board) > 0.5 ? `The public page’s gap is ${f(draft.gap.public)}; the full board version’s is ${f(draft.gap.board)}.` : `Gap to close: ${f(draft.gap.public)}.`}${draft.done.length ? ` ${draft.done.length} finished phase${draft.done.length === 1 ? '' : 's'} listed under “What we’ve finished.”` : ''}</p>
+        ${!draft.shownCount ? '<div class="notice">Nothing would show: every initiative in the board version is still unapproved. Untick “Hold back”, or approve initiatives first.</div>' : ''}
+        <div class="row"><button type="button" class="btn" data-action="previewPublic">Preview</button><button type="button" class="btn primary" data-action="publishBoard" ${draft.shownCount ? '' : 'disabled'}>Publish</button></div></div>`) : ''}
+      <div class="card"><h3>Publish log</h3>${table([
+        { label: 'Published', get: (p) => new Date(p.published_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) },
+        { label: 'By', get: (p) => NAME[p.published_by] || '' },
         { label: 'Version', get: (p) => p.title },
-        { label: 'Published', get: (p) => day(p.published_at) },
+        { label: 'What showed', get: (p) => (p.payload && p.payload.v >= 2 ? `${p.payload.shownCount} initiative${p.payload.shownCount === 1 ? '' : 's'}${p.payload.heldBack ? `, ${p.payload.heldBack} held back` : ''}${p.payload.note ? ', with a note' : ''}` : 'Whole board version') },
         { label: 'Status', get: (p) => (p.withdrawn_at ? 'Taken down' : p.is_current ? 'On the link now' : 'Replaced') },
-      ], history, 'Nothing published yet.')}</div>
-      <div class="row">${c.admin ? nb('Publish the community page', 'Publishing the community page', 4) : ''}</div>
-      ${wip({ title: 'Community page: not built yet', phase: 4, items: ['Choose what’s public: what you told us, what we planned, what we delivered', 'Changes since the last publish', 'Unapproved proposals held back automatically'], uses: 'publication, public_publication()' })}`;
+      ], pubs, 'Nothing published yet.')}</div>
+      ${wip({ title: 'Later', phase: 5, items: ['“What you told us”: community survey results, once Direction is built'] })}`;
   }
+  const CP = { holdBack: true, note: null };
+  async function previewPublic() {
+    const d = S.district, { board, payload } = await publicationPayload(d, publishOpts());
+    const html = publicBodyHtml(d, { payload, title: board.name, published_at: new Date().toISOString() });
+    modal(`<div class="stack"><div class="row" style="justify-content:space-between"><h2 id="modal-title">Preview: what the public will see</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <div class="pubpreview">${html}</div></div>`);
+  }
+
   const BACKUP_TABLES = ['district_settings', 'fund_balance', 'debt_obligation', 'assumption_set', 'priority', 'outcome', 'measure', 'measure_value',
     'survey', 'survey_result', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing',
     'project_request', 'import_batch', 'publication', 'report_snapshot'];
@@ -2337,24 +2360,41 @@
   }
 
   // ---------------------------------------------------------------- publishing the board version
-  async function publicationPayload(d) {
+  const APPROVED = ['approved', 'underway', 'done'];
+  async function publicationPayload(d, opts) {
+    const o = Object.assign({ holdBack: true, note: '' }, opts || {});
     const rows = await loadCapitalRows(d);
     const board = rows.scenarios.find((x) => x.is_board_version);
     if (!rows.settings) throw new UserError('Set up the starting numbers first (Settings, Starting numbers).');
-    if (!board) throw new UserError('Choose a board version first. Making a scenario the board version arrives with scenario editing.');
-    const inp = HGCapital.buildInputs(rows, board.id);
+    if (!board) throw new UserError('Choose a board version first: on the capital plan, make one scenario the board version.');
+    const inp = HGCapital.buildInputs(rows, board.id), INIT = new Map(rows.initiatives.map((i) => [i.id, i]));
+    const shown = (id) => !o.holdBack || APPROVED.includes((INIT.get(String(id)) || {}).status || 'proposed');
+    const projects = inp.projects.filter((p) => shown(p.id));
+    const stored = Object.assign({}, inp.stored, { recur: (inp.stored.recur || []).filter((r) => shown(r.initiative_id)) });
+    const ids = new Set(inp.projects.map((p) => String(p.id)).concat((inp.stored.recur || []).map((r) => String(r.initiative_id))));
+    const heldBack = [...ids].filter((id) => !shown(id)).length;
+    const done = rows.phases.filter((ph) => ph.scenario_id === board.id && ph.status === 'done' && shown(ph.initiative_id))
+      .map((ph) => ({ name: (INIT.get(ph.initiative_id) || {}).name || '', label: ph.label || '', fy: ph.fy, done_date: ph.done_date || null }))
+      .sort((x, y) => String(y.done_date || '').localeCompare(String(x.done_date || '')));
+    const gapOf = (pr, st) => HGEngine.compute(pr, HGEngine.leversOf(st, inp.cfg), inp.cfg).gap;
     return { board, payload: {
-      v: 1, engine: HGEngine.VERSION, scenario: { name: board.name },
-      settings: inp.cfg.settings, stored: inp.stored, notes: inp.notes, tax: inp.tax,
-      projects: inp.projects.map((p) => ({ id: p.id, name: p.name, pri: p.pri, est: p.est, area: p.area, cond: p.cond, life: p.life,
+      v: 2, engine: HGEngine.VERSION, scenario: { name: board.name },
+      settings: inp.cfg.settings, stored, notes: inp.notes, tax: inp.tax,
+      note: String(o.note || '').trim().slice(0, 1500), holdBack: !!o.holdBack, heldBack, shownCount: ids.size - heldBack, done: done.slice(0, 20),
+      gap: { public: gapOf(projects, stored), board: gapOf(inp.projects, inp.stored) },
+      projects: projects.map((p) => ({ id: p.id, name: p.name, pri: p.pri, est: p.est, area: p.area, cond: p.cond, life: p.life,
         phases: p.phases.map((ph) => ({ cost: ph.cost, year: ph.year, funding: ph.funding, status: ph.status, actual: ph.actual, label: ph.label })) })),
     } };
+  }
+  function publishOpts() {
+    return { holdBack: !!(document.querySelector('[data-pub-hold]') || {}).checked, note: (document.querySelector('[data-pub-note]') || {}).value || '' };
   }
   async function publishBoard() {
     const d = S.district;
     if (!d.public_link_enabled) throw new UserError('The public link is turned off for this district. Turn it on in Settings, District.');
-    const { board, payload } = await publicationPayload(d);
-    if (!confirm(`Publish “${board.name}” to the public link? Anyone with the link will see it.`)) return;
+    const { board, payload } = await publicationPayload(d, publishOpts());
+    if (!payload.shownCount) throw new UserError('Nothing would show: every initiative in the board version is still unapproved. Untick “Hold back” or approve initiatives first.');
+    if (!confirm(`Publish “${board.name}” to the public link? Anyone with the link will see ${payload.shownCount} initiative${payload.shownCount === 1 ? '' : 's'}${payload.heldBack ? `; ${payload.heldBack} not yet approved will be held back` : ''}.`)) return;
     await HG.db.insert('publication', { district_id: d.id, kind: 'board_plan', title: board.name, scenario_id: board.id, payload });
     toast('Published', 'The public link now shows this version.');
     here();
@@ -2448,30 +2488,34 @@
   }
 
   // ------------------------------------------------------------------ public page (no account)
+  function publicBodyHtml(d, p) {
+    const P = p.payload, cfg = HGEngine.makeConfig(P.settings), stored = P.stored || {};
+    CAP.pub = true; CAP.key = null; CAP.editable = false; CAP.sc = null; CAP.filter = {}; CAP.view = 'cards';
+    CAP.inputs = { cfg, projects: HGEngine.cleanList(P.projects || [], cfg), stored, levers: HGEngine.leversOf(stored, cfg), notes: [], tax: P.tax || {} };
+    CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
+    const accent = /^#[0-9a-f]{6}$/i.test(d.brand_color || '') ? d.brand_color : '#1E3A2F';
+    return `
+      <div class="pubhead" style="border-top:6px solid ${accent}">
+        ${d.logo_path ? `<img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt="${esc(d.name)} logo" class="pub-dlogo-lg">` : `<span class="pub-mono" style="background:${accent}">${esc((d.short_name || d.name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 3).toUpperCase())}</span>`}
+        <div><h1>${esc(d.name)}</h1><div class="lede">Capital plan: ${esc(P.scenario ? P.scenario.name : p.title || 'board version')}, published ${esc(day(p.published_at))}</div></div></div>
+      ${d.is_demo ? '<div class="notice">Demo district: every name and figure is made up.</div>' : ''}
+      ${P.note ? `<div class="card pubnote"><p>${esc(P.note).replace(/\n+/g, '</p><p>')}</p></div>` : ''}
+      <div id="cap-results">${capResultsHtml()}</div>
+      ${(P.done || []).length ? `<div class="card"><h3>What we’ve finished</h3><ul>${P.done.map((x) => `<li>${esc(x.name)}${x.label ? ' · ' + esc(x.label) : ''}${x.done_date ? ` <span class="small muted">· finished ${esc(day(x.done_date))}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
+      <div class="cap-grid"><div class="card" id="cap-levers">${capLeversHtml()}</div><div class="card" id="cap-fin">${capFinHtml()}</div></div>
+      <div class="card" id="cap-tax">${capTaxHtml()}</div>
+      <div id="cap-filters">${capFiltersHtml()}</div>
+      <div id="cap-years">${capYearsHtml()}</div>
+      <p class="small muted">This is the version the district published. Moving the levers shows what would change; it doesn’t change the district’s plan.${P.heldBack ? ` ${P.heldBack} proposal${P.heldBack === 1 ? '' : 's'} still under consideration ${P.heldBack === 1 ? 'isn’t' : 'aren’t'} shown.` : ''}</p>`;
+  }
   async function renderPublic(slug) {
     const p = await HG.db.rpc('public_publication', { p_slug: slug, p_kind: 'board_plan' }, { auth: false });
     const d = p && p.district;
     let body = `<div class="card"><h2>Nothing published here yet</h2><p>This link doesn’t have a published plan. If you expected one, ask the district.</p></div>`;
-    if (p && p.payload && p.payload.settings) {
-      const cfg = HGEngine.makeConfig(p.payload.settings);
-      const stored = p.payload.stored || {};
-      CAP.pub = true; CAP.key = null; CAP.editable = false; CAP.sc = null;
-      CAP.inputs = { cfg, projects: HGEngine.cleanList(p.payload.projects || [], cfg), stored, levers: HGEngine.leversOf(stored, cfg), notes: [], tax: p.payload.tax || {} };
-      CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
-      body = `
-        <div class="page-head"><div><h1>${esc(d.name)}</h1>
-          <div class="lede">Capital plan: ${esc(p.payload.scenario ? p.payload.scenario.name : p.title || 'board version')}, published ${esc(day(p.published_at))}</div></div></div>
-        ${d.is_demo ? '<div class="notice">Demo district: every name and figure is made up.</div>' : ''}
-        <div id="cap-results">${capResultsHtml()}</div>
-        <div class="cap-grid"><div class="card" id="cap-levers">${capLeversHtml()}</div><div class="card" id="cap-fin">${capFinHtml()}</div></div>
-        <div class="card" id="cap-tax">${capTaxHtml()}</div>
-        <div id="cap-filters">${capFiltersHtml()}</div>
-      <div id="cap-years">${capYearsHtml()}</div>
-        <p class="small muted">This is the version the district published. Moving the levers shows what would change; it doesn’t change the district’s plan.</p>`;
-    }
+    if (p && p.payload && p.payload.settings) body = publicBodyHtml(d, p);
     app.innerHTML = `
       <div class="main">
-        <header class="topbar"><span class="brand pub-brand">${d && d.logo_path ? `<img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt="${esc(d.name)} logo" class="pub-dlogo">` : ''}${LOGO_COLOR}<span class="small muted">powered by Willow Holler</span></span>
+        <header class="topbar"><span class="brand pub-brand">${LOGO_COLOR}<span class="small muted">powered by Willow Holler</span></span>
           <span class="spacer"></span><a class="btn small" href="#/signin">Sign in</a></header>
         <main class="content">${body}</main>
       </div>`;
@@ -2559,6 +2603,7 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async previewPublic() { await previewPublic(); },
     async pkCreate() { await makePacket(document.querySelector('[data-pk-init]').value, document.querySelector('[data-pk-sc]').value); },
     async pkFromEditor(el) { closeModal(); await makePacket(el.dataset.id, null); },
     async rpCreate() { await rpCreate(); },
@@ -2778,6 +2823,8 @@
       if (!on.length) { cp.checked = true; return; }
       CMP.ids = on; document.getElementById('cmp-table').innerHTML = compareTableHtml(); return;
     }
+    const ph2 = e.target.closest('[data-pub-hold]');
+    if (ph2) { CP.holdBack = ph2.checked; CP.note = (document.querySelector('[data-pub-note]') || {}).value; here(); return; }
     const rs2 = e.target.closest('[data-rank-sid]');
     if (rs2) { RK.sid = rs2.value; return here(); }
     const rt = e.target.closest('[data-rank-tier]');

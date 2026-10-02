@@ -353,10 +353,27 @@ async def main():
     check("board version: old one cleared first, then the new one set", bp==[(board_id,{"is_board_version":False}),(phased_id,{"is_board_version":True})], str(bp))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/community"); await pg.wait_for_timeout(400)
     check("community page: nothing published yet", "Nothing is published" in await pg.inner_text("#view"))
+    check("publish: holding back with nothing approved would show nothing, so Publish waits", "Nothing would show" in await pg.inner_text("#view") and await pg.is_disabled("button[data-action=publishBoard]"))
+    appr=[i for i in TABLES["initiative"] if i["name"].startswith("Middle school HVAC") or i["name"].startswith("Secure entrances")]
+    for i in appr: i["status"]="approved"
+    await pg.reload(); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view")
+    check("publish: shows how many will show and how many are held back, and the public gap", "2 initiatives will show; 14 held back" in t and "The public page’s gap is" in t, t[t.find("Publish the community page"):t.find("Publish the community page")+500])
+    n0=len(calls); await pg.click("button[data-action=publishBoard]"); await pg.wait_for_timeout(700)
+    pp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "/rest/v1/publication" in c[1]]
+    check("publish: held-back proposals are left out of the public copy", pp and len(pp[0]["payload"]["projects"])==2 and pp[0]["payload"]["heldBack"]==14 and pp[0]["payload"]["holdBack"], str(pp)[:200])
+    await pg.fill("textarea[data-pub-note]","The board adopts the plan in October. Thank you for the survey responses.")
+    await pg.uncheck("input[data-pub-hold]"); await pg.wait_for_timeout(700)
+    check("publish: the note survives ticking and unticking", await pg.input_value("textarea[data-pub-note]")=="The board adopts the plan in October. Thank you for the survey responses.")
+    await pg.click("button[data-action=previewPublic]"); await pg.wait_for_timeout(600)
+    pv=await pg.inner_text("[data-modal]")
+    check("publish: preview shows exactly what the public will see", "Preview: what the public will see" in pv and "The board adopts the plan in October" in pv and "Capital plan:" in pv)
+    await pg.click("[data-modal] button[data-action=closeModal] >> nth=0"); await pg.wait_for_timeout(200)
+    for i in appr: i["status"]="proposed"
     n0=len(calls); await pg.click("button[data-action=publishBoard]"); await pg.wait_for_timeout(700)
     pp=[c for c in calls[n0:] if c[0]=="POST" and "/rest/v1/publication" in c[1]]
     pl=json.loads(pp[0][2])["payload"] if pp else {}
-    check("publish: sends the board version as a frozen copy", pp and len(pl.get("projects",[]))==16 and pl["settings"]["save"]["receipts"]==1420000 and json.loads(pp[0][2])["kind"]=="board_plan", str(len(pl.get("projects",[]))))
+    check("publish: sends the board version as a frozen copy", pp and len(pl.get("projects",[]))==16 and pl["settings"]["save"]["receipts"]==1420000 and json.loads(pp[0][2])["kind"]=="board_plan" and pl["note"].startswith("The board adopts"), str(len(pl.get("projects",[]))))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(300)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/priorities"); await pg.wait_for_timeout(400)
     await pg.click("text=Add a priority"); await pg.wait_for_timeout(200)
@@ -892,7 +909,7 @@ async def main():
     check("logo: only images are accepted", "Use a PNG, JPEG or WebP image" in await pg.inner_text("#toasts"))
     D1["logo_path"]="d1/logo-1.png"
     await pg.goto("http://localhost:8765/#/p/ironwood-valley"); await pg.wait_for_timeout(700)
-    check("logo: shown on the public board page", await pg.locator("img.pub-dlogo[src*='/storage/v1/object/public/district-public/d1/logo-1.png']").count()==1)
+    check("logo: shown on the public board page", await pg.locator("img.pub-dlogo-lg[src*='/storage/v1/object/public/district-public/d1/logo-1.png']").count()==1)
     del D1["logo_path"]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/activity"); await pg.wait_for_timeout(500)
     t=await pg.inner_text("#view")
@@ -981,6 +998,7 @@ async def main():
     authed=[c for c in calls[n0:] if "/rest/v1/" in c[1] and "rpc/public_publication" not in c[1]]
     check("public link: plan shows with no account ($5.35M)", "Ironwood Valley" in t and "$5.35M" in t and "Sign in" in t and "Sign out" not in t, t[:200])
     check("public link: only the public function is called", not authed, str(authed[:2]))
+    check("public link: branded, with the community note", "The board adopts the plan in October" in await pub.inner_text("body") and await pub.locator(".pubhead .pub-mono, .pubhead .pub-dlogo-lg").count()==1)
     check("public link: nothing to edit or publish", await pub.locator("[data-notbuilt], [data-action=publishBoard], form").count()==0)
     await pub.click("input[data-lever=sf]"); await pub.wait_for_timeout(200)
     check("public link: shows what it means for taxpayers", "What it means for taxpayers" in await pub.inner_text("body"))

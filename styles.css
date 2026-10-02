@@ -294,3 +294,11 @@ table.batable td{vertical-align:middle}
   .scroll{overflow:visible}
   a{color:inherit;text-decoration:none}
 }
+
+/* ---------- community page ---------- */
+.pubhead{display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.pubhead h1{margin:0}
+.pub-dlogo-lg{height:64px;width:auto;border-radius:8px}
+.pub-mono{display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:12px;color:#fff;font-weight:700;font-size:18px;flex-shrink:0}
+.pubnote p{margin:0 0 8px;font-size:16px}
+.pubpreview{border:1px dashed var(--border);border-radius:12px;padding:14px;background:var(--bg);max-height:70vh;overflow:auto}
