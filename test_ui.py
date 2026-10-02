@@ -147,7 +147,12 @@ async def handler(route):
     return await ok([json.loads(body)])
   if t in TABLES:
     did=q.get("district_id",["eq.d1"])[0][3:]
-    return await ok([r for r in TABLES[t] if r.get("district_id")==did])
+    out=[r for r in TABLES[t] if r.get("district_id")==did]
+    if "batch_id" in q:   # like the real database: amounts for one import, or a list of imports
+      v=q["batch_id"][0]
+      ids=v[4:-1].split(",") if v.startswith("in.(") else [v[3:]]
+      out=[r for r in out if r.get("batch_id") in ids]
+    return await ok(out)
   return await ok({"message":"unmocked "+t},404)
 
 async def main():
@@ -697,7 +702,9 @@ async def main():
     n0=len(calls); await first.locator("button[data-action=piSavePhase]").click(); await pg.wait_for_timeout(600)
     sp=[json.loads(c[2]) for c in calls[n0:] if "rpc/set_phase_progress" in c[1]]
     check("progress: recorded through the progress-only function, even on the locked plan", sp and sp[0]["p_status"]=="done" and sp[0]["p_actual"]==401500 and sp[0]["p_done"]=="2026-09-25" and sp[0]["p_phase"]==sorted(TABLES_ph,key=lambda p:(p["fy"],p["seq"]))[0]["id"], str(sp))
-    # Phase 3C: budget vs. actual (ledger still loaded from the progress tests)
+    # Phase 3C: budget vs. actual (ledger still loaded from the progress tests); 3D adds an August import to compare
+    TABLES["import_batch"]=TABLES["import_batch"]+[{"id":"glb0","district_id":"d1","kind":"gl_monthly","status":"applied","period_end":"2026-08-31","fiscal_year":2027,"file_name":"gl-aug.csv","row_count":21,"uploaded_at":"2026-09-10T10:00:00Z"}]
+    TABLES["gl_amount"]=TABLES["gl_amount"]+[dict(g, batch_id="glb0", ytd_amount=(g["ytd_amount"] or 0)/2, encumbered=0) for g in TABLES["gl_amount"] if g["batch_id"]=="glb1"]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/actuals"); await pg.wait_for_timeout(800)
     t=await pg.inner_text("#view")
     check("budget: every fund, General Fund first, from the ledger through the month end", "Every fund" in t and t.find("General Fund")<t.find("SAVE")<t.find("PPEL") and "Sep 30, 2026" in t and "25% of the fiscal year gone" in t, t[:300])
@@ -711,12 +718,33 @@ async def main():
     await pg.click("a[data-action=baFund][data-k=save]"); await pg.wait_for_timeout(600)
     t=await pg.inner_text("#view")
     check("budget: any fund in detail", "Facilities acquisition and construction" in t and "$1,180,640" in t, t[t.find("Spending by function")-300:t.find("Spending by function")+300])
+    t=await pg.inner_text("#view")
+    check("compare: two months side by side, with the change", "Compare two months" in t and "Aug 31, 2026" in t and "+$1,454,776" in t and "different fiscal years" not in t, t[t.find("Compare two months"):t.find("Compare two months")+500])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(500)
+    check("uploads: balances-only is now a labelled fallback", "Fund balances only (if you can’t export the ledger)" in await pg.inner_text("select[data-upload-kind]"))
+    TABLES["fund_balance"]=TABLES["fund_balance"]+[{"district_id":"d1","fund":"save","as_of":"2026-09-30","amount":1309086,"source":"gl_import"},{"district_id":"d1","fund":"ppel","as_of":"2026-09-30","amount":788200,"source":"gl_import"}]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view")
+    hist=t[t.find("Balances month by month"):]
+    check("all funds: balances month by month, newest first, with where they came from", "Balances month by month" in t and hist.find("Sep 30, 2026")<hist.find("Jul 1, 2026") and "$1,309,086" in hist and "Monthly GL" in hist, t[t.find("Balances month by month"):t.find("Balances month by month")+300])
+    TABLES["fund_balance"]=[x for x in TABLES["fund_balance"] if x.get("as_of")!="2026-09-30"]
+    saved_ends={b0["id"]:b0.get("period_end") for b0 in TABLES["import_batch"]}
+    for b0 in TABLES["import_batch"]:
+      if b0.get("kind")=="gl_monthly": b0["period_end"]="2020-01-31" if b0["id"]=="glb1" else "2019-12-31"
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(500)
+    check("reminder: business staff see when the ledger is getting old", "The ledger is through Jan 31, 2020" in await pg.inner_text("#view") and "Feb 29, 2020" in await pg.inner_text("#view"))
+    for b0 in TABLES["import_batch"]: b0["period_end"]=saved_ends.get(b0["id"])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/actuals"); await pg.wait_for_timeout(600)
     for g in TABLES["gl_amount"]: g["budget_amount"]=None
     await pg.reload(); await pg.wait_for_timeout(800)
     check("budget: an export with no budget column says so", "has no budget column" in await pg.inner_text("#view"))
-    TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]; TABLES["import_batch"]=[b for b in TABLES["import_batch"] if b["id"]!="glb1"]
+    TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]; TABLES["import_batch"]=[b for b in TABLES["import_batch"] if b["id"] not in ("glb0","glb1")]
+    kept_gl=[b for b in TABLES["import_batch"] if b.get("kind")=="gl_monthly"]; TABLES["import_batch"]=[b for b in TABLES["import_batch"] if b.get("kind")!="gl_monthly"]
     await pg.reload(); await pg.wait_for_timeout(600)
     check("budget: before any ledger, says what's needed", "No monthly ledger yet" in await pg.inner_text("#view"))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(500)
+    check("reminder: before any ledger, business staff are invited to start", "Bring in the business office’s month-end export each month" in await pg.inner_text("#view"))
+    TABLES["import_batch"]=TABLES["import_batch"]+kept_gl
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;

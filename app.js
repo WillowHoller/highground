@@ -154,7 +154,7 @@
       { id: 'initiatives', label: 'Initiatives', status: 'live', lede: 'Each initiative against the adopted plan: spending, phases and dates.', render: vProgInitiatives },
       { id: 'measures', label: 'Measures', status: 'wip', phase: 5, lede: 'Results against targets over time.', render: vProgMeasures },
       { id: 'actuals', label: 'Budget vs. actual', status: 'live', lede: 'Each fund’s budget, actual and year-end forecast, from the monthly ledger.', render: vActuals },
-      { id: 'uploads', label: 'Uploads', status: 'partial', phase: 3, lede: 'Every file brought in, and what happened to it.', render: vUploads },
+      { id: 'uploads', label: 'Uploads', status: 'partial', phase: 5, lede: 'Every file brought in, and what happened to it.', render: vUploads },
     ] },
     { id: 'reports', label: 'Reports', tabs: [
       { id: 'board', label: 'Board reports', status: 'wip', phase: 4, lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
@@ -244,11 +244,12 @@
     const [ini, sc, up, mem] = await Promise.all([
       HG.db.select('initiative', `select=id&district_id=eq.${d}`),
       HG.db.select('scenario', `select=id,name,is_board_version&district_id=eq.${d}`),
-      HG.db.select('import_batch', `select=id,kind,status,uploaded_at&district_id=eq.${d}&order=uploaded_at.desc&limit=1`),
+      HG.db.select('import_batch', `select=id,kind,status,uploaded_at,period_end&district_id=eq.${d}&order=uploaded_at.desc&limit=50`),
       HG.db.select('district_member', `select=user_id&district_id=eq.${d}`),
     ]);
     const board = sc.find((s) => s.is_board_version);
     return `
+      ${ledgerNote(c, up)}
       <div class="grid">
         <div class="card"><div class="stat">${ini.length}</div><div class="muted">initiatives</div></div>
         <div class="card"><div class="stat">${sc.length}</div><div class="muted">scenarios${board ? `; board version is “${esc(board.name)}”` : '; no board version chosen'}</div></div>
@@ -559,7 +560,13 @@
         { label: 'Per year', num: true, get: (r) => money(r.annual_payment) },
         { label: 'Final year', get: (r) => 'FY' + r.final_fy },
       ], debt, 'No debt entered.')}</div></div>`;
-    if (b.none) return top + notReady(c, b);
+    const funds4 = ['save', 'ppel', 'vppel', 'grants', 'debt_levy', 'general'].filter((f) => bal.some((x) => x.fund === f));
+    const dates = [...new Set(bal.map((x) => x.as_of))].sort().reverse().slice(0, 12);
+    const SRC = { manual: 'Typed in', upload: 'Balances upload', gl_import: 'Monthly GL' };
+    const history = dates.length > 1 ? `<div class="card"><h3>Balances month by month</h3><div class="scroll"><table class="data"><thead><tr><th>As of</th>${funds4.map((f) => `<th class="num">${esc(FUND_NAMES[f] || ({ debt_levy: 'Debt Service', general: 'General Fund' })[f] || f)}</th>`).join('')}<th>From</th></tr></thead><tbody>
+      ${dates.map((dt) => { const at = bal.filter((x) => x.as_of === dt); return `<tr><td>${esc(day(dt))}</td>${funds4.map((f) => { const r = at.find((x) => x.fund === f); return `<td class="num">${r ? money(r.amount) : ''}</td>`; }).join('')}<td class="small muted">${esc([...new Set(at.map((x) => SRC[x.source] || x.source))].join(', '))}</td></tr>`; }).join('')}
+    </tbody></table></div><p class="small muted" style="margin-top:6px">The most recent date is the one the capital plan starts from.</p></div>` : '';
+    if (b.none) return top + history + notReady(c, b);
     const { sc, inp, r, paths } = b, cfg = inp.cfg;
     const cap = HGEngine.saveBondCapacity(cfg, inp.levers, 0.045, 20, 1.2), go = HGEngine.goDebtRoom(cfg, inp.levers);
     const funds = HGCapital.CAP_FUNDS.filter((k) => k !== 'vppel' || cfg.vStatus !== 'none' || paths[k].open > 0);
@@ -574,7 +581,7 @@
         { label: 'End', num: true, html: (y) => (y.fy === P.lowFY ? `<b>${fmt(y.end)}</b> <span class="small muted">low</span>` : fmt(y.end)) },
       ], P.years, '')}
       <p class="small muted">Receipts are after existing debt payments and ongoing commitments${k === 'save' && inp.levers.sf ? ', and after the SF 2472 reduction' : ''}${cfg.f0 < 1 ? `; FY${cfg.start} counts only the part of the year after ${day(cfg.settings.balances.asOf)}` : ''}.</p></div>`; };
-    return top + `
+    return top + history + `
       <p class="small muted">Year by year from <b>${esc(sc.name)}</b>${sc.is_board_version ? ', the board version' : ''}. <a href="#/d/${enc(c.district.slug)}/resources/capital">Change it on the capital plan</a></p>
       ${funds.map(fundCard).join('')}
       <div class="card"><h3>Borrowing room</h3>
@@ -999,6 +1006,16 @@
   async function vProgMeasures() {
     return wip({ phase: 5, items: ['Each measure’s trend against its target', 'Updates owed by each owner'], uses: 'measure, measure_value' });
   }
+  /* business staff: is the monthly ledger current? */
+  function ledgerNote(c, batches) {
+    if (!c.finance) return '';
+    const gl = (batches || []).filter((b) => b.kind === 'gl_monthly' && b.status === 'applied' && b.period_end).sort((x, y) => (x.period_end < y.period_end ? 1 : -1));
+    const st = HGBudget.ledgerStatus(gl.length ? gl[0].period_end : null);
+    const link = `<a href="#/d/${enc(c.district.slug)}/progress/uploads">Upload the month-end export</a>`;
+    if (!st.has) return `<div class="notice">Bring in the business office’s month-end export each month to keep balances, spending and budget current. ${link}.</div>`;
+    if (!st.stale) return '';
+    return `<div class="notice">The ledger is through ${esc(day(gl[0].period_end))}. The close for ${esc(day(st.nextMonthEnd))} is usually ready by now. ${link} to keep balances current.</div>`;
+  }
   const BA = { key: null, fy: null, method: 'budget', fund: null };
   async function vActuals(c) {
     const d = c.district;
@@ -1006,13 +1023,36 @@
     const latest = HGActuals.latestByYear(batches), fys = Object.keys(latest).map(Number).sort((x, y) => y - x);
     if (!fys.length) return `<div class="card"><h3>No monthly ledger yet</h3><p>Budget against actual comes from the business office’s month-end export: its budget, year-to-date and encumbered columns.</p>
       ${c.finance ? `<a class="btn primary" href="#/d/${enc(d.slug)}/progress/uploads">Upload a month-end export</a>` : '<p class="muted">It appears once the business office uploads one.</p>'}</div>`;
-    if (BA.key !== d.id) { BA.key = d.id; BA.fy = null; BA.fund = null; }
+    if (BA.key !== d.id) { BA.key = d.id; BA.fy = null; BA.fund = null; BA.late = null; BA.early = null; }
     const fy = BA.fy && latest[BA.fy] ? BA.fy : fys[0], batch = latest[fy];
     const [accounts, amounts] = await Promise.all([
       HG.db.selectAll('gl_account', `select=id,code,fund_code,function_code,maps_to,mapped_fund,sign&district_id=eq.${d.id}`),
       HG.db.selectAll('gl_amount', `select=account_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${batch.id}`),
     ]);
     const S = HGBudget.summarize(accounts, amounts, batch.period_end, BA.method);
+    // compare two months: the later defaults to this year's latest, the earlier to the import before it
+    const all = batches.slice().sort((x, y) => (x.period_end < y.period_end ? 1 : -1));
+    const late = all.find((b) => b.id === BA.late) || batch;
+    const early = all.find((b) => b.id === BA.early && b.id !== late.id) || all.find((b) => b.period_end < late.period_end) || null;
+    let cmpHtml = '';
+    if (early) {
+      const [amtE, amtL] = await Promise.all([
+        HG.db.selectAll('gl_amount', `select=account_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${early.id}`),
+        late.id === batch.id ? Promise.resolve(amounts) : HG.db.selectAll('gl_amount', `select=account_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${late.id}`),
+      ]);
+      const cm = HGBudget.compareMonths(accounts, amtE, amtL, early, late);
+      const f$ = (v) => (v < 0 ? '−' : '') + '$' + Math.round(Math.abs(v)).toLocaleString('en-US');
+      const chg = (v) => (Math.abs(v) < 0.5 ? '<span class="muted">no change</span>' : `<span class="small">${v > 0 ? '+' : '−'}$${Math.round(Math.abs(v)).toLocaleString('en-US')}</span>`);
+      const opt = (sel) => all.map((b) => `<option value="${esc(b.id)}" ${b.id === sel ? 'selected' : ''}>${esc(day(b.period_end))}</option>`).join('');
+      cmpHtml = `<div class="card"><h3>Compare two months</h3>
+        <div class="inline-form"><label class="field">Earlier<select data-ba="early">${opt(early.id)}</select></label><label class="field">Later<select data-ba="late">${opt(late.id)}</select></label></div>
+        ${cm.sameYear ? '' : '<p class="small">These months are in different fiscal years. Year-to-date figures restart each July, so compare them side by side rather than by the change.</p>'}
+        <div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Received, ${esc(day(early.period_end))}</th><th class="num">${esc(day(late.period_end))}</th><th class="num">Change</th>
+          <th class="num">Spent, ${esc(day(early.period_end))}</th><th class="num">${esc(day(late.period_end))}</th><th class="num">Change</th><th class="num">Encumbered now</th></tr></thead><tbody>
+          ${cm.rows.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${f$(r.received.early)}</td><td class="num">${f$(r.received.late)}</td><td class="num">${cm.sameYear ? chg(r.received.change) : ''}</td>
+            <td class="num">${f$(r.spent.early)}</td><td class="num">${f$(r.spent.late)}</td><td class="num">${cm.sameYear ? chg(r.spent.change) : ''}</td><td class="num">${f$(r.encumbered.late)}</td></tr>`).join('')}
+        </tbody></table></div></div>`;
+    }
     const fund = S.funds.find((f) => f.key === BA.fund) || S.funds.find((f) => f.key === 'general') || S.funds[0];
     const fmt = (v) => (v == null ? '' : (v < 0 ? '−' : '') + '$' + Math.round(Math.abs(v)).toLocaleString('en-US'));
     const pctTxt = (v) => (v == null ? '' : Math.round(v * 100) + '%');
@@ -1027,6 +1067,7 @@
         <label class="chip"><span class="small muted">Forecast</span><select data-ba="method" aria-label="Forecast method"><option value="budget" ${BA.method === 'budget' ? 'selected' : ''}>Budget, unless already exceeded</option><option value="pace" ${BA.method === 'pace' ? 'selected' : ''}>Rest of the year at the budget’s pace</option><option value="straight" ${BA.method === 'straight' ? 'selected' : ''}>Straight line from this year so far</option></select></label>
         <span class="small muted">From the ledger through <b>${esc(day(batch.period_end))}</b>: ${pctTxt(S.gone)} of the fiscal year gone.</span>
       </div>
+      ${ledgerNote(c, batches)}
       ${S.hasBudget ? '' : '<div class="notice">This month’s export has no budget column, so only actuals show. Include the budget in the export (most systems can), and HighGround will compare against it.</div>'}
       <div class="card"><h3>Every fund</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Year-end forecast</th><th></th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">Encumbered</th><th class="num">Year-end forecast</th><th></th></tr></thead><tbody>
         ${S.funds.map((f) => `<tr><td><a href="#" data-action="baFund" data-k="${esc(f.key)}">${esc(f.name)}</a></td>
@@ -1044,7 +1085,8 @@
           ${fns.map(([k, x]) => `<tr><td>${esc(x.name)}</td><td class="num">${fmt(x.budget)}</td><td class="num">${fmt(x.actual)}</td><td class="num">${fmt(x.encumbered)}</td><td class="num">${fmt(x.available)}</td>
             <td>${bar(x.used, true)} <span class="small muted">${pctTxt(x.used)}</span></td><td class="num">${fmt(x.forecast)}</td><td class="small">${spendVar(x)}</td></tr>`).join('')}
         </tbody></table></div>` : ''}
-        <p class="small muted" style="margin-top:8px">The bar is budget used (spent plus encumbered); the line marks how much of the year has gone. ${BA.method === 'budget' ? 'Forecast: the budget, unless spending plus encumbrances (or revenue received) has already passed it.' : BA.method === 'pace' ? 'Forecast: actual so far plus the budget’s share for the rest of the year; suits steady items such as salaries, not front-loaded projects.' : 'Forecast: this year so far, extended to twelve months. Lumpy items, such as property taxes received in autumn and spring, can mislead this method.'}</p></div>` : ''}`;
+        <p class="small muted" style="margin-top:8px">The bar is budget used (spent plus encumbered); the line marks how much of the year has gone. ${BA.method === 'budget' ? 'Forecast: the budget, unless spending plus encumbrances (or revenue received) has already passed it.' : BA.method === 'pace' ? 'Forecast: actual so far plus the budget’s share for the rest of the year; suits steady items such as salaries, not front-loaded projects.' : 'Forecast: this year so far, extended to twelve months. Lumpy items, such as property taxes received in autumn and spring, can mislead this method.'}</p></div>` : ''}
+      ${cmpHtml}`;
   }
 
   // ---------------------------------------------------------------- scenario work: toolbar, project editor, financing, levers
@@ -1361,12 +1403,13 @@
     UP.startFY = set[0] ? set[0].plan_start_fy : null; UP.years = set[0] ? set[0].plan_years : null;
     UP.hasBoard = scs.some((x) => x.is_board_version); UP.scenarioCount = scs.length;
     UP.kind = null; UP.file = null; UP.rows = null; UP.parsed = null;
-    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.plan && ['projects', 'Projects'], c.finance && ['balances', 'Fund balances only']].filter(Boolean);
+    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.plan && ['projects', 'Projects'], c.finance && ['balances', 'Fund balances only (if you can’t export the ledger)']].filter(Boolean);
     const later = [
-      c.finance && nb('Budget', 'Budget upload', 3),
+      c.finance && nb('Adopted budget (for the general-fund forecast)', 'Budget upload', 6),
       c.plan && nb('Goals', 'Goals upload', 5), (c.plan || c.finance) && nb('Measure results', 'Measure results upload', 5), c.plan && nb('Survey results', 'Survey upload', 5),
     ].filter(Boolean);
     return `
+      ${ledgerNote(c, rows)}
       ${kinds.length ? `<div class="card"><h3>Upload a file</h3>
         <div class="inline-form">
           <label class="field">What’s in it<select data-upload-kind>${kinds.map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
@@ -2607,7 +2650,7 @@
     const pk = e.target.closest('[data-pick-init]');
     if (pk) { openProjectEditor(pk.value || null); return; }
     const bs = e.target.closest('[data-ba]');
-    if (bs) { BA[bs.dataset.ba] = bs.dataset.ba === 'fy' ? Number(bs.value) : bs.value; return here(); }
+    if (bs) { BA[bs.dataset.ba] = bs.dataset.ba === 'fy' ? Number(bs.value) : bs.value; if (bs.dataset.ba === 'fy') { BA.late = null; BA.early = null; } return here(); }
     const pf = e.target.closest('[data-pi-fy]');
     if (pf) { PI.fy = Number(pf.value); return here(); }
     const isd = e.target.closest('[data-ini-sid]');

@@ -60,5 +60,30 @@
     return { gone, method, funds: list, hasBudget: list.some((f) => f.revenue.budget || f.spending.budget) };
   }
 
-  return { elapsed, forecast, functionGroup, summarize };
+  /** two month-end imports side by side, by fund: received, spent, encumbered, and the change from the earlier to the later */
+  function compareMonths(accounts, amountsEarly, amountsLate, early, late) {
+    const A = summarize(accounts, amountsEarly, early.period_end, 'budget'), Bm = summarize(accounts, amountsLate, late.period_end, 'budget');
+    const keys = [...new Set(A.funds.map((f) => f.key).concat(Bm.funds.map((f) => f.key)))];
+    const pick = (S, k) => S.funds.find((f) => f.key === k);
+    const rows = keys.map((k) => {
+      const a = pick(A, k), b = pick(Bm, k), v = (f, kind, field) => (f ? f[kind][field] : 0);
+      const line = (kind, field) => ({ early: v(a, kind, field), late: v(b, kind, field), change: v(b, kind, field) - v(a, kind, field) });
+      return { key: k, name: (b || a).name, received: line('revenue', 'actual'), spent: line('spending', 'actual'), encumbered: line('spending', 'encumbered') };
+    });
+    const order = ['general', 'save', 'ppel', 'vppel', 'grants', 'debt_levy'];
+    rows.sort((x, y) => ((order.indexOf(x.key) + 1 || 99) - (order.indexOf(y.key) + 1 || 99)) || x.name.localeCompare(y.name));
+    return { rows, sameYear: (early.fiscal_year || 0) === (late.fiscal_year || 0) };
+  }
+
+  /** is the ledger current? A month's close is usually ready about 6 weeks after it ends. */
+  function ledgerStatus(latestPeriodEnd, today) {
+    if (!latestPeriodEnd) return { has: false };
+    const end = new Date(latestPeriodEnd + 'T12:00:00'), now = today ? new Date(today + 'T12:00:00') : new Date();
+    const days = Math.round((now - end) / 86400000);
+    const next = new Date(end.getFullYear(), end.getMonth() + 2, 0);   // the following month-end
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { has: true, days, stale: days > 45, nextMonthEnd: iso(next) };
+  }
+
+  return { elapsed, forecast, functionGroup, summarize, compareMonths, ledgerStatus };
 });
