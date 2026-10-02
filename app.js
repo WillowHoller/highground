@@ -2262,8 +2262,10 @@
   async function vBuilt() {
     const rows = [];
     ALL.forEach((s) => s.tabs.forEach((t) => rows.push({ s: s.label, t: t.label, status: t.status, phase: t.phase })));
-    rows.push({ s: 'Sign-in', t: 'Email and password, confirmation, reset', status: 'live' });
-    rows.push({ s: 'Public link', t: 'Board version with what-if levers (community page later)', status: 'partial', phase: 4 });
+    rows.push({ s: 'Sign-in', t: 'Email and password, confirmation and reset; invitations by email; two-step sign-in; access requests', status: 'live' });
+    // the public link is the community page: take its status from that screen, so this row can't go stale
+    const cp = ALL.find((x) => x.id === 'reports').tabs.find((x) => x.id === 'community');
+    rows.push({ s: 'Public link', t: 'District-branded board version with what-if levers; unapproved proposals held back', status: cp.status, phase: cp.phase });
     return `<div class="card">${table([
       { label: 'Section', get: (r) => r.s }, { label: 'Screen', get: (r) => r.t },
       { label: 'Status', html: (r) => badge(r.status) }, { label: 'Rest arrives', get: (r) => (r.status === 'live' ? '' : r.phase ? 'Phase ' + r.phase : '') },
