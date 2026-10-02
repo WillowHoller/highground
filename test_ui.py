@@ -755,6 +755,21 @@ async def main():
       found=await pg.evaluate(stray_js)
       if found: stray[route]=found
     check("no unexpected scroll bars on any page", not stray, str(stray))
+    # every module is loaded after the modules it depends on (in the browser, order matters)
+    import re as _re
+    _root=os.path.dirname(os.path.abspath(__file__)); idx=open(os.path.join(_root,"index.html")).read()
+    order=_re.findall(r'<script src="([a-z_]+\.js)"></script>', idx)
+    provides={}
+    for f in order:
+      m=_re.search(r"root\.(HG[A-Za-z]+) = api", open(os.path.join(_root,f)).read())
+      if m: provides[m.group(1)]=f
+    bad=[]
+    for i,f in enumerate(order):
+      src=open(os.path.join(_root,f)).read()
+      for dep in set(_re.findall(r"root\.(HG[A-Za-z]+) \|\||need\('(HG[A-Za-z]+)'", src)):
+        dep=[x for x in dep if x][0] if isinstance(dep,tuple) else dep
+        if dep in provides and order.index(provides[dep])>i: bad.append(f"{f} needs {dep} ({provides[dep]}) loaded first")
+    check("modules load in dependency order", not bad and len(provides)>=10, str(bad) or str(provides))
     # Phase 4A: monthly board report
     TABLES["report_snapshot"]=[]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/board"); await pg.wait_for_timeout(600)
@@ -784,6 +799,28 @@ async def main():
       await pg.emulate_media(media="print")
       check("board report: printing hides the app's menus and buttons", not await pg.locator("nav.rail").is_visible() and not await pg.locator("button[data-action=rpPrint]").is_visible() and await pg.locator(".report .rhead").is_visible())
       await pg.emulate_media(media="screen")
+    # Phase 4B: decision packets
+    TABLES["report_snapshot"]=[]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/board"); await pg.wait_for_timeout(700)
+    addn=next(i for i in TABLES["initiative"] if i["name"].startswith("Elementary classroom addition"))
+    await pg.select_option("select[data-pk-init]", addn["id"])
+    n0=len(calls); await pg.click("button[data-action=pkCreate]"); await pg.wait_for_timeout(900)
+    pk=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/report_snapshot"]
+    check("decision packet: made and saved as it was", pk and pk[0]["kind"]=="decision_packet" and pk[0]["payload"]["initiative"]["name"].startswith("Elementary classroom addition") and pk[0]["payload"]["scenario"]["board"], str(pk)[:200])
+    if pk:
+      TABLES["report_snapshot"]=[dict(pk[0], district_id="d1", created_at="2026-10-01T16:00:00Z")]
+      await pg.reload(); await pg.wait_for_timeout(700)
+      await pg.click("a[data-action=rpOpen][data-id='%s']"%pk[0]["id"]); await pg.wait_for_timeout(600)
+      t=await pg.inner_text("#view")
+      check("decision packet: costs by fund and year, effect on the gap, funding line, other scenarios", "Costs by fund and year" in t and "Campaign or bond" in t and "FY2031" in t and "Gap with it / without it" in t and "paid by a campaign or bond" in t and "In other scenarios" in t, t[:600])
+      await pg.screenshot(path=SHOTS+"/packet.png", full_page=True)
+    TABLES["report_snapshot"]=[]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(600)
+    await pg.click("a[data-action=editInitiative]:has-text('Middle school HVAC')"); await pg.wait_for_timeout(400)
+    n0=len(calls); await pg.click("[data-modal] button[data-action=pkFromEditor]"); await pg.wait_for_timeout(1000)
+    pk2=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/report_snapshot"]
+    check("decision packet: one click from the initiative on Decisions", pk2 and pk2[0]["payload"]["initiative"]["name"]=="Middle school HVAC replacement" and "/reports/board" in pg.url)
     TABLES["report_snapshot"]=[]
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""

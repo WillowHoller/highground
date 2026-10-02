@@ -157,7 +157,7 @@
       { id: 'uploads', label: 'Uploads', status: 'partial', phase: 5, lede: 'Every file brought in, and what happened to it.', render: vUploads },
     ] },
     { id: 'reports', label: 'Reports', tabs: [
-      { id: 'board', label: 'Board reports', status: 'partial', phase: 4, lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
+      { id: 'board', label: 'Board reports', status: 'live', lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
       { id: 'community', label: 'Community page', status: 'partial', phase: 4, lede: 'What the public link shows.', render: vCommunityPage },
       { id: 'exports', label: 'Exports', status: 'live', lede: 'Download the district’s data, for spreadsheets or backup.', render: vExports },
     ] },
@@ -1238,6 +1238,7 @@
       : costSectionHtml(pid)}
       <div class="notice error" data-form-errors hidden></div>
       <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
+        ${dec && pid ? `<button type="button" class="btn" data-action="pkFromEditor" data-id="${esc(pid)}">Decision packet</button>` : ''}
         ${!dec && inThis ? '<span class="spacer" style="flex:1"></span><button type="button" class="btn danger" data-action="removeProject" data-id="' + esc(pid) + '">Remove from this scenario</button>' : ''}</div>
     </form>`);
   }
@@ -1654,12 +1655,15 @@
   async function vBoardReports(c) {
     const d = c.district;
     if (RP.key !== d.id) { RP.key = d.id; RP.open = null; }
-    const [snaps, batches] = await Promise.all([
-      HG.db.select('report_snapshot', `select=id,title,period_end,created_at,payload&district_id=eq.${d.id}&kind=eq.board_monthly&order=period_end.desc,created_at.desc`),
+    let [snaps, batches] = await Promise.all([
+      HG.db.select('report_snapshot', `select=id,kind,title,period_end,created_at,payload&district_id=eq.${d.id}&kind=in.(board_monthly,decision_packet)&order=period_end.desc,created_at.desc`),
       HG.db.select('import_batch', `select=id,period_end&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc&limit=1`).catch(() => []),
     ]);
-    RP.snaps = snaps;
+    const packets = snaps.filter((x) => x.kind === 'decision_packet');
+    RP.snaps = snaps = snaps.filter((x) => x.kind !== 'decision_packet');
     if (RP.open) {
+      const pk = packets.find((x) => x.id === RP.open);
+      if (pk) return packetHtml(c, pk);
       const snap = snaps.find((x) => x.id === RP.open);
       if (snap) {
         const prev = snaps.filter((x) => x.period_end < snap.period_end || (x.period_end === snap.period_end && x.created_at < snap.created_at))[0] || null;
@@ -1681,7 +1685,67 @@
         { label: 'Board version', get: (r) => (r.payload && r.payload.scenario ? r.payload.scenario.name : '') },
         { label: 'Made', get: (r) => day(r.created_at) },
       ], snaps, 'No board reports yet.')}</div>
-      ${wip({ title: 'Still to come here', phase: 4, items: ['Decision packet: one initiative across all funds over five years'] })}`;
+      <div class="card"><h3>Decision packets</h3>
+        <p class="small muted">One initiative on one page: its costs by fund and year, its effect on the gap and on taxpayers, and where it falls on the funding line. Saved as it was made.</p>
+        ${c.plan || c.finance ? await packetFormHtml(c) : ''}
+        ${table([
+          { label: 'Initiative', html: (r) => `<a href="#" data-action="rpOpen" data-id="${esc(r.id)}">${esc(r.payload.initiative.name)}</a>` },
+          { label: 'Against', get: (r) => r.payload.scenario.name },
+          { label: 'Made', get: (r) => day(r.created_at) },
+        ], packets, 'No decision packets yet.')}</div>`;
+  }
+  async function packetFormHtml(c) {
+    const rows = await loadCapitalRows(c.district);
+    if (!rows.scenarios.length) return '<p class="muted">Make a scenario first.</p>';
+    const board = rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0];
+    return `<div class="inline-form">
+      <label class="field">Initiative<select data-pk-init>${rows.initiatives.map((i) => `<option value="${esc(i.id)}">${esc(i.name)}</option>`).join('')}</select></label>
+      <label class="field">Against<select data-pk-sc>${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === board.id ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}</option>`).join('')}</select></label>
+      <button type="button" class="btn" data-action="pkCreate">Make the packet</button></div>`;
+  }
+  async function makePacket(initiativeId, scenarioId) {
+    const d = S.district, rows = await loadCapitalRows(d);
+    const sc = rows.scenarios.find((x) => x.id === scenarioId) || rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0];
+    if (!sc) throw new UserError('Make a scenario first; the packet is measured against one.');
+    const payload = HGPacket.build(rows, initiativeId, sc.id), id = crypto.randomUUID(), today = new Date().toISOString().slice(0, 10);
+    await HG.db.insert('report_snapshot', { id, district_id: d.id, kind: 'decision_packet', title: `Decision packet: ${payload.initiative.name}`.slice(0, 200), period_end: today, scenario_id: sc.id, payload });
+    RP.key = d.id; RP.open = id; toast('Packet made', payload.initiative.name);
+    go(`#/d/${enc(d.slug)}/reports/board`); here();
+  }
+  function packetHtml(c, snap) {
+    const P = snap.payload, f = HGReport.fmt, I = P.initiative, STATUS = Object.fromEntries(INIT_STATUS), TYPE = Object.fromEntries(INIT_TYPES);
+    const FN = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants and donations', boost: 'Boosters', camp: 'Campaign or bond' };
+    const sumCol = (k) => P.byFund.reduce((t, r) => t + r.values[k], 0);
+    return `<div class="report">
+      <div class="row noprint"><a href="#" data-action="rpClose">← All reports</a><span style="flex:1"></span>
+        <button type="button" class="btn" data-action="rpPrint">Print or save as PDF</button>
+        ${c.admin ? `<button type="button" class="btn danger" data-action="rpDelete" data-id="${esc(snap.id)}">Delete</button>` : ''}</div>
+      <div class="rhead"><div class="small muted">Decision packet · ${esc(day(snap.created_at))}</div><h2>${esc(I.name)}</h2>
+        <div class="small muted">${esc(TYPE[I.type] || I.type)} · ${esc(STATUS[I.status] || I.status)}${I.tier ? ' · ' + esc(HGUploads.TIER_WORD[I.tier]) : ''}${I.owner ? ' · Owner: ' + esc(I.owner) : ''}${I.area ? ' · ' + esc(I.area) : ''}</div>
+        ${I.priority ? `<div class="small">Strategic priority: ${esc(I.priority)}</div>` : ''}
+        ${I.description ? `<p style="margin-top:8px">${esc(I.description)}</p>` : ''}</div>
+      ${P.inScenario ? '' : `<div class="notice">${esc(I.name)} isn’t in “${esc(P.scenario.name)}”, so it has no costs there.</div>`}
+      <div class="grid tiles">
+        <div class="card tile-card"><div class="small muted">One-time cost, all years</div><div class="stat">${f(P.oneTimeAll)}</div><div class="small muted">in each year’s dollars</div></div>
+        <div class="card tile-card"><div class="small muted">Yearly cost${P.recur.length ? `, FY${P.years[1]}` : ''}</div><div class="stat">${P.recur.length ? f(P.yearly[1] || 0) : 'None'}</div></div>
+        <div class="card tile-card"><div class="small muted">Gap with it / without it</div><div class="stat">${f(P.gap.with)}</div><div class="small">${Math.abs(P.gap.effect) < 0.5 ? '<span class="muted">no effect on the gap</span>' : `without it: ${f(P.gap.without)} <span class="${P.gap.effect > 0 ? 'gaptext' : 'ok'}">(${P.gap.effect > 0 ? 'adds' : 'saves'} ${f(Math.abs(P.gap.effect))})</span>`}</div></div>
+        <div class="card tile-card"><div class="small muted">Funding line</div><div class="stat">${P.fundingLine ? '#' + P.fundingLine.position + ' of ' + P.fundingLine.of : '—'}</div><div class="small">${P.fundingLine ? (P.fundingLine.above && P.fundingLine.outsideOnly ? (P.fundingLine.camp ? 'paid by a campaign or bond' : 'paid by boosters') : P.fundingLine.above ? '<span class="ok">fits</span>' : P.fundingLine.fitsAlone ? 'below the line, but would fit on its own' : '<span class="gaptext">below the line</span>') : ''}</div></div>
+      </div>
+      <div class="card"><h3>Costs by fund and year</h3><p class="small muted">Against “${esc(P.scenario.name)}”${P.scenario.board ? ', the board version' : ''}, in each year’s dollars.</p>
+        <div class="scroll"><table class="data"><thead><tr><th>Paid from</th>${P.years.map((y) => `<th class="num">FY${y}</th>`).join('')}<th class="num">Five years</th></tr></thead><tbody>
+          ${P.byFund.map((r) => `<tr><td>${esc(FN[r.fund] || r.fund)}</td>${r.values.map((v) => `<td class="num">${v ? f(v) : ''}</td>`).join('')}<td class="num"><b>${f(r.inWindow)}</b></td></tr>`).join('')}
+          ${P.yearly.some((v) => v > 0.5) ? `<tr><td>Yearly costs</td>${P.yearly.map((v) => `<td class="num">${v ? f(v) : ''}</td>`).join('')}<td class="num"><b>${f(P.yearly.reduce((a, v) => a + v, 0))}</b></td></tr>` : ''}
+        </tbody><tfoot><tr><th>Total</th>${P.years.map((y, k) => `<th class="num">${f(sumCol(k) + (P.yearly[k] || 0))}</th>`).join('')}<th class="num">${f(P.byFund.reduce((t, r) => t + r.inWindow, 0) + P.yearly.reduce((a, v) => a + v, 0))}</th></tr></tfoot></table></div>
+        ${P.recur.length ? `<p class="small" style="margin-top:6px">Yearly costs: ${P.recur.map((r) => `${esc(r.kind)} ${f(r.amount)} a year from ${FN[r.fund] || ({ general: 'the General Fund', other: 'other sources' })[r.fund] || r.fund}, FY${r.first}${r.last ? '–FY' + r.last : ' onward'}`).join('; ')}.</p>` : ''}</div>
+      <div class="card"><h3>Effect on the plan</h3>
+        ${P.lows.length ? `<table class="data"><thead><tr><th>Fund it draws on</th><th class="num">Lowest balance with it</th><th class="num">Without it</th></tr></thead><tbody>
+          ${P.lows.map((l) => `<tr><td>${esc(FN[l.fund] || l.fund)}</td><td class="num">${f(l.with)} <span class="small muted">FY${l.withFY}</span></td><td class="num">${f(l.without)} <span class="small muted">FY${l.withoutFY}</span></td></tr>`).join('')}
+        </tbody></table>` : '<p class="muted">It doesn’t draw on SAVE, PPEL, V-PPEL or grants.</p>'}
+        <p class="small" style="margin-top:8px">${P.tax.hasValuation ? (Math.abs(P.tax.with - P.tax.without) < 0.5 ? 'It doesn’t change the added property tax.' : `Added property tax at its highest: $${Math.round(P.tax.with).toLocaleString('en-US')} a year for a $${Math.round(P.tax.homeValue).toLocaleString('en-US')} home with it, $${Math.round(P.tax.without).toLocaleString('en-US')} without.`) : ''}</p>
+        ${P.flags.length ? `<p class="small"><b>Funding-line flags:</b> ${P.flags.map(esc).join(' ')}</p>` : ''}</div>
+      ${P.others.length ? `<div class="card"><h3>In other scenarios</h3><ul>${P.others.map((o) => `<li>${esc(o.name)}${o.board ? ' (board version)' : ''}: ${f(o.cost)} one-time${o.years.length ? ' in FY' + o.years.join(', ') : ''}${o.yearly ? `, ${f(o.yearly)} a year` : ''} <span class="small muted">(today’s dollars)</span></li>`).join('')}</ul></div>` : ''}
+      <p class="small muted">Made by HighGround on ${esc(day(snap.created_at))} from the district’s own data. Figures are as they stood that day.</p>
+    </div>`;
   }
   function reportHtml(c, snap, prev) {
     const P = snap.payload, Q = prev ? prev.payload : null, ch = HGReport.changes(P, Q), f = HGReport.fmt;
@@ -2495,6 +2559,8 @@
   };
   const here = () => route();
   const ACTIONS = {
+    async pkCreate() { await makePacket(document.querySelector('[data-pk-init]').value, document.querySelector('[data-pk-sc]').value); },
+    async pkFromEditor(el) { closeModal(); await makePacket(el.dataset.id, null); },
     async rpCreate() { await rpCreate(); },
     async rpOpen(el) { RP.open = el.dataset.id; here(); },
     async rpClose() { RP.open = null; here(); },
