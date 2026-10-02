@@ -77,7 +77,7 @@
     try { await HG.db.rpc('claim_my_access'); } catch (e) { /* older database without part 7: carry on */ }
     const [staff, mems, prof] = await Promise.all([
       HG.db.select('platform_admin', `select=user_id&user_id=eq.${enc(u.id)}`),
-      HG.db.select('district_member', `select=role,district:district_id(id,slug,name,short_name,state,county,brand_color,is_demo,public_link_enabled)&user_id=eq.${enc(u.id)}`),
+      HG.db.select('district_member', `select=role,district:district_id(id,slug,name,short_name,state,county,brand_color,logo_path,is_demo,public_link_enabled)&user_id=eq.${enc(u.id)}`),
       HG.db.select('profile', `select=*&user_id=eq.${enc(u.id)}`),
     ]);
     S.isStaff = staff.length > 0;
@@ -147,7 +147,7 @@
       { id: 'summary', label: 'Summary', status: 'partial', phase: 6, lede: 'Every fund at a glance, from the board version.', render: vResSummary },
       { id: 'general', label: 'General fund', status: 'wip', phase: 6, lede: 'Five-year general-fund forecast, staffing and settlements.', render: vGeneralFund },
       { id: 'funds', label: 'All funds', status: 'live', lede: 'Balances, receipts, spending, debt and rules for each capital fund.', render: vFunds },
-      { id: 'capital', label: 'Capital plan', status: 'partial', phase: 1, lede: 'Projects by year, split across Iowa’s capital funds, with the gap to close.', render: vCapital },
+      { id: 'capital', label: 'Capital plan', status: 'live', lede: 'Projects by year, split across Iowa’s capital funds, with the gap to close.', render: vCapital },
       { id: 'assumptions', label: 'Assumption sets', status: 'live', lede: 'Base, Conservative and Growth: the world the plan has to survive.', render: vAssumptions },
     ] },
     { id: 'progress', label: 'Progress', tabs: [
@@ -159,12 +159,12 @@
     { id: 'reports', label: 'Reports', tabs: [
       { id: 'board', label: 'Board reports', status: 'wip', phase: 4, lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
       { id: 'community', label: 'Community page', status: 'partial', phase: 4, lede: 'What the public link shows.', render: vCommunityPage },
-      { id: 'exports', label: 'Exports', status: 'partial', phase: 2, lede: 'Download the district’s data, for spreadsheets or backup.', render: vExports },
+      { id: 'exports', label: 'Exports', status: 'live', lede: 'Download the district’s data, for spreadsheets or backup.', render: vExports },
     ] },
   ];
   const FOOT = [
     { id: 'settings', label: 'Settings', tabs: [
-      { id: 'district', label: 'District', status: 'partial', phase: 1, lede: 'Name, link and look, and the numbers the plan starts from.', render: vDistrict },
+      { id: 'district', label: 'District', status: 'live', lede: 'Name, link and look, and the numbers the plan starts from.', render: vDistrict },
       { id: 'setup', label: 'Starting numbers', status: 'live', lede: 'What the capital plan starts from: receipts, balances and existing debt.', render: vSetup },
       { id: 'people', label: 'People', status: 'live', lede: 'Who can see and change this district.', render: vPeople },
       { id: 'activity', label: 'Activity', status: 'live', lede: 'Every change: who, when, and what it was before.', render: vActivity },
@@ -197,7 +197,7 @@
           <header class="topbar">
             ${slug ? nb('Search', 'Search', 5).replace('class="btn notbuilt"', 'class="btn notbuilt small"') : ''}
             <span class="spacer"></span>
-            ${S.districts.length ? `<label class="chip">${d ? `<span class="tile" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>` : ''}
+            ${S.districts.length ? `<label class="chip">${d ? (d.logo_path ? `<span class="tile logo"><img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt=""></span>` : `<span class="tile" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>`) : ''}
               <select data-switch aria-label="District">${d ? '' : '<option value="">Choose a district</option>'}${options}</select></label>` : ''}
             <a class="avatar" href="${slug ? `#/d/${enc(slug)}/settings/account` : '#/'}" title="${esc(name)}" aria-label="Your account">${esc(initials(name))}</a>
             <button type="button" class="btn small" data-action="signOut">Sign out</button>
@@ -1229,9 +1229,9 @@
     UP.startFY = set[0] ? set[0].plan_start_fy : null; UP.years = set[0] ? set[0].plan_years : null;
     UP.hasBoard = scs.some((x) => x.is_board_version); UP.scenarioCount = scs.length;
     UP.kind = null; UP.file = null; UP.rows = null; UP.parsed = null;
-    const kinds = [c.plan && ['projects', 'Projects'], c.finance && ['balances', 'Fund balances']].filter(Boolean);
+    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.plan && ['projects', 'Projects'], c.finance && ['balances', 'Fund balances only']].filter(Boolean);
     const later = [
-      c.finance && nb('Monthly GL export', 'Monthly GL upload', 3), c.finance && nb('Budget', 'Budget upload', 3),
+      c.finance && nb('Budget', 'Budget upload', 3),
       c.plan && nb('Goals', 'Goals upload', 5), (c.plan || c.finance) && nb('Measure results', 'Measure results upload', 5), c.plan && nb('Survey results', 'Survey upload', 5),
     ].filter(Boolean);
     return `
@@ -1241,7 +1241,7 @@
           <label class="field">File (.csv or .xlsx)<input type="file" data-upload-file accept=".csv,.xlsx,.txt"></label>
         </div>
         <p class="small muted" style="margin-top:10px">Nothing changes until you review what HighGround read and click Apply. The original file is kept.
-          Templates: <a href="#" data-action="downloadTemplate" data-kind="projects">projects</a>, <a href="#" data-action="downloadTemplate" data-kind="balances">fund balances</a>.</p>
+          Templates: <a href="#" data-action="downloadTemplate" data-kind="projects">projects</a>, <a href="#" data-action="downloadTemplate" data-kind="balances">fund balances</a>${c.finance ? ', <a href="#" data-action="downloadTemplate" data-kind="gl">a sample month-end GL export</a> (fictional)' : ''}.</p>
         ${c.plan && !UP.startFY ? `<div class="notice">Projects need the plan’s years first: set up <a href="#/d/${enc(c.district.slug)}/settings/setup">Starting numbers</a>.</div>` : ''}
       </div>` : '<p class="muted">Your role can see uploads but not add them.</p>'}
       <div id="upload-review"></div>
@@ -1259,15 +1259,101 @@
     const box = document.getElementById('upload-review');
     if (!fileEl || !fileEl.files.length) { box.innerHTML = ''; return; }
     UP.kind = kindEl.value; UP.file = fileEl.files[0];
-    if (UP.file.size > 10 * 1024 * 1024) throw new UserError('That file is over 10 MB. Project and balance lists are usually far smaller; check it’s the right file.');
+    if (UP.file.size > 10 * 1024 * 1024) throw new UserError('That file is over 10 MB. Month-end exports and project lists are usually far smaller; check it’s the right file.');
     UP.rows = await HGUploads.readTable(UP.file);
     if (UP.kind === 'projects') {
       if (!UP.startFY) throw new UserError('Set up Starting numbers first, so HighGround knows which years the plan covers.');
       UP.parsed = HGUploads.parseProjects(UP.rows, UP.startFY, UP.years || 10);
+    } else if (UP.kind === 'gl_monthly') {
+      const d = S.district.id;
+      const [accounts, set] = await Promise.all([
+        HG.db.selectAll('gl_account', `select=*&district_id=eq.${d}`),
+        HG.db.select('district_settings', `select=gl_layout&district_id=eq.${d}`).catch(() => []),
+      ]);
+      UP.gl = { accounts, saved: (set[0] && set[0].gl_layout) || null, sel: {}, cols: null };
+      glParse();
     } else UP.parsed = HGUploads.parseBalances(UP.rows);
     box.innerHTML = reviewHtml();
   }
+  /* ---- monthly GL export: columns, new accounts, balances preview ---- */
+  const GL_MAPS = [['fund_balance', 'Fund balance'], ['revenue', 'Revenue'], ['expense', 'Spending'], ['ignore', 'Leave out'], ['unmapped', 'Decide later']];
+  const GL_FUNDS = [['save', 'SAVE'], ['ppel', 'PPEL'], ['vppel', 'V-PPEL'], ['grants', 'Grants'], ['general', 'General Fund'], ['debt_levy', 'Debt Service'], ['other', 'Other']];
+  const GL_COLS = [['account', 'Account code'], ['description', 'Description'], ['month', 'Month to date'], ['ytd', 'Year to date'], ['budget', 'Budget'], ['encumbered', 'Encumbered']];
+  const normCell = (x) => String(x == null ? '' : x).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  function glParse() {
+    const G = UP.gl, detected = HGGL.detectLayout(UP.rows);
+    let layout = detected;
+    const headerCells = (UP.rows[detected.header] || []).map(normCell);
+    if (G.cols) layout = { header: detected.header, cols: G.cols };
+    else if (G.saved && JSON.stringify(G.saved.headerCells) === JSON.stringify(headerCells)) layout = { header: detected.header, cols: G.saved.cols, remembered: true };
+    layout.missing = [];
+    if (layout.cols.account == null && layout.cols.fund == null) layout.missing.push('account');
+    if (layout.cols.ytd == null && layout.cols.balance == null) layout.missing.push('ytd');
+    G.layout = layout; G.headerCells = headerCells;
+    G.P = HGGL.parse(UP.rows, layout);
+    G.rec = HGGL.reconcile(G.P.lines, G.accounts);
+    G.rec.fresh.forEach((f) => { if (!G.sel[f.line.code]) G.sel[f.line.code] = Object.assign({}, f.suggestion); });
+    const issues = G.P.issues.map((i) => ({ l: i.level === 'error' ? 'e' : 'w', m: i.text, row: i.row }));
+    layout.missing.forEach((k) => issues.unshift({ l: 'e', m: k === 'account' ? 'HighGround couldn’t find the account-code column. Choose it under “Columns”.' : 'HighGround couldn’t find the year-to-date amount column. Choose it under “Columns”.' }));
+    UP.parsed = { issues };
+  }
+  function glMapping() {
+    const G = UP.gl, m = {};
+    G.rec.known.forEach((k) => { m[k.line.code] = { maps_to: k.account.maps_to, mapped_fund: k.account.mapped_fund, sign: k.account.sign }; });
+    Object.assign(m, G.sel);
+    return m;
+  }
+  function glBalancesHtml() {
+    const G = UP.gl, B = HGGL.balances(G.P.lines, glMapping()), asOf = (document.querySelector('[data-upload-asof]') || {}).value;
+    const order = ['save', 'ppel', 'vppel', 'grants', 'debt_levy', 'general'].filter((f) => B[f]);
+    if (!order.length) return '<p class="muted">No accounts are matched to a fund yet.</p>';
+    const fmt = (v) => '$' + Math.round(v).toLocaleString('en-US');
+    return `<div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Fund balance accounts</th><th class="num">+ Revenue, year to date</th><th class="num">− Spending, year to date</th><th class="num">= Balance${asOf ? ' at ' + esc(day(asOf)) : ''}</th><th></th></tr></thead><tbody>
+      ${order.map((f) => { const x = B[f]; return `<tr><td>${HGGL.FUND_NAME[f]}</td><td class="num">${fmt(x.equity)}</td><td class="num">${fmt(x.revenue)}</td><td class="num">${fmt(x.spending)}</td><td class="num"><b>${fmt(x.balance)}</b></td>
+        <td>${x.hasEquity ? '<span class="st st-approved">Will update</span>' : '<span class="small muted">Won’t update: no fund-balance account matched</span>'}</td></tr>`; }).join('')}
+      </tbody></table></div>
+      <p class="small muted" style="margin-top:6px">Check these against the business office’s own fund balance report before applying. Applying makes them the plan’s balances as of that date.</p>`;
+  }
+  function glReviewHtml() {
+    const G = UP.gl, errs = UP.parsed.issues.filter((i) => i.l === 'e'), warns = UP.parsed.issues.filter((i) => i.l !== 'e');
+    const last = new Date(); last.setDate(0);
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const colOpt = (k) => `<option value="">Not in this file</option>${G.headerCells.map((h, i) => `<option value="${i}" ${G.layout.cols[k] === i ? 'selected' : ''}>${esc((UP.rows[G.layout.header] || [])[i] || 'Column ' + (i + 1))}</option>`).join('')}`;
+    const opt = (list, v) => list.map(([k, t]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${t}</option>`).join('');
+    const fmt = (v) => (v == null ? '' : '$' + Math.round(v).toLocaleString('en-US'));
+    return `<div class="card"><h3>Review: ${esc(UP.file.name)}</h3>
+      <div class="inline-form"><label class="field">Month-end date<input type="date" data-upload-asof value="${iso(last)}"></label></div>
+      ${errs.length ? `<div class="notice error">${errs.map((e) => esc(e.m)).join('<br>')}</div>` : ''}
+      ${warns.length ? `<div class="notice">${warns.slice(0, 8).map((e) => esc(e.m)).join('<br>')}${warns.length > 8 ? `<br>and ${warns.length - 8} more` : ''}</div>` : ''}
+      <details ${G.layout.missing.length ? 'open' : ''}><summary>Columns${G.layout.remembered ? ': the same layout as last time' : ''}</summary>
+        <div class="fgrid" style="margin-top:8px">${GL_COLS.map(([k, l]) => `<label class="field">${l}<select data-gl-col="${k}">${colOpt(k)}</select></label>`).join('')}</div>
+        <p class="small muted">HighGround remembers these for next month.</p></details>
+      <h3 style="margin-top:14px">${G.rec.fresh.length ? `${G.rec.fresh.length} new account${G.rec.fresh.length === 1 ? '' : 's'} to check` : 'No new accounts'}</h3>
+      <p class="small muted">${G.rec.known.length ? `${G.rec.known.length} account${G.rec.known.length === 1 ? '' : 's'} matched from earlier months. ` : ''}${G.rec.fresh.length ? 'HighGround suggests what each new account is from its Iowa account code; change any that are wrong. You won’t be asked about these again.' : ''}</p>
+      ${(() => {
+        if (!G.rec.fresh.length) return '';
+        const row = (f) => { const s2 = G.sel[f.line.code], c = esc(f.line.code); return `<tr><td><code>${c}</code></td><td>${esc(f.line.description)}</td><td class="small">${esc(f.about)}</td><td class="num">${fmt(f.line.ytd)}</td>
+          <td><select data-gl-map="${c}" aria-label="Use ${c} as">${opt(GL_MAPS, s2.maps_to)}</select></td>
+          <td><select data-gl-fund="${c}" aria-label="Fund for ${c}">${opt(GL_FUNDS, s2.mapped_fund || 'other')}</select></td>
+          <td><input type="checkbox" data-gl-sign="${c}" ${s2.sign === -1 ? 'checked' : ''} aria-label="Amounts for ${c} are negative in this export"></td></tr>`; };
+        // group by HighGround's first suggestion, so a long first month is a scan: unrecognised accounts open, the rest folded
+        const MAPN = Object.fromEntries(GL_MAPS), groups = new Map();
+        G.rec.fresh.forEach((f) => { const k = f.suggestion.maps_to === 'unmapped' ? 'unmapped' : `${f.suggestion.mapped_fund || 'other'}|${f.suggestion.maps_to}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(f); });
+        const order = ['save', 'ppel', 'vppel', 'grants', 'debt_levy', 'general', 'other'], mapOrder = ['fund_balance', 'revenue', 'expense', 'ignore'];
+        const keys = [...groups.keys()].sort((x, y) => (x === 'unmapped' ? -1 : y === 'unmapped' ? 1 : 0) || (order.indexOf(x.split('|')[0]) - order.indexOf(y.split('|')[0])) || (mapOrder.indexOf(x.split('|')[1]) - mapOrder.indexOf(y.split('|')[1])));
+        const head = '<thead><tr><th>Account</th><th>Description</th><th>Looks like</th><th class="num">Year to date</th><th>Use as</th><th>Fund</th><th>Negative in this export</th></tr></thead>';
+        return keys.map((k) => { const list = groups.get(k), [fund, maps] = k.split('|');
+          const title = k === 'unmapped' ? `Not recognised: ${list.length} account${list.length === 1 ? '' : 's'} to decide` : `${HGGL.FUND_NAME[fund] || fund}: ${MAPN[maps].toLowerCase()}, ${list.length} account${list.length === 1 ? '' : 's'}`;
+          return `<details class="glgroup" ${k === 'unmapped' || G.rec.fresh.length <= 25 ? 'open' : ''}><summary>${esc(title)}</summary>
+            <div class="scroll"><table class="data glmap">${head}<tbody>${list.map(row).join('')}</tbody></table></div></details>`; }).join('');
+      })()}
+      <h3 style="margin-top:14px">Balances this export gives</h3>
+      <div id="gl-balances">${glBalancesHtml()}</div>
+      <div class="row" style="margin-top:12px"><button type="button" class="btn primary" data-action="applyUpload" ${errs.length ? 'disabled' : ''}>Apply</button>
+        <button type="button" class="btn" data-action="cancelUpload">Cancel</button></div></div>`;
+  }
   function reviewHtml() {
+    if (UP.kind === 'gl_monthly') return glReviewHtml();
     const P = UP.parsed, errs = P.issues.filter((i) => i.l === 'e'), warns = P.issues.filter((i) => i.l === 'w');
     const issues = `${errs.length ? `<div class="notice error"><b>${errs.length} problem${errs.length === 1 ? '' : 's'} to fix before this can be applied:</b><br>${errs.map((i) => esc(i.m)).join('<br>')}</div>` : ''}
       ${warns.length ? `<div class="notice warn"><b>${warns.length === 1 ? '1 thing HighGround assumed. Check it:' : warns.length + ' things HighGround assumed. Check them:'}</b><br>${warns.map((i) => esc(i.m)).join('<br>')}</div>` : ''}`;
@@ -1306,9 +1392,9 @@
   async function applyUpload() {
     if (!UP.parsed || UP.parsed.issues.some((i) => i.l === 'e')) return;
     const d = S.district, batchId = crypto.randomUUID();
-    const kind = UP.kind === 'projects' ? 'projects' : 'balances';
+    const kind = UP.kind === 'projects' ? 'projects' : UP.kind === 'gl_monthly' ? 'gl_monthly' : 'balances';
     let asOf = null;
-    if (kind === 'balances') {
+    if (kind === 'balances' || kind === 'gl_monthly') {
       asOf = (document.querySelector('[data-upload-asof]') || {}).value;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf || '')) throw new UserError('Enter the date the balances are as of.');
     }
@@ -1327,7 +1413,21 @@
       }
       const issues = UP.parsed.issues.map((x) => ({ batch_id: batchId, district_id: d.id, row_no: x.row || null, severity: x.l === 'e' ? 'error' : 'warning', message: x.m }));
       if (issues.length) await HG.db.insert('import_issue', issues);
-      if (kind === 'projects') {
+      if (kind === 'gl_monthly') {
+        const G = UP.gl, fy = HGEngine.fyOfDate(asOf), idOf = new Map(G.accounts.map((a) => [a.code, a.id]));
+        const fresh = G.rec.fresh.map((f) => { const sel = G.sel[f.line.code], p = f.line.parts, id = (f.account && f.account.id) || crypto.randomUUID(); idOf.set(f.line.code, id);
+          return { id, district_id: d.id, code: f.line.code, fund_code: p.fund || null, facility_code: p.facility || null, function_code: p.function || null, program_code: p.program || null,
+            project_code: p.project || null, object_code: p.object || p.source || p.account || null, description: f.line.description || null,
+            account_type: HGGL.suggest(p).account_type, maps_to: sel.maps_to, mapped_fund: sel.mapped_fund || null, sign: sel.sign === -1 ? -1 : 1,
+            needs_review: sel.maps_to === 'unmapped', first_seen_batch: batchId }; });
+        if (fresh.length) await HG.db.upsert('gl_account', fresh, 'district_id,code');
+        const amounts = G.P.lines.map((l) => ({ district_id: d.id, batch_id: batchId, account_id: idOf.get(l.code), fiscal_year: fy, period_end: asOf,
+          month_amount: l.month, ytd_amount: l.ytd, budget_amount: l.budget, encumbered: l.encumbered }));
+        for (let i = 0; i < amounts.length; i += 500) await HG.db.insert('gl_amount', amounts.slice(i, i + 500));
+        await HG.db.update('district_settings', `district_id=eq.${d.id}`, { gl_layout: { headerCells: G.headerCells, cols: G.layout.cols } });
+        const B = HGGL.balances(G.P.lines, glMapping());
+        UP.glUpdated = ['save', 'ppel', 'vppel', 'grants', 'debt_levy', 'general'].filter((f) => B[f] && B[f].hasEquity).map((f) => HGGL.FUND_NAME[f]);
+      } else if (kind === 'projects') {
         const existing = await HG.db.select('initiative', `select=id,name&district_id=eq.${d.id}`);
         const byName = new Map(existing.map((x) => [x.name.toLowerCase().replace(/\s+/g, ' '), x.id]));
         const newInits = [], idFor = new Map();
@@ -1363,7 +1463,8 @@
       try { await HG.db.update('import_batch', `id=eq.${batchId}`, { status: 'discarded', notes: String(err.message || err).slice(0, 500) }); } catch (e) { /* keep the original error */ }
       throw err;
     }
-    toast('Upload applied', kind === 'projects' ? `“${scName}” is ready on the capital plan.` : `Balances as of ${day(asOf)} saved.`);
+    toast('Upload applied', kind === 'projects' ? `“${scName}” is ready on the capital plan.`
+      : kind === 'gl_monthly' ? `The ledger for ${day(asOf)} is in.${UP.glUpdated.length ? ` Balances updated: ${UP.glUpdated.join(', ')}.` : ' No fund balances changed.'}` : `Balances as of ${day(asOf)} saved.`);
     if (kind === 'projects') { CAP.key = d.id; CAP.scenarioId = createdScenario; go(`#/d/${enc(d.slug)}/resources/capital`); }
     else here();
   }
@@ -1426,7 +1527,12 @@
         <p>Everything about the plan in one file: starting numbers, balances, debt, projects, scenarios, phases, funding, financing, goals, measures, surveys, uploads and publishing history. Keep it somewhere safe.</p>
         <p class="small muted">Leaves out people and access (members, invitations, requests) and the activity log.</p>
         <button type="button" class="btn" data-action="exportBackup">Download backup (.json)</button></div>
-      <div class="row">${nb('Restore from a backup', 'Restoring a backup', 2)}</div>`;
+      ${c.admin ? `<div class="card"><h3>Restore from a backup</h3>
+        <p>Put the district’s plan back to how it was in a backup file made here. Everything in the plan is replaced with the backup’s contents; people, access and the activity log are not touched.</p>
+        <p class="small muted">Only a backup of this district can be restored. Before anything is replaced, HighGround downloads a fresh backup of the plan as it is now.</p>
+        <input type="file" accept="application/json,.json" data-restore-file hidden>
+        <button type="button" class="btn" data-action="restorePick">Choose a backup file</button>
+        <div data-restore-review></div></div>` : ''}`;
   }
   function saveFile(name, text, type) {
     const url = URL.createObjectURL(new Blob([text], { type: type || 'text/csv' }));
@@ -1466,6 +1572,61 @@
     toast('Backup downloaded', `${Object.values(data).reduce((a, x) => a + x.length, 0).toLocaleString()} rows from ${BACKUP_TABLES.length} tables.`);
   }
 
+  const RESTORE = { data: null };
+  // order matters: parents before the rows that point to them
+  const RESTORE_ORDER = ['district_settings', 'assumption_set', 'priority', 'outcome', 'measure', 'measure_value', 'survey', 'survey_result', 'initiative', 'scenario',
+    'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing', 'import_batch', 'fund_balance', 'debt_obligation', 'project_request', 'publication', 'report_snapshot'];
+  const ERASE_ORDER = ['publication', 'report_snapshot', 'project_request', 'scenario', 'measure', 'outcome', 'survey', 'initiative', 'priority', 'assumption_set',
+    'debt_obligation', 'fund_balance', 'import_batch', 'district_settings'];
+  async function restoreRead(file) {
+    const box = document.querySelector('[data-restore-review]');
+    let b; try { b = JSON.parse(await file.text()); } catch (e) { throw new UserError('That file isn’t a HighGround backup (it couldn’t be read).'); }
+    if (!b || b.kind !== 'HighGround district backup' || !b.tables) throw new UserError('That file isn’t a HighGround backup.');
+    if (!b.district || b.district.id !== S.district.id) throw new UserError(`That backup is from ${b.district && b.district.name ? '“' + b.district.name + '”' : 'another district'}. Only a backup of ${S.district.name} can be restored here.`);
+    RESTORE.data = b;
+    const counts = [['scenario', 'scenario', 'scenarios'], ['initiative', 'initiative', 'initiatives'], ['phase', 'phase', 'phases'], ['recurring_cost', 'yearly cost', 'yearly costs'],
+      ['financing', 'financing item', 'financing items'], ['fund_balance', 'fund balance', 'fund balances'], ['debt_obligation', 'debt', 'debts'], ['assumption_set', 'assumption set', 'assumption sets']]
+      .map(([t, one, many]) => { const n = (b.tables[t] || []).length; return `${n} ${n === 1 ? one : many}`; }).join(' · ');
+    box.innerHTML = `<div class="notice" style="margin-top:12px"><p><b>Backup from ${esc(new Date(b.exported_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }))}</b>${b.exported_by ? `, made by ${esc(b.exported_by)}` : ''}.</p>
+      <p class="small">${counts}.</p>
+      <button type="button" class="btn danger" data-action="restoreRun">Replace the plan with this backup</button></div>`;
+  }
+  async function restoreRun() {
+    const b = RESTORE.data, d = S.district;
+    if (!b) return;
+    const typed = prompt(`This replaces ${d.name}’s whole plan with the backup. A backup of the current plan downloads first.\n\nType the district’s link id (${d.slug}) to continue.`);
+    if ((typed || '').trim().toLowerCase() !== d.slug) { toast('Not restored', 'The link id didn’t match, so nothing changed.', 'notbuilt'); return; }
+    await exportBackup();   // the safety net, before anything is erased
+    try { await restoreWrite(b, d); }
+    catch (err) {
+      RESTORE.data = null;
+      throw new UserError(`The restore stopped partway (${err.message}). The plan may be incomplete. Restore again using the backup that downloaded just before it started.`);
+    }
+    RESTORE.data = null;
+    toast('Plan restored', `${d.name} is back to the backup from ${new Date(b.exported_at).toLocaleDateString('en-US', { dateStyle: 'medium' })}.`);
+    here();
+  }
+  async function restoreWrite(b, d) {
+    for (const t of ERASE_ORDER) await HG.db.removeAll(t, `district_id=eq.${d.id}`);
+    const locked = [];
+    const clean = (t, r) => {
+      const x = Object.assign({}, r, { district_id: d.id });
+      delete x.created_by; delete x.updated_by;                                  // the person restoring becomes the creator
+      if ('owner_user_id' in x) x.owner_user_id = null;                          // accounts in the backup may no longer exist
+      if (t === 'project_request' && 'user_id' in x) x.user_id = null;
+      if (t === 'scenario') { if (x.is_locked) locked.push(x.id); x.is_locked = false; }   // lock again once its contents are back
+      return x;
+    };
+    for (const t of RESTORE_ORDER) {
+      let rows = (b.tables[t] || []).map((r) => clean(t, r));
+      // every row in a batch must carry the same fields (an older backup may lack a newer one)
+      const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+      rows = rows.map((r) => Object.fromEntries(keys.map((k) => [k, r[k] === undefined ? null : r[k]])));
+      for (let k = 0; k < rows.length; k += 500) await HG.db.insert(t, rows.slice(k, k + 500));
+    }
+    for (const id of locked) await HG.db.update('scenario', `id=eq.${id}`, { is_locked: true });
+  }
+
   // ---------------------------------------------------------------- activity (audit log)
   const TABLE_NAMES = { district: 'District', district_member: 'Member', invitation: 'Invitation', district_settings: 'Starting numbers',
     debt_obligation: 'Debt', fund_balance: 'Fund balance', initiative: 'Project', scenario: 'Scenario', phase: 'Phase', phase_funding: 'Fund split',
@@ -1501,6 +1662,17 @@
 
 
   // ------------------------------------------------------------------ views: Settings
+  async function uploadLogo(file) {
+    const d = S.district;
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new UserError('Use a PNG, JPEG or WebP image.');
+    if (file.size > 2 * 1024 * 1024) throw new UserError('That image is over 2 MB. Save a smaller copy and try again.');
+    const path = `${d.id}/logo-${Date.now()}.${file.type.split('/')[1].replace('jpeg', 'jpg')}`;
+    await HG.storage.replace('district-public', path, file);
+    const old = d.logo_path;
+    await HG.db.update('district', `id=eq.${d.id}`, { logo_path: path });
+    if (old) { try { await HG.storage.remove('district-public', [old]); } catch (e) { /* the old file can stay */ } }
+    await loadContext(true); toast('Logo updated'); here();
+  }
   async function vDistrict(c) {
     const d = c.district;
     let dom = null;
@@ -1521,8 +1693,15 @@
           <p class="small muted">Link id: <b>${esc(d.slug)}</b> (set when the district is created)</p>
           ${c.admin ? '<div><button class="btn primary" type="submit">Save changes</button></div>' : '<p class="small muted">Only a district admin can change these.</p>'}
         </form></div>
-      <div class="row">${c.admin ? nb('Upload a logo', 'Logo upload', 1) : ''}${c.finance ? `<a class="btn" href="#/d/${enc(d.slug)}/settings/setup">Starting numbers</a>` : ''}</div>
-      ${wip({ phase: 1, items: ['Logo'], uses: 'storage bucket district-public' })}`;
+      <div class="card"><h3>Logo</h3>
+        <div class="row" style="align-items:center;gap:18px">
+          ${d.logo_path ? `<img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt="${esc(d.name)} logo" class="logo-preview">` : `<span class="tile big" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>`}
+          <div class="stack" style="gap:6px">
+            <p class="small muted">Shown in the district menu and on the public board page. PNG, JPEG or WebP, up to 2 MB; a square image works best.</p>
+            ${c.admin ? `<div class="row"><label class="btn">${d.logo_path ? 'Replace logo' : 'Upload a logo'}<input type="file" accept="image/png,image/jpeg,image/webp" data-logo-file hidden></label>
+              ${d.logo_path ? '<button type="button" class="btn danger" data-action="removeLogo">Remove</button>' : ''}</div>` : '<p class="small muted">A district admin can change it.</p>'}
+          </div></div></div>
+      <div class="row">${c.finance ? `<a class="btn" href="#/d/${enc(d.slug)}/settings/setup">Starting numbers</a>` : ''}</div>`;
   }
   async function vPeople(c) {
     const d = c.district.id;
@@ -1621,7 +1800,7 @@
   // ------------------------------------------------------------------ Willow Holler staff
   async function renderStaff() {
     S.district = null; S.role = null;
-    const rows = await HG.db.select('district', 'select=id,slug,name,state,is_demo,public_link_enabled,created_at&order=name');
+    const rows = await HG.db.select('district', 'select=id,slug,name,state,is_demo,public_link_enabled,logo_path,created_at&order=name');
     S.staffDistricts = rows;
     frame({ slug: null, sectionId: 'staff', body: `
       <div class="page-head"><div><h1>Willow Holler</h1><div class="lede">Every district, and new ones.</div></div><div class="right">${badge('live')}</div></div>
@@ -1977,7 +2156,7 @@
     }
     app.innerHTML = `
       <div class="main">
-        <header class="topbar"><span class="brand pub-brand">${LOGO_COLOR}<span class="small muted">powered by Willow Holler</span></span>
+        <header class="topbar"><span class="brand pub-brand">${d && d.logo_path ? `<img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt="${esc(d.name)} logo" class="pub-dlogo">` : ''}${LOGO_COLOR}<span class="small muted">powered by Willow Holler</span></span>
           <span class="spacer"></span><a class="btn small" href="#/signin">Sign in</a></header>
         <main class="content">${body}</main>
       </div>`;
@@ -2138,7 +2317,11 @@
     async saveLevers() { await saveLevers(); },
     async applyUpload() { await applyUpload(); },
     async cancelUpload() { const f = document.querySelector('[data-upload-file]'); if (f) f.value = ''; document.getElementById('upload-review').innerHTML = ''; UP.parsed = null; },
-    async downloadTemplate(el) { if (el.dataset.kind === 'projects') saveText('highground-projects-template.csv', HGUploads.projectTemplate(UP.startFY || 2027)); else saveText('highground-balances-template.csv', HGUploads.balanceTemplate()); },
+    async downloadTemplate(el) {
+      if (el.dataset.kind === 'projects') saveText('highground-projects-template.csv', HGUploads.projectTemplate(UP.startFY || 2027));
+      else if (el.dataset.kind === 'gl') saveText('highground-sample-gl-export-2026-09-30.csv', HGUploads.toCSV(HGGL.sampleExport()));
+      else saveText('highground-balances-template.csv', HGUploads.balanceTemplate());
+    },
     async downloadUpload(el) { const b = await HG.storage.download('district-files', el.dataset.path); const url = URL.createObjectURL(b); const a = document.createElement('a'); a.href = url; a.download = el.dataset.name || 'upload'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); },
     async publishBoard() { await publishBoard(); },
     async withdrawBoard(el) { await withdrawBoard(el); },
@@ -2146,6 +2329,15 @@
     async removeDebtRow(el) { const f = el.closest('form'); el.closest('[data-debt-row]').remove(); renderSetupChecks(f); },
     async capReset() { if (CAP.pub) { CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers)); const el = document.getElementById('cap-levers'); if (el) el.innerHTML = capLeversHtml(); capRefresh(); } else { capLoadScenario(); here(); } },
     async resetDemo(el) { await resetDemo(el); },
+    async removeLogo() {
+      if (!confirm('Remove the district’s logo? Its initials will show instead.')) return;
+      const old = S.district.logo_path;
+      await HG.db.update('district', `id=eq.${S.district.id}`, { logo_path: null });
+      try { await HG.storage.remove('district-public', [old]); } catch (e) { /* fine */ }
+      await loadContext(true); toast('Logo removed'); here();
+    },
+    async restorePick() { document.querySelector('[data-restore-file]').click(); },
+    async restoreRun() { await restoreRun(); },
     async loadDemo(el) { await loadDemo(el); },
     async signOut() { await HG.auth.signOut(); S.loaded = false; go('#/signin', 'You’re signed out.'); },
     async recheck() { await loadContext(true); go('#/'); },
@@ -2246,6 +2438,10 @@
     const lc = e.target.closest('input[type=checkbox][data-lever]');
     if (lc && CAP.inputs) { CAP.levers[lc.dataset.lever] = lc.checked; capRefresh(); return; }
     if (e.target.closest('[data-upload-file]') || (e.target.closest('[data-upload-kind]') && document.querySelector('[data-upload-file]').files.length)) { run(readUpload); return; }
+    const lf = e.target.closest('[data-logo-file]');
+    if (lf && lf.files[0]) { run(() => uploadLogo(lf.files[0]), lf.closest('label')); return; }
+    const rf = e.target.closest('[data-restore-file]');
+    if (rf && rf.files[0]) { run(() => restoreRead(rf.files[0]), rf); return; }
     const cp = e.target.closest('[data-cmp-pick]');
     if (cp) {
       const on = [...document.querySelectorAll('[data-cmp-pick]:checked')].map((x) => x.value);
@@ -2259,6 +2455,16 @@
     if (rt) { run(async () => { await HG.db.update('initiative', `id=eq.${enc(rt.dataset.rankTier)}`, { tier: rt.value || null, engine_priority: ({ must: 'High', strategic: 'Med', nice: 'Low' })[rt.value] || null }); here(); }, rt); return; }
     const es = e.target.closest('[data-ed-scenario]');
     if (es) { ED.sid = es.value || null; const f = es.closest('form'); f.querySelector('[data-cost-section]').innerHTML = costSectionHtml(f.dataset.id || null); return; }
+    const gc = e.target.closest('[data-gl-col]');
+    if (gc) { UP.gl.cols = Object.assign({}, UP.gl.layout.cols, { [gc.dataset.glCol]: gc.value === '' ? undefined : Number(gc.value) }); glParse(); document.getElementById('upload-review').innerHTML = reviewHtml(); return; }
+    const gm = e.target.closest('[data-gl-map], [data-gl-fund], [data-gl-sign]');
+    if (gm) {
+      const code = gm.dataset.glMap || gm.dataset.glFund || gm.dataset.glSign, sel = UP.gl.sel[code];
+      if (gm.dataset.glMap) sel.maps_to = gm.value; else if (gm.dataset.glFund) sel.mapped_fund = gm.value; else sel.sign = gm.checked ? -1 : 1;
+      document.getElementById('gl-balances').innerHTML = glBalancesHtml(); return;
+    }
+    const ua = e.target.closest('[data-upload-asof]');
+    if (ua && UP.kind === 'gl_monthly' && document.getElementById('gl-balances')) { document.getElementById('gl-balances').innerHTML = glBalancesHtml(); }
     const pk = e.target.closest('[data-pick-init]');
     if (pk) { openProjectEditor(pk.value || null); return; }
     const isd = e.target.closest('[data-ini-sid]');

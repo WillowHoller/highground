@@ -59,6 +59,7 @@ def uid_from(req):
   a=req.headers.get("authorization","")
   return a[len("Bearer tok-"):].split(".")[0] if a.startswith("Bearer tok-") else None
 FN={"fail":False}
+PROMPT={"text":None}
 DBFAIL={"phase":False}
 def user_obj(email):
   u=USERS[email]; o={"id":u[0],"email":email,"user_metadata":{"full_name":u[1]}}
@@ -67,7 +68,12 @@ def user_obj(email):
 def email_of(uid): return next((e for e,u in USERS.items() if u[0]==uid),None)
 async def handler(route):
   req=route.request; url=urllib.parse.urlparse(req.url); path=url.path; q=urllib.parse.parse_qs(url.query)
-  body=req.post_data; calls.append((req.method,path+"?"+url.query,body,req.headers.get("prefer","")))
+  body=None
+  try: body=req.post_data
+  except Exception: body="<binary>"
+  calls.append((req.method,path+"?"+url.query,body,req.headers.get("prefer","")))
+  if path.startswith("/storage/v1/object/public/"):   # public logos load like any image, without a key
+    import base64 as _b; return await route.fulfill(status=200,content_type="image/png",body=_b.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="))
   assert req.headers.get("apikey")=="sb_publishable_TESTKEY_abcdefghijklmnop", "missing apikey"
   def ok(data,status=200): return route.fulfill(status=status,content_type="application/json",body=json.dumps(data))
   uid=uid_from(req); em=email_of(uid) if uid else None
@@ -94,6 +100,10 @@ async def handler(route):
   if path=="/auth/v1/signup": return await ok({"id":"u-x","email":json.loads(body)["email"]})
   if path=="/auth/v1/recover": return await ok({})
   if path=="/auth/v1/logout": return await route.fulfill(status=204,body="")
+  if path.startswith("/storage/v1/object/district-public/") and req.method=="POST":
+    return await ok({"Key":path.split("/object/")[1]})
+  if path=="/storage/v1/object/district-public" and req.method=="DELETE":
+    return await ok([{"name":"x"}])
   if path.startswith("/storage/v1/object/district-files/") and req.method=="POST":
     return await ok({"Key":path.split("/object/")[1]})
   if path=="/rest/v1/rpc/copy_scenario": return await ok("copied-scenario-id")
@@ -155,7 +165,7 @@ async def main():
     ctx=await b.new_context(viewport={"width":1360,"height":900})
     async def cfg(route): await route.fulfill(content_type="application/javascript",body="window.HG_CONFIG={supabaseUrl:'%s',publishableKey:'sb_publishable_TESTKEY_abcdefghijklmnop'};"%SB)
     await ctx.route("**/config.js",cfg); await ctx.route(SB+"/**",handler); await ctx.route("**/fonts.g*/**",lambda r:r.abort())
-    pg=await ctx.new_page(); pg.on("dialog",lambda dl: asyncio.ensure_future(dl.accept(dl.default_value) if dl.type=="prompt" else dl.accept())); pg.on("pageerror",lambda e:errs.append(str(e))); pg.on("console",lambda m: errs.append("console: "+m.text) if m.type=="error" and "fonts" not in m.text and "ERR_FAILED" not in m.text else None)
+    pg=await ctx.new_page(); pg.on("dialog",lambda dl: asyncio.ensure_future(dl.accept(PROMPT["text"] if PROMPT["text"] is not None else dl.default_value) if dl.type=="prompt" else dl.accept())); pg.on("pageerror",lambda e:errs.append(str(e))); pg.on("console",lambda m: errs.append("console: "+m.text) if m.type=="error" and "fonts" not in m.text and "ERR_FAILED" not in m.text else None)
     await pg.goto("http://localhost:8765/"); await pg.wait_for_timeout(500)
     check("no session goes to sign in", "Sign in" in await pg.inner_text("h1"))
     await pg.screenshot(path=SHOTS+"/signin.png")
@@ -342,9 +352,9 @@ async def main():
     pl=json.loads(pp[0][2])["payload"] if pp else {}
     check("publish: sends the board version as a frozen copy", pp and len(pl.get("projects",[]))==16 and pl["settings"]["save"]["receipts"]==1420000 and json.loads(pp[0][2])["kind"]=="board_plan", str(len(pl.get("projects",[]))))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pg.wait_for_timeout(300)
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/exports"); await pg.wait_for_timeout(400)
-    await pg.click("text=Restore from a backup"); await pg.wait_for_timeout(200)
-    check("not-built button throws and shows message", "Restoring a backup isn't built yet (planned for Phase 2)" in (await pg.inner_text("#toasts")).replace("’","'"))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/priorities"); await pg.wait_for_timeout(400)
+    await pg.click("text=Add a priority"); await pg.wait_for_timeout(200)
+    check("not-built button throws and shows message", "Adding priorities isn't built yet (planned for Phase 5)" in (await pg.inner_text("#toasts")).replace("’","'"))
     # invite
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/people"); await pg.wait_for_timeout(400)
     await pg.fill("form[data-form=invite] input[name=email]","New.Person@Example.test"); await pg.select_option("form[data-form=invite] select","editor")
@@ -388,6 +398,7 @@ async def main():
     import openpyxl, io
     TEMPLATE=subprocess.check_output(["node","-e","process.stdout.write(require('./uploads.js').projectTemplate(2027))"],cwd=os.path.dirname(os.path.abspath(__file__)))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(400)
+    await pg.select_option("select[data-upload-kind]","projects")
     await pg.set_input_files("input[data-upload-file]",files=[{"name":"projects.csv","mimeType":"text/csv","buffer":TEMPLATE}]); await pg.wait_for_timeout(500)
     t=await pg.inner_text("#upload-review")
     check("upload: review shows what was read", "4 projects, 5 phases" in t and "midpoint" in t and "Track resurface" in t, t[:200])
@@ -405,11 +416,13 @@ async def main():
     check("upload: lands on the capital plan", "/resources/capital" in pg.url)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(400)
     bad=b"Project,FY,Estimate,Funding source\r\nFar away,FY2040,1000,SAVE\r\n"
+    await pg.select_option("select[data-upload-kind]","projects")
     await pg.set_input_files("input[data-upload-file]",files=[{"name":"bad.csv","mimeType":"text/csv","buffer":bad}]); await pg.wait_for_timeout(400)
     check("upload: errors block Apply", "outside this plan" in await pg.inner_text("#upload-review") and await pg.is_disabled("button[data-action=applyUpload]"))
     wb=openpyxl.Workbook(); ws=wb.active
     for r in [["Project","FY","Estimate","Funding source","Funding %"],["Chiller replacement","FY2029",640000,"SAVE",1],["Parking lot","2030-31","$95k","PPEL",1]]: ws.append(r)
     bio=io.BytesIO(); wb.save(bio)
+    await pg.select_option("select[data-upload-kind]","projects")
     await pg.set_input_files("input[data-upload-file]",files=[{"name":"projects.xlsx","mimeType":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","buffer":bio.getvalue()}]); await pg.wait_for_timeout(600)
     t=await pg.inner_text("#upload-review")
     check("upload: Excel files are read", "2 projects" in t and "Chiller replacement" in t and "FY2031: $95,000" in t, t[:200])
@@ -426,6 +439,54 @@ async def main():
       await pg.click("a[data-action=downloadTemplate][data-kind=projects]")
     d=await dl.value
     check("upload: template downloads", d.suggested_filename=="highground-projects-template.csv")
+    # Phase 3A: monthly GL export
+    GLCSV=subprocess.check_output(["node","-e","process.stdout.write(require('./uploads.js').toCSV(require('./gl.js').sampleExport()))"],cwd=os.path.dirname(os.path.abspath(__file__)))
+    TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(500)
+    check("GL: offered first to business staff", await pg.input_value("select[data-upload-kind]")=="gl_monthly")
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"gl-2026-09.csv","mimeType":"text/csv","buffer":GLCSV}]); await pg.wait_for_timeout(600)
+    rv=await pg.inner_text("#upload-review")
+    check("GL: every account is new the first time, each with a suggestion", "21 new accounts to check" in rv and "SAVE spending, facilities acquisition" in rv, rv[:300])
+    await pg.fill("input[data-upload-asof]","2026-09-30"); await pg.dispatch_event("input[data-upload-asof]","change"); await pg.wait_for_timeout(200)
+    bal=await pg.inner_text("#gl-balances")
+    check("GL: balances previewed before applying (fund balance + revenue − spending)", "$1,309,086" in bal and "$788,200" in bal and "Will update" in bal and "Sep 30, 2026" in bal, bal[:400])
+    await pg.locator("#upload-review").screenshot(path=SHOTS+"/gl-review.png")
+    await pg.select_option("select[data-gl-map='33-0000-000-0000-101']","fund_balance"); await pg.wait_for_timeout(200)
+    check("GL: changing an account updates the preview at once", "$2,510,968" in await pg.inner_text("#gl-balances"))
+    await pg.select_option("select[data-gl-map='33-0000-000-0000-101']","ignore"); await pg.wait_for_timeout(200)
+    n0=len(calls); await pg.click("button[data-action=applyUpload]"); await pg.wait_for_timeout(1200)
+    new=calls[n0:]
+    ib=[json.loads(c[2]) for c in new if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/import_batch"]
+    ga=[json.loads(c[2]) for c in new if c[0]=="POST" and c[1].startswith("/rest/v1/gl_account")]
+    gm=[json.loads(c[2]) for c in new if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/gl_amount"]
+    lay=[json.loads(c[2]) for c in new if c[0]=="PATCH" and "/rest/v1/district_settings?" in c[1]]
+    check("GL: the import is kept, dated, as a monthly GL", ib and ib[0]["kind"]=="gl_monthly" and ib[0]["period_end"]=="2026-09-30" and ib[0]["fiscal_year"]==2027, str(ib)[:200])
+    check("GL: accounts saved with what they are, and not asked about again", ga and len(ga[0])==21 and "on_conflict=district_id%2Ccode" in next(c[1] for c in new if c[1].startswith("/rest/v1/gl_account"))
+          and next(a for a in ga[0] if a["code"]=="33-0000-000-0000-101")["maps_to"]=="ignore" and all(not a["needs_review"] for a in ga[0]), str(ga)[:300])
+    ids={a["code"]:a["id"] for a in ga[0]} if ga else {}
+    check("GL: every month's amounts saved against their accounts", gm and len(gm[0])==21 and all(x["account_id"] in ids.values() for x in gm[0]) and any(x["ytd_amount"]==295236 for x in gm[0]))
+    check("GL: the layout is remembered", lay and lay[0]["gl_layout"]["cols"]["ytd"]==3)
+    check("GL: applied, with the balances it updated named", any("rpc/apply_import" in c[1] for c in new) and "Balances updated: SAVE, PPEL, Debt Service, General Fund" in await pg.inner_text("#toasts"))
+    # month two: the same accounts and layout are remembered
+    TABLES["gl_account"]=[dict(a, needs_review=False) for a in ga[0]]
+    for st0 in TABLES["district_settings"]: st0["gl_layout"]=lay[0]["gl_layout"]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(500)
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"gl-2026-10.csv","mimeType":"text/csv","buffer":GLCSV}]); await pg.wait_for_timeout(600)
+    rv=await pg.inner_text("#upload-review")
+    check("GL: next month, nothing new to check, same layout", "No new accounts" in rv and "21 accounts matched from earlier months" in rv and "the same layout as last time" in rv, rv[:300])
+    await pg.click("button[data-action=cancelUpload]"); await pg.wait_for_timeout(200)
+    # a big first month: grouped and folded, with unrecognised accounts open
+    TABLES["gl_account"]=[]
+    lines=[GLCSV.decode().rstrip()]+["10-0%03d-1100-100-0000-111,Salaries building %d,1.00,%d.00,,"%(i,i,1000+i) for i in range(1,60)]+["XYZ-9,Odd account,1.00,5.00,,"]
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"big.csv","mimeType":"text/csv","buffer":("\r\n".join(lines)+"\r\n").encode()}]); await pg.wait_for_timeout(700)
+    grp=pg.locator("details.glgroup")
+    titles=await grp.locator("summary").all_inner_texts()
+    opened=[await grp.nth(i).get_attribute("open") is not None for i in range(await grp.count())]
+    check("GL: a long first month is grouped, unrecognised accounts first and open, the rest folded", titles and titles[0].startswith("Not recognised: 1 account") and opened[0] and not all(opened[1:]) and any(t.startswith("General Fund: spending, 6") for t in titles), str(list(zip(titles,opened)))[:300])
+    await pg.click("button[data-action=cancelUpload]"); await pg.wait_for_timeout(200)
+    TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]
     # starting numbers
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(500)
     v=await pg.input_value("input[name=save_receipts]"); g=await pg.input_value("input[name=ppel_growth]")
@@ -627,7 +688,49 @@ async def main():
     check("exports: every scenario's phases in one sheet", len(prow)==EXP["phases"] and {r["Scenario"] for r in prow}=={"District baseline","Addition phased, bond in FY2030"}, str(len(prow)))
     async with pg.expect_download() as dl: await pg.click("button[data-action=exportBackup]")
     f=await dl.value; bk=json.load(open(await f.path()))
+    BACKUP_PATH=await f.path()
     check("exports: full backup has the plan, not people", bk["kind"]=="HighGround district backup" and len(bk["tables"]["phase"])==EXP["phases"] and "district_member" not in bk["tables"] and "audit_log" not in bk["tables"])
+    # restore from a backup
+    import shutil; shutil.copy(BACKUP_PATH,"/tmp/hg-backup.json")
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/exports"); await pg.wait_for_timeout(500)
+    check("restore: offered to admins, with the safety note", "Restore from a backup" in await pg.inner_text("#view") and "downloads a fresh backup" in await pg.inner_text("#view"))
+    other=json.load(open("/tmp/hg-backup.json")); other["district"]["id"]="d-somewhere-else"; other["district"]["name"]="Another CSD"; json.dump(other,open("/tmp/hg-other.json","w"))
+    await pg.set_input_files("input[data-restore-file]","/tmp/hg-other.json"); await pg.wait_for_timeout(400)
+    check("restore: a backup from another district is refused", "That backup is from “Another CSD”" in await pg.inner_text("#toasts"))
+    await pg.set_input_files("input[data-restore-file]","/tmp/hg-backup.json"); await pg.wait_for_timeout(400)
+    rv=await pg.inner_text("[data-restore-review]")
+    check("restore: shows what the backup holds before anything changes", "Backup from" in rv and "2 scenarios" in rv and ("%d initiatives"%len(TABLES["initiative"])) in rv and "1 yearly cost ·" in rv, rv[:200])
+    PROMPT["text"]="wrong-district"; n0=len(calls); await pg.click("button[data-action=restoreRun]"); await pg.wait_for_timeout(400)
+    check("restore: a mistyped link id changes nothing", "Not restored" in await pg.inner_text("#toasts") and not any(c[0] in ("DELETE","POST") for c in calls[n0:]))
+    PROMPT["text"]="ironwood-valley"; n0=len(calls)
+    async with pg.expect_download() as dl2: await pg.click("button[data-action=restoreRun]")
+    safety=await dl2.value; await pg.wait_for_timeout(1500); PROMPT["text"]=None
+    new=calls[n0:]
+    dels=[c[1].split("?")[0].split("/")[-1] for c in new if c[0]=="DELETE"]
+    posts=[c[1].split("?")[0].split("/")[-1] for c in new if c[0]=="POST"]
+    locks=[c for c in new if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1] and '"is_locked": true' in (c[2] or "").replace('":true','": true')]
+    first_del=next(k for k,c in enumerate(new) if c[0]=="DELETE")
+    check("restore: a safety backup downloads before anything is erased", safety.suggested_filename.endswith("-backup.json") and first_del>0)
+    check("restore: erases the plan, then puts every table back in order", dels==["publication","report_snapshot","project_request","scenario","measure","outcome","survey","initiative","priority","assumption_set","debt_obligation","fund_balance","import_batch","district_settings"]
+          and posts[:3]==["district_settings","initiative","scenario"] and posts.index("phase")>posts.index("scenario") and posts.index("fund_balance")>posts.index("phase"), str(posts))
+    scen=[json.loads(c[2]) for c in new if c[0]=="POST" and c[1].split("?")[0].endswith("/scenario")][0]
+    check("restore: scenarios go back unlocked, then the locked ones are locked again", all(x["is_locked"] is False for x in scen) and len(locks)==sum(1 for sc in TABLES["scenario"] if sc.get("is_locked")), f"{len(locks)} locks")
+    check("restore: says it's done", "Plan restored" in await pg.inner_text("#toasts"))
+    # district logo
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/district"); await pg.wait_for_timeout(500)
+    import base64 as _b64
+    open("/tmp/logo.png","wb").write(_b64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="))
+    n0=len(calls); await pg.set_input_files("input[data-logo-file]","/tmp/logo.png"); await pg.wait_for_timeout(700)
+    up=[c for c in calls[n0:] if c[0]=="POST" and "/storage/v1/object/district-public/d1/logo-" in c[1]]
+    lp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/district?" in c[1]]
+    check("logo: uploads to the district's public folder and is saved on the district", up and lp and lp[0]["logo_path"].startswith("d1/logo-") and lp[0]["logo_path"].endswith(".png"), str(lp))
+    open("/tmp/notimage.txt","w").write("hello")
+    await pg.set_input_files("input[data-logo-file]",{"name":"logo.txt","mimeType":"text/plain","buffer":b"hello"}); await pg.wait_for_timeout(300)
+    check("logo: only images are accepted", "Use a PNG, JPEG or WebP image" in await pg.inner_text("#toasts"))
+    D1["logo_path"]="d1/logo-1.png"
+    await pg.goto("http://localhost:8765/#/p/ironwood-valley"); await pg.wait_for_timeout(700)
+    check("logo: shown on the public board page", await pg.locator("img.pub-dlogo[src*='/storage/v1/object/public/district-public/d1/logo-1.png']").count()==1)
+    del D1["logo_path"]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/activity"); await pg.wait_for_timeout(500)
     t=await pg.inner_text("#view")
     check("activity: who changed what, before and after", "Pat Admin" in t and "Project: Gym floor" in t and "focus area: Facilities → Activities" in t and "updated at" not in t)

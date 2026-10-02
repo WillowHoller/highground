@@ -185,6 +185,11 @@
     upload: (bucket, path, file) => call(`/storage/v1/object/${bucket}/${encPath(path)}`,
       { method: 'POST', body: file, raw: true, headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' } }),
     download: (bucket, path) => call(`/storage/v1/object/authenticated/${bucket}/${encPath(path)}`, { blob: true }),
+    replace: (bucket, path, file) => call(`/storage/v1/object/${bucket}/${encPath(path)}`,
+      { method: 'POST', body: file, raw: true, headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'true' } }),
+    remove: (bucket, paths) => call(`/storage/v1/object/${bucket}`, { method: 'DELETE', body: { prefixes: paths } }),
+    /** a file in a public bucket (district logos) */
+    publicUrl: (bucket, path) => `${BASE}/storage/v1/object/public/${bucket}/${encPath(path)}`,
   };
   /** Call a Supabase Edge Function as the signed-in user. */
   HG.fn = (name, body) => call(`/functions/v1/${name}`, { method: 'POST', body: body || {} });

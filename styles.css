@@ -254,3 +254,16 @@ ul.flags{margin:6px 0;padding-left:20px} ul.flags li{margin:4px 0}
 table.captable td{vertical-align:top}
 table.captable tfoot th{border-top:2px solid var(--text);text-align:left}
 table.captable tfoot th.num{text-align:right}
+
+/* ---------- district logo ---------- */
+.tile.logo{background:#fff;border:1px solid var(--border);padding:2px;overflow:hidden}
+.tile.logo img{width:100%;height:100%;object-fit:contain;display:block}
+.tile.big{width:64px;height:64px;font-size:22px;border-radius:12px}
+.logo-preview{width:96px;height:96px;object-fit:contain;border:1px solid var(--border);border-radius:12px;background:#fff;padding:6px}
+.pub-dlogo{height:40px;width:auto;max-width:120px;object-fit:contain;margin-right:6px}
+
+table.glmap select{max-width:150px}
+table.glmap code{font-size:12px;white-space:nowrap}
+details summary{cursor:pointer;font-weight:600;margin-top:10px}
+details.glgroup{border:1px solid var(--border);border-radius:8px;padding:6px 12px;margin:8px 0;background:#fff}
+details.glgroup summary{margin:4px 0}
