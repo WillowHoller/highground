@@ -100,18 +100,9 @@ def sha_file(path):
     return h.hexdigest()
 
 
-def read_text(kind, src_path):
-    """Return the file as text, whatever the state sends: plain, gzip or zip; UTF-8, UTF-16 or Windows-1252."""
-    data = open(src_path, "rb").read()
-    fmt = "plain"
-    if data[:2] == b"\x1f\x8b":
-        data, fmt = gzip.decompress(data), "gzip"
-    elif data[:2] == b"PK":
-        z = zipfile.ZipFile(io.BytesIO(data))
-        name = next((n for n in z.namelist() if n.lower().endswith(".csv")), z.namelist()[0])
-        data, fmt = z.read(name), "zip:" + name
+def _decode(kind, label, data):
     if data[:4] == b"PAR1":
-        raise SystemExit(f"[{kind}] the download is a Parquet file, not CSV; the loader needs updating")
+        raise SystemExit(f"[{kind}] {label} is a Parquet file, not CSV; the loader needs updating")
     if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
         text, enc = data.decode("utf-16"), "utf-16"
     else:
@@ -120,19 +111,40 @@ def read_text(kind, src_path):
         except UnicodeDecodeError:
             text, enc = data.decode("cp1252", errors="replace"), "windows-1252"
     head = text[:160].replace("\r", "\\r").replace("\n", "\\n")
-    print(f"[{kind}] format {fmt}, encoding {enc}; starts: {head!r}", flush=True)
+    print(f"[{kind}] {label}: encoding {enc}, {len(data):,} bytes; starts: {head!r}", flush=True)
     if text.lstrip()[:1] in ("<", "{", "["):
-        raise SystemExit(f"[{kind}] the download is not a CSV (looks like HTML or JSON); see 'starts' above")
+        raise SystemExit(f"[{kind}] {label} is not a CSV (looks like HTML or JSON); see 'starts' above")
     return text
+
+
+def read_texts(kind, src_path):
+    """Every CSV in the download, as text: plain, gzip, or a zip of one or more CSVs;
+    UTF-8, UTF-16 or Windows-1252."""
+    data = open(src_path, "rb").read()
+    if data[:2] == b"\x1f\x8b":
+        return [_decode(kind, "gzip", gzip.decompress(data))]
+    if data[:2] == b"PK":
+        z = zipfile.ZipFile(io.BytesIO(data))
+        names = [n for n in z.namelist() if not n.endswith("/")]
+        print(f"[{kind}] zip holds {len(names)} file(s): {names}", flush=True)
+        csvs = [n for n in names if n.lower().endswith((".csv", ".txt"))] or names
+        return [_decode(kind, "zip:" + n, z.read(n)) for n in sorted(csvs)]
+    return [_decode(kind, "plain", data)]
 
 
 def parse(kind, src_path, out_path):
     """Normalize the Data Hub CSV into ia_stage columns. Zero amounts are dropped (missing = 0)."""
-    stats = {"rows_read": 0, "rows_kept": 0, "zero": 0, "bad": 0, "years": set(), "districts": set()}
-    text = read_text(kind, src_path)
-    with io.StringIO(text, newline="") as f, open(out_path, "w", newline="", encoding="utf-8") as o:
+    stats = {"rows_read": 0, "rows_kept": 0, "zero": 0, "bad": 0, "bad_examples": [], "years": set(), "districts": set()}
+    texts = read_texts(kind, src_path)
+    with open(out_path, "w", newline="", encoding="utf-8") as o:
+      w = csv.writer(o)
+      w.writerow(STAGE_COLS)
+      for text in texts:
+       with io.StringIO(text, newline="") as f:
         rd = csv.reader(f)
-        header = next(rd)
+        header = next(rd, None)
+        if not header:
+            continue
         idx = {}
         for i, h in enumerate(header):
             k = norm_header(h)
@@ -141,8 +153,6 @@ def parse(kind, src_path, out_path):
         missing = [k for k in ("fiscal_year", "status", "de_district", "column_name", "amount") if k not in idx]
         if missing:
             raise SystemExit(f"{kind}: header is missing {missing}. Header was: {header}")
-        w = csv.writer(o)
-        w.writerow(STAGE_COLS)
         get = lambda row, k: row[idx[k]] if k in idx and idx[k] < len(row) else ""
         for row in rd:
             stats["rows_read"] += 1
@@ -152,6 +162,8 @@ def parse(kind, src_path, out_path):
             amt = num(get(row, "amount"))
             if fy is None or st is None or not de or not get(row, "column_name"):
                 stats["bad"] += 1
+                if len(stats["bad_examples"]) < 5:
+                    stats["bad_examples"].append(row[:9])
                 continue
             if not amt:
                 stats["zero"] += 1
@@ -221,7 +233,10 @@ def main():
         stage = os.path.join(work, f"{kind}_stage.csv")
         st = parse(kind, raw, stage)
         print(f"[{kind}] read {st['rows_read']:,}  kept {st['rows_kept']:,}  zero {st['zero']:,}  "
-              f"bad {st['bad']:,}  districts {st['districts']}  years {st['years'][0]} .. {st['years'][-1]}", flush=True)
+              f"bad {st['bad']:,}  districts {st['districts']}", flush=True)
+        print(f"[{kind}] years: {', '.join(st['years'])}", flush=True)
+        if st["bad_examples"]:
+            print(f"[{kind}] examples of rows skipped as unreadable: {st['bad_examples']}", flush=True)
         if st["rows_kept"] == 0:
             raise SystemExit(f"[{kind}] no usable rows; not loading")
         if a.dry_run:
@@ -238,7 +253,7 @@ delete from public.ia_stage where kind = {lit(kind)};
 select public.ia_publish({lit(kind)})::text;
 insert into public.ia_load_run (kind, source_url, sha256, rows_read, rows_loaded, years, status, message)
 values ({lit(kind)}, {lit(url)}, {lit(sha)}, {st['rows_read']}, {st['rows_kept']},
-        {lit(st['years'][0] + ' .. ' + st['years'][-1])}, 'ok', {lit(json.dumps({'zero': st['zero'], 'bad': st['bad']}))});
+        {lit(', '.join(st['years']))}, 'ok', {lit(json.dumps({'zero': st['zero'], 'bad': st['bad'], 'bad_examples': st['bad_examples']}))});
 commit;
 """, capture=True)
         print(f"[{kind}] published: {out.splitlines()[-1] if out else ''}", flush=True)
