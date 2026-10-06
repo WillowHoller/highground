@@ -1,0 +1,32 @@
+# Pulls the Iowa Data Hub school finance files into Supabase.
+# Runs on the 3rd of each month and whenever you press "Run workflow" (Actions tab).
+# The state updates these files about once a year; on other months the loader sees the
+# file is unchanged and exits in about a minute.
+#
+# One-time setup: Settings -> Secrets and variables -> Actions -> New repository secret
+#   DATABASE_URL  = the Supabase "session pooler" connection string, with the password filled in.
+name: Iowa public data
+
+on:
+  schedule:
+    - cron: "17 9 3 * *"        # 09:17 UTC on the 3rd (about 4 am in Iowa)
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Reload even if the files haven't changed"
+        type: boolean
+        default: false
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Load expenditures and revenues
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python3 loader/load_iowa_datahub.py ${{ inputs.force && '--force' || '' }}
