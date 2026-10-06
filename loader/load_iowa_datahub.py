@@ -15,7 +15,7 @@ Source (VERIFIED 2026-10-06): Iowa Department of Management, Iowa Data Hub, CC B
   995  Iowa School District Revenues by Fiscal Year       ~544k rows, FY2017 on, updated yearly
 Each row: district x fiscal year x Actual/ReEstimated/Budget x fund x function (or source).
 """
-import argparse, csv, hashlib, io, json, os, re, subprocess, sys, tempfile, urllib.request
+import argparse, csv, gzip, hashlib, io, json, os, re, subprocess, sys, tempfile, urllib.request, zipfile
 
 SOURCES = {
     "exp": "https://idh-be.iowa.gov/api/v1/datasets/994/rows.csv",
@@ -100,10 +100,37 @@ def sha_file(path):
     return h.hexdigest()
 
 
+def read_text(kind, src_path):
+    """Return the file as text, whatever the state sends: plain, gzip or zip; UTF-8, UTF-16 or Windows-1252."""
+    data = open(src_path, "rb").read()
+    fmt = "plain"
+    if data[:2] == b"\x1f\x8b":
+        data, fmt = gzip.decompress(data), "gzip"
+    elif data[:2] == b"PK":
+        z = zipfile.ZipFile(io.BytesIO(data))
+        name = next((n for n in z.namelist() if n.lower().endswith(".csv")), z.namelist()[0])
+        data, fmt = z.read(name), "zip:" + name
+    if data[:4] == b"PAR1":
+        raise SystemExit(f"[{kind}] the download is a Parquet file, not CSV; the loader needs updating")
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        text, enc = data.decode("utf-16"), "utf-16"
+    else:
+        try:
+            text, enc = data.decode("utf-8-sig"), "utf-8"
+        except UnicodeDecodeError:
+            text, enc = data.decode("cp1252", errors="replace"), "windows-1252"
+    head = text[:160].replace("\r", "\\r").replace("\n", "\\n")
+    print(f"[{kind}] format {fmt}, encoding {enc}; starts: {head!r}", flush=True)
+    if text.lstrip()[:1] in ("<", "{", "["):
+        raise SystemExit(f"[{kind}] the download is not a CSV (looks like HTML or JSON); see 'starts' above")
+    return text
+
+
 def parse(kind, src_path, out_path):
     """Normalize the Data Hub CSV into ia_stage columns. Zero amounts are dropped (missing = 0)."""
     stats = {"rows_read": 0, "rows_kept": 0, "zero": 0, "bad": 0, "years": set(), "districts": set()}
-    with open(src_path, newline="", encoding="utf-8-sig") as f, open(out_path, "w", newline="") as o:
+    text = read_text(kind, src_path)
+    with io.StringIO(text, newline="") as f, open(out_path, "w", newline="", encoding="utf-8") as o:
         rd = csv.reader(f)
         header = next(rd)
         idx = {}
