@@ -21,6 +21,10 @@ SOURCES = {
     "exp": "https://idh-be.iowa.gov/api/v1/datasets/994/rows.csv",
     "rev": "https://idh-be.iowa.gov/api/v1/datasets/995/rows.csv",
 }
+# The state's annual report files (load_iowa_car.py) cover FY2019 on and are more detailed, so by
+# default this loader keeps only FY2017-2018. --max-year 2099 loads everything.
+MAX_YEAR = 2018
+
 STAGE_COLS = ["kind", "fiscal_year", "status", "aea", "dom_district", "de_district", "district_name",
               "column_name", "fund", "line", "amount", "per_pupil",
               "enrollment_category", "enrollment_category_number"]
@@ -165,6 +169,9 @@ def parse(kind, src_path, out_path):
                 if len(stats["bad_examples"]) < 5:
                     stats["bad_examples"].append(row[:9])
                 continue
+            if int(fy) > MAX_YEAR:
+                stats["after_max_year"] = stats.get("after_max_year", 0) + 1
+                continue
             if not amt:
                 stats["zero"] += 1
                 continue
@@ -202,7 +209,9 @@ def main():
     ap.add_argument("--force", action="store_true", help="load even if the file hasn't changed since the last load")
     ap.add_argument("--dry-run", action="store_true", help="download and parse only")
     ap.add_argument("--workdir", default=None)
+    ap.add_argument("--max-year", type=int, default=MAX_YEAR, help="ignore fiscal years after this (default 2018)")
     a = ap.parse_args()
+    globals()['MAX_YEAR'] = a.max_year
 
     db = os.environ.get("DATABASE_URL")
     if not db and not a.dry_run:
