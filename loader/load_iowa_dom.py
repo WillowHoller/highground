@@ -30,7 +30,7 @@ NAME_RE = {
     "valuation": r"School District Assessed & Taxable Valuations by Class, AY\d{4}-FY(\d{4})\.xlsx$",
     "aidlevy": r"Aid and Levy, Tax Certification, and Program Summary, FY ?(\d{4})\.xlsx$",
 }
-FIRST_FY = {"valuation": 2019, "aidlevy": 2018, "unspent": 2015}
+FIRST_FY = {"valuation": 2019, "aidlevy": 2019, "unspent": 2015}
 SCHOOLS_PAGE = "https://dom.iowa.gov/schools"
 UNSPENT_ID = "19rG7pafGN8WWd9mpJTKizfyQpLsvz-pY"     # used when the page link can't be found
 UA = {"User-Agent": "HighGround public-data loader (Willow Holler; hello@willowholler.com)"}
