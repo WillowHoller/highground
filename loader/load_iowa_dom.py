@@ -30,7 +30,7 @@ NAME_RE = {
     "valuation": r"School District Assessed & Taxable Valuations by Class, AY\d{4}-FY(\d{4})\.xlsx$",
     "aidlevy": r"Aid and Levy, Tax Certification, and Program Summary, FY ?(\d{4})\.xlsx$",
 }
-FIRST_FY = {"valuation": 2019, "aidlevy": 2019, "unspent": 2015}
+FIRST_FY = {"valuation": 2019, "aidlevy": 2019, "unspent": 2015}   # FY2018 Aid and Levy uses an older layout
 SCHOOLS_PAGE = "https://dom.iowa.gov/schools"
 UNSPENT_ID = "19rG7pafGN8WWd9mpJTKizfyQpLsvz-pY"     # used when the page link can't be found
 UA = {"User-Agent": "HighGround public-data loader (Willow Holler; hello@willowholler.com)"}
@@ -61,7 +61,7 @@ def find_files(kind):
                 fid = re.search(r"(?:id=|/d/)([\w-]{20,})", m.group(1)).group(1)
         except SystemExit:
             pass
-        return [(None, "Unspent Authorized Budget Report.xlsx", drive_url(fid))]
+        return [(None, "Unspent Authorized Budget Report.xlsx", f"https://drive.google.com/uc?id={fid}&export=download")]
     text = fetch(LISTS[kind]).decode("utf-8-sig", "replace")
     out = []
     for row in csv.reader(io.StringIO(text)):
@@ -259,72 +259,78 @@ def main():
         if not files:
             print(f"{kind}: no files", flush=True)
             continue
-        for fy, name, src in files:
-            if src.startswith("http"):
-                data = fetch(src)
-                if not data.startswith(b"PK"):
-                    raise SystemExit(f"{name}: the download wasn't a spreadsheet. Download it by hand and run with --file.")
-                p = os.path.join(work, re.sub(r"[^\w.-]+", "_", name))
-                open(p, "wb").write(data)
-            else:
-                p = src
-            digest = hashlib.sha256(open(p, "rb").read()).hexdigest()
-            csvp = os.path.join(work, f"{kind}_{fy or 'all'}.csv")
-            if kind == "valuation":
-                vals, vfy = parse_valuation(p, fy)
-                fy = fy or vfy
-                cols = ["de_district", "fiscal_year", "taxable", "taxable_tif", "assessed", "assessed_tif",
-                        "ag_assessed", "ag_taxable", "res_assessed", "res_taxable", "source_file"]
-                with open(csvp, "w", newline="") as o:
-                    w = csv.writer(o)
-                    for de, v in vals.items():
-                        w.writerow([de, fy] + [round(v.get(c) or 0) for c in cols[2:-1]] + [name])
-                print(f"valuation FY{fy}: {len(vals)} districts ({name})", flush=True)
-                if a.dry_run:
-                    for de in list(vals)[:2]:
-                        print("   ", de, vals[de])
-                    continue
-                if not a.force and unchanged(db, kind, str(fy), digest):
-                    print(f"valuation FY{fy}: unchanged, skipped", flush=True); continue
-                n = load(db, kind, name, str(fy), digest, len(vals), csvp, "ia_valuation", cols, f"fiscal_year = {fy}")
-            elif kind == "aidlevy":
-                if fy is None:
-                    m = re.search(r"FY ?(\d{4})", name)
-                    fy = int(m.group(1)) if m else None
-                if fy is None:
-                    raise SystemExit(f"{name}: say which year, e.g. --file aidlevy2027={p}")
-                lines = parse_aidlevy(p)
-                cols = ["de_district", "fiscal_year", "lines", "source_file"]
-                with open(csvp, "w", newline="") as o:
-                    w = csv.writer(o)
-                    for de, v in lines.items():
-                        w.writerow([de, fy, json.dumps(v, separators=(",", ":")), name])
-                print(f"aidlevy FY{fy}: {len(lines)} districts ({name})", flush=True)
-                if a.dry_run:
-                    for de in list(lines)[:2]:
-                        print("   ", de, {k: lines[de].get(k) for k in ("L101", "L203", "L403", "L519", "L1903")})
-                    continue
-                if not a.force and unchanged(db, kind, str(fy), digest):
-                    print(f"aidlevy FY{fy}: unchanged, skipped", flush=True); continue
-                n = load(db, kind, name, str(fy), digest, len(lines), csvp, "ia_aid_levy", cols, f"fiscal_year = {fy}")
-            else:
-                rows = parse_unspent(p)
-                cols = ["de_district", "fiscal_year", "max_district_cost", "misc_income", "expenditures", "max_authorized",
-                        "unspent", "source_file"]
-                with open(csvp, "w", newline="") as o:
-                    w = csv.writer(o)
-                    for (de, yr), v in rows.items():
-                        w.writerow([de, yr] + ["" if v.get(c) is None else round(v[c]) for c in cols[2:-1]] + [name])
-                yrs = sorted({yr for _, yr in rows})
-                print(f"unspent: {len(rows)} district-years, FY{yrs[0] if yrs else '?'}-FY{yrs[-1] if yrs else '?'} ({name})", flush=True)
-                if a.dry_run:
-                    for k in list(rows)[-2:]:
-                        print("   ", k, rows[k])
-                    continue
-                if not a.force and unchanged(db, kind, "all", digest):
-                    print("unspent: unchanged, skipped", flush=True); continue
-                n = load(db, kind, name, "all", digest, len(rows), csvp, "ia_unspent", cols, f"fiscal_year >= {FIRST_FY['unspent']}")
-            print(f"{kind} {fy or ''}: {n} rows in the database", flush=True)
+        for i, (fy, name, src) in enumerate(files):
+          try:
+              if src.startswith("http"):
+                  data = fetch(src)
+                  if not data.startswith(b"PK"):
+                      raise SystemExit(f"{name}: the download wasn't a spreadsheet. Download it by hand and run with --file.")
+                  p = os.path.join(work, re.sub(r"[^\w.-]+", "_", name))
+                  open(p, "wb").write(data)
+              else:
+                  p = src
+              digest = hashlib.sha256(open(p, "rb").read()).hexdigest()
+              csvp = os.path.join(work, f"{kind}_{fy or 'all'}.csv")
+              if kind == "valuation":
+                  vals, vfy = parse_valuation(p, fy)
+                  fy = fy or vfy
+                  cols = ["de_district", "fiscal_year", "taxable", "taxable_tif", "assessed", "assessed_tif",
+                          "ag_assessed", "ag_taxable", "res_assessed", "res_taxable", "source_file"]
+                  with open(csvp, "w", newline="") as o:
+                      w = csv.writer(o)
+                      for de, v in vals.items():
+                          w.writerow([de, fy] + [round(v.get(c) or 0) for c in cols[2:-1]] + [name])
+                  print(f"valuation FY{fy}: {len(vals)} districts ({name})", flush=True)
+                  if a.dry_run:
+                      for de in list(vals)[:2]:
+                          print("   ", de, vals[de])
+                      continue
+                  if not a.force and unchanged(db, kind, str(fy), digest):
+                      print(f"valuation FY{fy}: unchanged, skipped", flush=True); continue
+                  n = load(db, kind, name, str(fy), digest, len(vals), csvp, "ia_valuation", cols, f"fiscal_year = {fy}")
+              elif kind == "aidlevy":
+                  if fy is None:
+                      m = re.search(r"FY ?(\d{4})", name)
+                      fy = int(m.group(1)) if m else None
+                  if fy is None:
+                      raise SystemExit(f"{name}: say which year, e.g. --file aidlevy2027={p}")
+                  lines = parse_aidlevy(p)
+                  cols = ["de_district", "fiscal_year", "lines", "source_file"]
+                  with open(csvp, "w", newline="") as o:
+                      w = csv.writer(o)
+                      for de, v in lines.items():
+                          w.writerow([de, fy, json.dumps(v, separators=(",", ":")), name])
+                  print(f"aidlevy FY{fy}: {len(lines)} districts ({name})", flush=True)
+                  if a.dry_run:
+                      for de in list(lines)[:2]:
+                          print("   ", de, {k: lines[de].get(k) for k in ("L101", "L203", "L403", "L519", "L1903")})
+                      continue
+                  if not a.force and unchanged(db, kind, str(fy), digest):
+                      print(f"aidlevy FY{fy}: unchanged, skipped", flush=True); continue
+                  n = load(db, kind, name, str(fy), digest, len(lines), csvp, "ia_aid_levy", cols, f"fiscal_year = {fy}")
+              else:
+                  rows = parse_unspent(p)
+                  cols = ["de_district", "fiscal_year", "max_district_cost", "misc_income", "expenditures", "max_authorized",
+                          "unspent", "source_file"]
+                  with open(csvp, "w", newline="") as o:
+                      w = csv.writer(o)
+                      for (de, yr), v in rows.items():
+                          w.writerow([de, yr] + ["" if v.get(c) is None else round(v[c]) for c in cols[2:-1]] + [name])
+                  yrs = sorted({yr for _, yr in rows})
+                  print(f"unspent: {len(rows)} district-years, FY{yrs[0] if yrs else '?'}-FY{yrs[-1] if yrs else '?'} ({name})", flush=True)
+                  if a.dry_run:
+                      for k in list(rows)[-2:]:
+                          print("   ", k, rows[k])
+                      continue
+                  if not a.force and unchanged(db, kind, "all", digest):
+                      print("unspent: unchanged, skipped", flush=True); continue
+                  n = load(db, kind, name, "all", digest, len(rows), csvp, "ia_unspent", cols, f"fiscal_year >= {FIRST_FY['unspent']}")
+              print(f"{kind} {fy or ''}: {n} rows in the database", flush=True)
+          except SystemExit as e:
+            # an older year in a layout this loader doesn't read is skipped; the newest file must load
+            if i == 0:
+                raise
+            print(f"{kind}: {name} skipped ({e})", flush=True)
 
 
 if __name__ == "__main__":
