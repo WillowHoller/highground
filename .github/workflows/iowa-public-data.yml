@@ -33,3 +33,25 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python loader/load_iowa_levy.py ${{ inputs.force && '--force' || '' }}
+      - name: Load valuations, Aid and Levy and unspent balances (Department of Management)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python loader/load_iowa_dom.py ${{ inputs.force && '--force' || '' }}
+      - name: Load construction prices (BLS) and home values (Census Bureau)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CENSUS_API_KEY: ${{ secrets.CENSUS_API_KEY }}
+        run: |
+          python loader/load_reference.py
+      - name: Record that the monthly load finished
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" -X -q -c "insert into public.ia_load_run (kind, status, message) values ('workflow_ok', 'ok', 'run ${{ github.run_id }}')"
+      - name: Record that the monthly load failed
+        if: failure()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" -X -q -c "insert into public.ia_load_run (kind, status, message) values ('workflow', 'error', 'run ${{ github.run_id }} failed: see GitHub Actions')"
