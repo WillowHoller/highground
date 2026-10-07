@@ -28,3 +28,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python loader/load_iowa_car.py ${{ inputs.force && '--force' || '' }}
+      - name: Load property tax levy rates (Department of Management, FY2019 on)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python loader/load_iowa_levy.py ${{ inputs.force && '--force' || '' }}
