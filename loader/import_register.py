@@ -95,8 +95,10 @@ def lit(s):
     return "null" if s is None else "'" + str(s).replace("'", "''") + "'"
 
 
+# Supabase stops any one statement after a couple of minutes; refreshing every year's measures takes longer,
+# so this loader's own session (not the app's) turns that limit off.
 def psql(db, sql):
-    r = subprocess.run(["psql", db, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-tA"], input=sql, text=True, capture_output=True)
+    r = subprocess.run(["psql", db, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-tA"], input="set statement_timeout = 0;\n" + sql, text=True, capture_output=True)
     if r.returncode != 0:
         raise SystemExit("psql failed:\n" + r.stderr)
     return r.stdout.strip()
