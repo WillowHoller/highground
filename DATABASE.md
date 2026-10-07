@@ -33,7 +33,7 @@ Roles: **admin** (people, settings, publishing, unlocking), **business_manager**
 ## Decisions
 | Table | Holds |
 |---|---|
-| initiative | Anything that costs money: capital, program, staff, curriculum, technology. Status, tier, owner, condition |
+| initiative | Anything that costs money: capital, program, staff, curriculum, technology. Status, tier, owner, condition, and the year it's needed by (part 18) |
 | scenario | A full version of the plan: levers, lock, board version |
 | scenario_initiative | Which initiatives are in a scenario, and their rank |
 | phase, phase_funding | One-time costs by fiscal year, split across up to several funds (the engine's phases) |
@@ -63,6 +63,7 @@ Applying a monthly GL upload replaces the earlier upload for the same month and 
 | ia_stage, ia_enroll_stage, ia_load_run | The loader's staging tables and its log. Only the loader writes them |
 | benchmark_flaggable, benchmark_rule | Which measures can get a callout, and the thresholds (a district can have its own) |
 | district_peer | Hand-picked peer districts (none = districts the same size) |
+| ia_levy_rate | Each district's property tax rates by year (Department of Management), including regular and voter-approved PPEL (part 17) |
 
 `district.state_district_id` links a HighGround district to its Iowa district number. Signed-in users can read the state data; anonymous visitors can't.
 

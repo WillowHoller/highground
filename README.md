@@ -15,7 +15,7 @@ The app is plain HTML, CSS and JavaScript with no build step; GitHub Pages serve
 
 ## What's in the repository
 
-- **`01_…` to `16_…sql`**: the database, run in the order SETUP.md gives. `05_verify_setup.sql` and `06_access_test.sql` check it: every row should say PASS.
+- **`01_…` to `18_…sql`**: the database, run in the order SETUP.md gives. `05_verify_setup.sql` and `06_access_test.sql` check it: every row should say PASS.
 - **`index.html`, `app.js`, `styles.css`**: the app itself.
 - **Other `.js` files**: the engines (capital plan, General Fund, taxes, uploads, ledger, reports, peers, check registers). Each has a matching `_test.js`.
 - **`test_ui.py`**: a browser test of every screen against a simulated database.

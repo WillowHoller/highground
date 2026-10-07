@@ -13,6 +13,8 @@
    - SAVE and PPEL revenue;
    - certified enrollment.
 
+5. **Levy rates.** `loader/load_iowa_levy.py` reads the Department of Management's "School Tax Rates, FY ____" files (FY2019 on) into `ia_levy_rate` (part 17). It runs in the same monthly workflow. `ia_levy(state number)` returns a district's latest rates, including **voter-approved PPEL** and regular PPEL.
+
 ## In the app
 
 - **Settings → District** (admins): the **Iowa district number**, with "Find" to look it up by name (`ia_district_search`). Saved as `district.state_district_id`. Everything below needs it.
@@ -24,6 +26,9 @@
   Nothing shows when nothing is unusual. The year is the latest Actual year in the state data. Code: `peers.js`.
 - **Overview → Needs attention**: one line when numbers stand out, and one when register questions are open.
 - **Settings → Starting numbers** and **General Fund starting figures**: "From the state's annual report" with a **Fill in** button. Nothing is saved until the person clicks Save.
+  - The card shows the PPEL rates. When the state lists a voter-approved PPEL, Fill in sets V-PPEL to Active.
+  - The annual report has one PPEL fund for both levies. Fill in splits its revenue between PPEL and V-PPEL by the two rates. That split is an estimate, and the card says so.
+  - The setup checks warn when the state's levy file and the V-PPEL setting disagree.
 - **Progress → Uploads → "Check register (bills paid)"** (business managers and admins). One file can hold a month or a whole year; it is split by month. Each month becomes an applied `import_batch` and replaces an earlier upload of the same month. The checks then run. Code: `register.js`, with the same column rules as `loader/import_register.py`.
 - **Progress → Check register**: the month's questions, most serious first. Business managers and admins can:
   - answer a question, or mark it "Not a concern";

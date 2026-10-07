@@ -46,6 +46,13 @@ for (const [gk, g] of Object.entries(G.districts)) {
       if (Math.abs(y.over - Math.max(0, y.spend - y.start - y.receipts)) > 1e-6) pathBad++;
       if (i && Math.abs(a[i - 1].end - y.start) > 1e-6) pathBad++;
     });
+    // what each fund is already committed to: debt payments match the debt list; nothing negative
+    const L = E.leversOf(sc.levers || {}, cfg), K = C.commitments(L, cfg);
+    if (!(L.fin || []).length) for (const b of ['save', 'ppel']) {
+      const want = cfg.years.reduce((t, fy, y) => t + cfg.debt.reduce((a2, d) => a2 + (d.fund === b && fy <= d.last ? d.annual : 0), 0) * (y === 0 ? cfg.f0 : 1), 0);
+      if (Math.abs(K[b].debt - want) > 1e-6) pathBad++;
+    }
+    for (const b of C.CAP_FUNDS) if (K[b].debt < 0 || K[b].ongoing < 0 || K[b].yearly < 0) pathBad++;
     const over = C.CAP_FUNDS.reduce((t, b) => t + P[b].over, 0);
     if (Math.abs(over - r.overflow) > 1e-6) pathBad++;
   }

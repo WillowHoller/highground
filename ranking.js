@@ -27,7 +27,8 @@
     return t ? { tier: t, suggested: true } : { tier: '', suggested: false };
   }
 
-  function build(rows, sid) {
+  function build(rows, sid, opts) {
+    const by = (opts && opts.by) || 'rank';
     const inp = C.buildInputs(rows, sid), cfg = inp.cfg, L = inp.levers;
     const INIT = new Map(rows.initiatives.map((i) => [i.id, i]));
     const RANK = new Map((rows.scenario_initiative || []).filter((x) => x.scenario_id === sid).map((x) => [x.initiative_id, x.rank]));
@@ -42,10 +43,15 @@
       const capitalYearly = (L.recur || []).filter((r) => String(r.initiative_id) === id && CAP.includes(r.fund)).reduce((a, r) => a + r.amount, 0);
       const yearly = (L.recur || []).filter((r) => String(r.initiative_id) === id).reduce((a, r) => a + r.amount, 0);
       const years = p ? [...new Set(p.phases.map((ph) => cfg.start + ph.year))] : [];
-      return { id, name: init.name, tier: t.tier, suggested: t.suggested, rank: RANK.has(id) ? RANK.get(id) : null, oneTime, outside, camp, boost, yearly, years, project: p,
+      const needBy = init.need_by_fy != null && init.need_by_fy !== '' ? Number(init.need_by_fy) : init.remaining_life != null && init.remaining_life !== '' && p ? cfg.start + Number(init.remaining_life) : null;
+      return { id, name: init.name, tier: t.tier, needBy, suggested: t.suggested, rank: RANK.has(id) ? RANK.get(id) : null, oneTime, outside, camp, boost, yearly, years, project: p,
                outsideOnly: oneTime > 0.5 && oneTime - outside < 0.5 && capitalYearly < 0.5 };
     });
-    items.sort((a, b) => (TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier)) || ((a.rank == null ? 1e9 : a.rank) - (b.rank == null ? 1e9 : b.rank)) || a.name.localeCompare(b.name));
+    const byPriority = (a, b) => (TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier)) || ((a.rank == null ? 1e9 : a.rank) - (b.rank == null ? 1e9 : b.rank)) || a.name.localeCompare(b.name);
+    // 'rank' (default): the district's own force rank across all priorities; anything not ranked yet goes last, in priority order.
+    // 'need': the year each is needed by first (no year = after those with one), then rank. 'priority': grouped by priority (the old view).
+    const byRank = (a, b) => ((a.rank == null ? 1e9 : a.rank) - (b.rank == null ? 1e9 : b.rank)) || byPriority(a, b);
+    items.sort(by === 'need' ? (a, b) => ((a.needBy == null ? 9999 : a.needBy) - (b.needBy == null ? 9999 : b.needBy)) || byRank(a, b) : by === 'priority' ? byPriority : byRank);
     items.forEach((x, k) => { x.position = k + 1; });
 
     // walk down the list
@@ -96,7 +102,7 @@
     const kept = runWith(items.slice(0, line).map((x) => x.id));
     const deferred = items.slice(line);
     return {
-      cfg, items, line, flags, baseOverflow: baseOver,
+      cfg, by, items, line, flags, baseOverflow: baseOver,
       current: { need: full.need, gap: full.gap, overflow: full.overflow },
       rankOrder: { need: kept.need, gap: kept.gap, overflow: kept.overflow, deferred, deferredCost: deferred.reduce((a, x) => a + x.oneTime, 0),
                    deferredYearly: deferred.reduce((a, x) => a + x.yearly, 0) },

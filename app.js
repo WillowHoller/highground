@@ -10,7 +10,8 @@
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const enc = encodeURIComponent;
   const money = (n) => (n == null || n === '' ? '' : '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }));
-  const day = (d) => (d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '');
+  /* a date-only value ('2026-09-30') is a calendar date, not midnight UTC: read it as local noon, or Iowa sees the day before */
+  const day = (d) => (d ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? d + 'T12:00:00' : d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '');
   const ROLE = { admin: 'Admin', business_manager: 'Business manager', superintendent: 'Superintendent', editor: 'Editor', board: 'Board member', viewer: 'Viewer' };
   const KIND = { gl_monthly: 'Monthly GL export', budget: 'Budget', balances: 'Fund balances', projects: 'Projects', goals: 'Goals', measure_values: 'Measure results', survey: 'Survey results', check_register: 'Check register' };
   const STATUS = { live: ['b-live', 'Live'], partial: ['b-partial', 'Partly built'], wip: ['b-wip', 'Not built yet'] };
@@ -115,10 +116,14 @@
       await loadContext();
       if (S.mfaFactor) return renderTwoStep();
       if (parts[0] === 'staff') return await renderStaff();
+      if (parts[0] === 'd' && parts[1] && parts[2] === 'welcome') return await renderWizard(parts[1], parts[3]);
       if (parts[0] === 'd' && parts[1]) return await renderDistrict(parts[1], parts[2], parts[3]);
       if (!S.districts.length) return S.isStaff ? go('#/staff', flash) : renderNoDistrict();
       let last = null; try { last = localStorage.getItem('highground-last-district'); } catch (e) {}
-      const first = S.districts.find((x) => x.slug === last) || S.districts[0];
+      // the district used last; otherwise the one where the person has the most responsibility; Willow Holler staff start on their own page
+      if (S.isStaff && !S.districts.some((x) => x.slug === last)) return go('#/staff', flash);
+      const RANK = { admin: 0, business_manager: 1, superintendent: 1, editor: 2, board: 3, viewer: 4 };
+      const first = S.districts.find((x) => x.slug === last) || S.districts.slice().sort((x, y) => (RANK[roleIn(x)] ?? 9) - (RANK[roleIn(y)] ?? 9))[0];
       S.landing = true;
       return go(`#/d/${enc(first.slug)}/${homePath(roleIn(first))}`, flash);
     } catch (err) {
@@ -187,9 +192,9 @@
   const MOVED = { 'resources/funds': 'resources/summary', 'progress/measures': 'direction/measures', 'resources/assumptions': 'settings/assumptions', 'reports/exports': 'settings/exports' };
 
   /* ---- what each role sees in the menu (permissions are unchanged; a direct link still opens) ---- */
-  const BOARD_VIEW = { overview: ['today'], direction: ['priorities', 'measures'], resources: ['summary', 'general', 'capital'], reports: ['board', 'community'], settings: ['account'], help: ['guide'] };
+  const BOARD_VIEW = { overview: ['today'], direction: ['priorities', 'measures'], resources: ['summary', 'general', 'capital'], reports: ['board'], settings: ['account'], help: ['guide'] };
   const LEAD_VIEW = { overview: ['today'], direction: null, decisions: null, resources: ['summary', 'general', 'capital'], progress: ['initiatives', 'actuals', 'uploads', 'registers'],
-    reports: ['board', 'community'], settings: ['assumptions', 'account'], help: ['guide'] };
+    reports: ['board'], settings: ['assumptions', 'account'], help: ['guide'] };
   const FINANCE_VIEW = { overview: ['today'], direction: ['measures'], progress: ['uploads', 'registers', 'actuals', 'initiatives'], resources: ['summary', 'general', 'capital'], reports: ['board'],
     settings: ['setup', 'exports', 'account'], help: ['guide'] };
   const VIEWS = { board: BOARD_VIEW, viewer: BOARD_VIEW, superintendent: LEAD_VIEW, editor: LEAD_VIEW, business_manager: FINANCE_VIEW };
@@ -223,7 +228,7 @@
         <div class="main">
           ${d && d.is_demo ? '<div class="demo-bar">Demo district: made-up figures.</div>' : ''}
           <header class="topbar">
-            ${slug ? '<button type="button" class="btn small" data-action="openSearch" aria-label="Search this district">Search</button>' : ''}
+            ${slug ? '<button type="button" class="btn small" data-action="openSearch" aria-label="Search this district">Search</button><button type="button" class="btn small" data-action="openHelp" aria-label="Help with this screen">Help</button>' : ''}
             <span class="spacer"></span>
             ${S.districts.length ? `<label class="chip">${d ? (d.logo_path ? `<span class="tile logo"><img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt=""></span>` : `<span class="tile" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>`) : ''}
               <select data-switch aria-label="District">${d ? '' : '<option value="">Choose a district</option>'}${options}</select></label>` : ''}
@@ -254,9 +259,10 @@
     frame({ slug, sectionId: section.id, body: `
       <div class="page-head"><div><h1>${esc(section.label)}</h1>
         <div class="lede">${esc(tab.lede)}</div></div>
-        <div class="right">${badge(tab.status)}${tab.status !== 'live' && tab.phase ? `<span class="small muted">${tab.status === 'wip' ? 'Planned for' : 'Rest in'} Phase ${tab.phase}</span>` : ''}</div></div>
+        <div class="right">${S.isStaff || tab.status !== 'live' ? badge(tab.status) : ''}${tab.status !== 'live' && tab.phase ? `<span class="small muted">${tab.status === 'wip' ? 'Planned for' : 'Rest in'} Phase ${tab.phase}</span>` : ''}</div></div>
       ${tabs}
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
+      ${setupBanner(section.id, tab.id)}
       <div id="view" class="stack"><div class="empty">Loading…</div></div>` });
     flash = null;
     const view = document.getElementById('view');
@@ -269,6 +275,89 @@
     }
   }
 
+  // ------------------------------------------------------------------ first-session wizard: three short steps, full screen
+  const WIZ_STEPS = [
+    { k: 'number', title: 'Find the district in the state’s data', who: (c) => c.admin },
+    { k: 'start', title: 'Confirm the starting numbers', who: (c) => c.finance },
+    { k: 'gf', title: 'General Fund basics', who: (c) => c.finance },
+    { k: 'done', title: 'Done', who: () => true },
+  ];
+  async function renderWizard(slug, stepKey) {
+    const d = S.districts.find((x) => x.slug === slug);
+    if (!d) return go('#/');
+    S.district = d; S.role = roleIn(d);
+    const c = ctx(), steps = WIZ_STEPS.filter((x) => x.who(c));
+    if (steps.length < 2) return go(`#/d/${enc(slug)}/overview/today`);
+    const step = steps.find((x) => x.k === stepKey) || steps[0], i = steps.indexOf(step), next = steps[i + 1];
+    WIZ.next = next ? `#/d/${enc(slug)}/welcome/${next.k}` : `#/d/${enc(slug)}/overview/today`;
+    const mark = d.logo_path ? `<span class="tile logo"><img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt=""></span>` : `<span class="tile" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>`;
+    app.innerHTML = `<div class="wiz"><header class="wiz-head">${LOGO_COLOR}<span class="wiz-dist">${mark} ${esc(d.name)}</span><a href="#/d/${enc(slug)}/overview/today" class="small">Exit setup</a></header>
+      <main class="wiz-main"><ol class="wiz-steps">${steps.map((x, j) => `<li class="${j < i ? 'done' : j === i ? 'on' : ''}">${j < i ? '✓ ' : `${j + 1}. `}${esc(x.title)}</li>`).join('')}</ol>
+      <div class="card wiz-card" id="wiz-body"><div class="empty">Loading…</div></div></main></div>`;
+    const body = document.getElementById('wiz-body');
+    try { body.innerHTML = await wizStepHtml(c, step, slug); if (step.k === 'gf') { await gfHint(); if (GF.prefill) await ACTIONS.gfPrefill(); } }
+    catch (err) { body.innerHTML = `<div class="notice error">${esc(err.message || err)}</div>`; }
+  }
+  const WIZ = { next: null };
+  async function wizStepHtml(c, step, slug) {
+    const d = c.district;
+    if (step.k === 'number') {
+      let linked = null;
+      if (d.state_district_id) { try { linked = (await HG.db.select('ia_district', `select=name,aea&de_district=eq.${enc(d.state_district_id)}`))[0] || null; } catch (e) { linked = null; } }
+      return `<h1>Find ${esc(d.short_name || d.name)} in the state’s data</h1>
+        <p>HighGround uses the Iowa Department of Education’s 4-digit district number to fill in your starting numbers and to compare you with districts your size.</p>
+        <form class="stack" data-form="wizNumber">
+          <div class="inline-form"><label class="field">District name<input data-ia-q value="${esc(d.short_name || '')}" autocomplete="off"></label><button type="button" class="btn" data-action="iaSearch">Find</button></div>
+          <div data-ia-results></div>
+          <label class="field">Iowa district number<input name="state_district_id" inputmode="numeric" maxlength="4" value="${esc(d.state_district_id || '')}" style="max-width:120px">
+            <span class="hint" data-ia-linked>${linked ? `${esc(linked.name)}${linked.aea ? `, AEA ${esc(linked.aea)}` : ''}.` : 'Use Find, or type the number if you know it.'}</span></label>
+          <div class="row"><button type="submit" class="btn primary">Save and continue</button><button type="button" class="btn" data-action="wizSkip">Skip for now</button></div></form>`;
+    }
+    if (step.k === 'start') {
+      const [set, bal] = await Promise.all([HG.db.select('district_settings', `select=*&district_id=eq.${d.id}`), HG.db.select('fund_balance', `select=fund,as_of,amount&district_id=eq.${d.id}&order=as_of.desc`)]);
+      const s0 = set[0] || {}, st = await statePrefill(d), sp = st ? ppelSplit(st) : {}, lv = st && st.levy, B2 = (st && st.balances) || {}, R2 = (st && st.receipts) || {}, le = (st && st.latest_enrollment) || {};
+      const asOf0 = bal.length ? bal[0].as_of : '', B = {}; bal.filter((b) => b.as_of === asOf0).forEach((b) => { B[b.fund] = b.amount; });
+      // what's already saved wins; otherwise the state's figures
+      const val = (mine, state) => (mine != null && mine !== '' ? mine : state);
+      const m = (v) => (v == null || v === '' ? '' : moneyIn(Math.round(Number(v))));
+      const voted = lv && Number(lv.voted_ppel) > 0;
+      const f = (n, l, v, h) => `<label class="field">${esc(l)}<input name="${n}" inputmode="decimal" value="${esc(v == null ? '' : v)}">${h ? `<span class="hint">${esc(h)}</span>` : ''}</label>`;
+      return `<h1>Confirm the starting numbers</h1>
+        <p>${st ? `Filled from the state’s annual report (FY${esc(st.fiscal_year)})${lv ? ` and levy rates (FY${esc(lv.fiscal_year)})` : ''}. Change anything you have newer figures for, like this year’s audit.` : 'Enter the district’s figures from the general ledger or the audit.'}</p>
+        <form class="stack" data-form="wizStart" novalidate>
+          <input type="hidden" name="plan_years" value="${esc(s0.plan_years || 10)}"><input type="checkbox" name="sf2472" ${s0.sf2472 === false ? '' : 'checked'} hidden>
+          <h3>Balances</h3><div class="fgrid">
+            <label class="field">Balances as of<input name="as_of" type="date" value="${esc(val(asOf0, st ? `${st.fiscal_year}-06-30` : ''))}"></label>
+            ${f('bal_save', 'SAVE balance, $', m(val(B.save, B2.save)))}${f('bal_ppel', 'PPEL balance, $', m(val(B.ppel, B2.ppel)), voted ? 'The state reports PPEL and V-PPEL as one fund; split it if you track them apart.' : '')}
+            ${f('bal_vppel', 'V-PPEL balance, $', m(B.vppel || 0))}${f('bal_grants', 'Grants and donations on hand, $', m(B.grants || 0))}</div>
+          <h3>Receipts each year</h3><div class="fgrid">
+            ${f('save_receipts', 'SAVE receipts, $', m(val(s0.save_receipts, R2.save)))}${f('save_receipts_fy', 'For fiscal year', val(s0.save_receipts_fy, st ? st.fiscal_year : ''))}
+            ${f('ppel_receipts', 'PPEL receipts, $', m(val(s0.ppel_receipts, sp.regular)))}${f('ppel_rate', 'PPEL rate, $ per $1,000', val(s0.ppel_rate, lv ? Number(lv.regular_ppel) : ''))}</div>
+          <h3>Voter-approved PPEL</h3><div class="fgrid">
+            <label class="field">Status<select name="vppel_status">${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s0.vppel_status || (voted ? 'active' : 'none')) === k ? 'selected' : ''}>${v}</option>`).join('')}</select>${voted ? '<span class="hint">The state lists a voter-approved PPEL for this district.</span>' : ''}</label>
+            ${f('vppel_annual', 'V-PPEL receipts, $', m(val(s0.vppel_annual, sp.voted)))}${f('vppel_first_fy', 'First fiscal year', s0.vppel_first_fy || '')}${f('vppel_last_fy', 'Last fiscal year', s0.vppel_last_fy || '', 'From the ballot measure')}</div>
+          <h3>Enrollment</h3><div class="fgrid">${f('enrollment', 'Certified enrollment', val(s0.enrollment, le.certified == null ? '' : Math.round(Number(le.certified))))}${f('enrollment_year', 'Enrollment year', val(s0.enrollment_year, le.fiscal_year ? schoolYear(le.fiscal_year) : ''))}</div>
+          <h3>Existing debt paid from SAVE or PPEL</h3>
+          <p class="small muted">Revenue bonds and leases already committed. You can add more later in Settings → Starting numbers.</p>
+          <div class="scroll"><table class="data debt"><thead><tr><th>Obligation</th><th>Paid from</th><th>Payment per year, $</th><th>Final fiscal year</th><th></th></tr></thead><tbody data-debt-body>${wizDebtRow()}</tbody></table></div>
+          <template data-debt-template>${wizDebtRow()}</template>
+          <div><button type="button" class="btn small" data-action="addDebtRow">Add another</button></div>
+          <div class="notice error" data-setup-errors hidden></div>
+          <div class="row"><button type="submit" class="btn primary">Save and continue</button><button type="button" class="btn" data-action="wizSkip">Skip for now</button></div></form>`;
+    }
+    if (step.k === 'gf') {
+      GF.rows = await loadCapitalRows(d);
+      if (!GF.rows.settings) return `<h1>General Fund basics</h1><p>This step needs the starting numbers first.</p><div class="row"><a class="btn primary" href="#/d/${enc(slug)}/welcome/start">Back to the starting numbers</a><button type="button" class="btn" data-action="wizSkip">Skip for now</button></div>`;
+      return `<h1>General Fund basics</h1><p>The five-year General Fund forecast starts here. Figures from the state are filled in where it has them; staff numbers and salaries come from your own records.</p>${openGfEditor({ wizard: true })}`;
+    }
+    return `<h1>The basics are in</h1>
+      <p>Next, bring in the district’s projects: download the template on the Uploads screen, fill it in, and upload it. The “Getting set up” list on the Overview shows what’s left: the board version, the strategic plan, inviting people and the first board report.</p>
+      <div class="row"><a class="btn primary" href="#/d/${enc(slug)}/progress/uploads">Upload projects</a><a class="btn" href="#/d/${enc(slug)}/overview/today">Go to the Overview</a></div>`;
+  }
+  const wizDebtRow = () => `<tr data-debt-row data-id=""><td><input name="debt_name" aria-label="Obligation" placeholder="SAVE revenue bonds, Series 2021"></td>
+    <td><select name="debt_fund" aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></td>
+    <td><input name="debt_annual" inputmode="decimal" aria-label="Payment per year"></td><td><input name="debt_final" inputmode="numeric" aria-label="Final fiscal year" placeholder="2033"></td>
+    <td><button type="button" class="btn small danger" data-action="removeDebtRow">Remove</button></td></tr>`;
   // ------------------------------------------------------------------ views: Overview
   async function vOverview(c) {
     const d = c.district, D = await loadDirection(d), rows = D.rows, f = HGReport.fmt;
@@ -296,10 +385,11 @@
     const attention = [
       ...off.map((y) => `${esc(y.m.name)} is off track (${link('direction/measures', 'measures')}).`),
       owed.length ? `${owed.length} measure${owed.length === 1 ? ' has' : 's have'} an update owed (${link('direction/measures', 'record results')}).` : '',
-      ...approvedOut.map((i) => `${esc(i.name)} is approved but not in the board version (${link('decisions/initiatives', 'decisions')}).`),
+      ...approvedOut.map((i) => (c.plan ? `${esc(i.name)} is approved but not in the board version (${link('decisions/initiatives', 'decisions')}).` : `${esc(i.name)} is approved but not yet in the board version.`)),
       !board && rows.scenarios.length ? `No scenario is the board version yet (${link('resources/capital', 'capital plan')}).` : '',
-      !rows.settings ? `Starting numbers aren’t set up yet (${link('settings/setup', 'starting numbers')}).` : '',
-      regOpen.length ? `${regOpen.length} check-register question${regOpen.length === 1 ? ' is' : 's are'} waiting for an answer (${link('progress/registers', 'check register')}).` : '',
+      !rows.settings ? (c.finance ? `Starting numbers aren’t set up yet (${link('settings/setup', 'starting numbers')}).` : 'The district’s starting numbers aren’t entered yet.') : '',
+      regOpen.length ? (c.finance ? `${regOpen.length} check-register question${regOpen.length === 1 ? ' is' : 's are'} waiting for your answer (${link('progress/registers', 'check register')}).`
+        : `${regOpen.length} check-register question${regOpen.length === 1 ? ' is' : 's are'} with the business office (${link('progress/registers', 'see them')}).`) : '',
       peers && HGPeers.overviewLine(peers.rows) ? `${esc(HGPeers.overviewLine(peers.rows))} (${link('resources/summary', 'funds')}, ${link('resources/general', 'General Fund')}).` : '',
     ].filter(Boolean);
     const sb = lastBal('save'), pb = lastBal('ppel');
@@ -307,15 +397,8 @@
       + (attention.length ? `<b>${attention.length}</b> thing${attention.length === 1 ? ' needs' : 's need'} attention.` : 'Nothing needs attention right now.'));
     return `
       ${ledgerNote(c, batches)}
-      <div class="grid tiles">
-        ${tile('Gap to close ' + def('gap'), gap == null ? '—' : f(gap), board ? esc(board.name) : 'no board version yet')}
-        ${tile('SAVE balance ' + def('save'), sb ? f(Number(sb.amount)) : '—', sb ? 'as of ' + esc(day(sb.as_of)) : '')}
-        ${tile('PPEL balance ' + def('ppel'), pb ? f(Number(pb.amount)) : '—', pb ? 'as of ' + esc(day(pb.as_of)) : '')}
-        ${tile('Ledger', gl ? 'Through ' + esc(day(gl.period_end).replace(/, \d{4}$/, '')) : 'None yet', gl ? 'monthly GL' : (c.finance ? link('progress/uploads', 'upload the month-end export') : ''))}
-        ${tile('Measures on track ' + def('measure_status'), D.measures.length ? `${on} of ${D.measures.length}` : '—', D.measures.length ? `${off.length} off track` : link('direction/measures', 'add measures'))}
-        ${tile('Decisions ahead', pending.length, pending.length ? 'not yet approved' : '')}
-        ${tile('Latest board report', latestRep[0] ? esc(day(latestRep[0].period_end).replace(/, \d{4}$/, '')) : 'None yet', latestRep[0] ? link('reports/board', 'open reports') : link('reports/board', 'create one'))}
-        ${tile('People with access', mem.length, `${rows.initiatives.length} initiatives · ${rows.scenarios.length} scenarios`)}
+      ${setupCard(c, { rows, D, mem, latestRep })}
+      <div class="grid tiles">${overviewTiles(c, { tile, f, link, gap, board, sb, pb, gl, D, on, off, pending, latestRep, mem, rows, regOpen })}
       </div>
       <div class="card"><h3>Needs attention</h3>${attention.length ? `<ul>${attention.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p class="ok">Nothing needs attention right now.</p>'}</div>
       ${D.priorities.length ? `<div class="card"><h3>The strategic plan</h3><table class="data"><tbody>${D.priorities.map((p) => { const pm = ms.filter((y) => y.m.priority_id === p.id), pon = pm.filter((y) => ['ontrack', 'met'].includes(y.x.state)).length;
@@ -325,6 +408,100 @@
   }
 
 
+  /* ---- in-page help: what this screen is for and how to use it, opened from any screen (the full Guide stays in Help) ---- */
+  const HELP = {
+    'overview/today': ['The tiles are the numbers to watch for your role; “Needs attention” lists what’s off track or waiting on someone.', 'Click a tile’s link or a line in “Needs attention” to go straight to it.'],
+    'direction/priorities': ['Priorities are the few things the district most wants to achieve; each has outcomes, and outcomes have measures.', 'Initiatives link to the priority they serve, so spending can be traced to goals.'],
+    'direction/measures': ['Each measure has a starting point, a target and a cadence; on track means at or ahead of a straight path to the target.', 'Record a result with “Record result”, or upload many at once.'],
+    'direction/community': ['Add the community survey: how important each priority is, and the themes people raised.', 'The latest survey can appear on the public page as “What you told us”.'],
+    'decisions/initiatives': ['Everything that costs money, in one list: capital projects, programs, hires.', 'Filter by status; open one to change its cost, years, priority, owner or the year it’s needed by.'],
+    'decisions/ranking': ['Your force rank: #1 is funded first, whatever its priority. Use ▲ ▼ or type a number to move one; “Start from priorities” is a starting point.', '“Year by year” shows when each initiative can be paid for: when a year is short, what can wait moves to the next year, never past its needed-by year.', '“Ways to fit more” lists single moves that fund more; “What would it take?” finds how to fund one initiative by a year you pick. Each can become a new scenario without touching the original.'],
+    'decisions/scenarios': ['Tick up to three scenarios to compare them side by side.', '“Why the gap differs” shows what each change between two scenarios does to the gap.'],
+    'resources/summary': ['Every fund from the board version: capital fund balances, what’s available against what’s committed, and the General Fund.', 'Open the folds for the year-by-year numbers.'],
+    'resources/general': ['A five-year General Fund forecast: solvency, spending authority and what a settlement costs.', 'Try the what-if levers; nothing is saved. The business office keeps the starting figures current.'],
+    'resources/capital': ['Projects by year, split across the capital funds, and the gap left to close.', '“What-if and financing” tries changes without saving; “Leave projects out” shows the plan without them.', '“What it means for taxpayers” shows the added levy for a typical home and an acre.'],
+    'progress/initiatives': ['Each initiative this fiscal year: planned, spent and encumbered, from the monthly ledger.', 'Link new spending accounts to initiatives so their spending counts.'],
+    'progress/actuals': ['Each fund’s budget, actual and year-end forecast from the month-end export.'],
+    'progress/uploads': ['Bring in the month-end ledger, the check register, the budget, projects or balances.', 'Nothing changes until you review what HighGround read and click Apply; the original file is kept.'],
+    'progress/registers': ['Questions from the month’s bills: new vendors, possible duplicates, changed names, payments much larger than usual.', 'The business office answers; everyone in the district can read the answers. Set the bid threshold in the settings at the bottom.'],
+    'reports/board': ['Create the month’s board report: it’s saved exactly as made, and the next one compares itself with it.', 'Decision packets put one initiative on one page for a vote.'],
+    'reports/community': ['Publish the board version to the public link, with unapproved initiatives held back.', 'Preview first; every publish is logged.'],
+    'settings/district': ['The district’s name, look and public link, and its Iowa district number (for peer comparisons and pre-filled numbers).'],
+    'settings/setup': ['What the capital plan starts from: receipts, balances and existing debt.', 'If the Iowa district number is set, the state’s figures can fill or check these.'],
+    'settings/people': ['Invite people with a role: admin, business manager, superintendent, editor, board member or viewer.'],
+    'settings/activity': ['Every change: who, when, and what it was before.'],
+    'settings/assumptions': ['Base, Conservative and Growth outlooks a scenario can plan for.'],
+    'settings/exports': ['Download the district’s data for spreadsheets or backup.'],
+  };
+  function openHelp() {
+    const parts = location.hash.replace(/^#\/?/, '').split('/'), path = `${parts[2] || 'overview'}/${parts[3] || ''}`;
+    const sec = ALL.find((x) => x.id === parts[2]) || SECTIONS[0], tab = sec.tabs.find((t) => t.id === parts[3]) || sec.tabs[0];
+    const tips = HELP[`${sec.id}/${tab.id}`] || [];
+    const terms = [...new Set([...document.querySelectorAll('#view [data-term]')].map((x) => x.dataset.term))].filter((k) => TERMS[k]);
+    modal(`<div class="stack"><div class="row" style="justify-content:space-between"><h2 id="modal-title">${esc(sec.label)}: ${esc(tab.label)}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <p>${esc(tab.lede)}</p>
+      ${tips.length ? `<ul>${tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+      ${terms.length ? `<h3>Terms on this screen</h3><dl class="terms">${terms.map((k) => `<dt>${esc(TERMS[k][0])}</dt><dd>${esc(TERMS[k][1])}</dd>`).join('')}</dl>` : ''}
+      <p class="small"><a href="#/d/${enc(S.district.slug)}/help/guide">The full guide</a> · Questions: <a href="mailto:hello@willowholler.com">hello@willowholler.com</a></p></div>`);
+  }
+  /* ---- guided setup: the district's first steps, each checked against its own data; each step opens the real screen ---- */
+  const SETUP = { step: null };
+  function setupSteps(c, o) {
+    const d = c.district, rows = o.rows;
+    return [
+      { k: 'district', who: c.admin, title: 'District details and Iowa number', path: 'settings/district', done: !!d.state_district_id, why: 'Links the district to the state’s data: peer comparisons and pre-filled starting numbers.' },
+      { k: 'start', who: c.finance, title: 'Starting numbers', path: 'settings/setup', done: !!rows.settings, why: 'SAVE, PPEL and V-PPEL receipts, balances and existing debt: what the capital plan starts from.' },
+      { k: 'projects', who: c.plan, title: 'Projects', path: 'progress/uploads', done: rows.scenarios.length > 0, why: 'Upload the project list (there’s a template) to create the first scenario.' },
+      { k: 'board', who: c.admin, title: 'Board version', path: 'resources/capital', done: rows.scenarios.some((x) => x.is_board_version), why: 'Mark the scenario the board adopted; reports, progress and the public page follow it.' },
+      { k: 'gf', who: c.finance, title: 'General Fund figures', path: 'resources/general', done: !!(rows.settings && rows.settings.gf_inputs), why: 'Enrollment, staffing and balances for the five-year General Fund forecast.' },
+      { k: 'plan', who: c.plan, title: 'Strategic plan', path: 'direction/priorities', done: (o.D.priorities || []).length > 0, why: 'Priorities and measures, so initiatives link to what they’re for.' },
+      { k: 'people', who: c.admin, title: 'Invite people', path: 'settings/people', done: o.mem.length > 1, why: 'The business manager, superintendent and board members, each with the right role.' },
+      { k: 'report', who: c.plan || c.finance, title: 'First board report', path: 'reports/board', done: o.latestRep.length > 0, why: 'A monthly report built from all of the above.' },
+    ];
+  }
+  function setupCard(c, o) {
+    if (!(c.admin || c.plan || c.finance)) return '';
+    let hidden = false; try { hidden = localStorage.getItem('highground-setup-hidden-' + c.district.id) === '1'; } catch (e) {}
+    const steps = setupSteps(c, o), done = steps.filter((x) => x.done).length;
+    if (done === steps.length || hidden) return '';
+    const next = steps.find((x) => !x.done && x.who) || null;
+    SETUP.steps = steps;
+    return `<div class="card setupcard" data-setup-guide><div class="row" style="justify-content:space-between"><h3>Getting set up · ${done} of ${steps.length} done</h3><button type="button" class="btn small" data-action="setupHide">Hide</button></div>
+      <ol class="stepper">${steps.map((x, i) => `<li class="${x.done ? 'done' : next && x.k === next.k ? 'next' : ''}"><span class="dot">${x.done ? '✓' : i + 1}</span><span>${esc(x.title)}${x.who || x.done ? '' : ' <span class="small muted">(another role)</span>'}</span></li>`).join('')}</ol>
+      ${(c.admin || c.finance) && (!c.district.state_district_id || !o.rows.settings || !o.rows.settings.gf_inputs) ? `<p><b>New here?</b> The guided setup covers the first three steps in about ten minutes, with the state’s figures filled in.</p>
+        <div class="row"><a class="btn primary" href="#/d/${enc(c.district.slug)}/welcome">Start the guided setup</a>${next ? `<button type="button" class="btn" data-action="setupGo" data-k="${next.k}">Or go to: ${esc(next.title)}</button>` : ''}</div>`
+      : next ? `<p><b>Next: ${esc(next.title)}.</b> ${esc(next.why)}</p><button type="button" class="btn primary" data-action="setupGo" data-k="${next.k}">Start this step</button>` : '<p class="muted">The remaining steps belong to other roles.</p>'}</div>`;
+  }
+  /** on a step's screen: where you are in setup, and the way on */
+  function setupBanner(sectionId, tabId) {
+    const st = SETUP.step && SETUP.steps ? SETUP.steps.find((x) => x.k === SETUP.step) : null;
+    if (!st || st.path !== `${sectionId}/${tabId}`) return '';
+    const i = SETUP.steps.indexOf(st), nx = SETUP.steps.slice(i + 1).find((x) => !x.done && x.who);
+    return `<div class="notice ok setupbanner"><b>Setup, step ${i + 1} of ${SETUP.steps.length}: ${esc(st.title)}.</b> ${esc(st.why)}
+      <span class="row" style="margin-top:6px">${nx ? `<button type="button" class="btn small primary" data-action="setupGo" data-k="${nx.k}">Next: ${esc(nx.title)}</button>` : ''}<button type="button" class="btn small" data-action="setupBack">Back to setup</button></span></div>`;
+  }
+  /* Overview tiles by role: what each reader acts on (board: the plan and reserves; business office: the close; planners: everything) */
+  function overviewTiles(c, o) {
+    const { tile, f, link, gap, board, sb, pb, gl, D, on, off, pending, latestRep, mem, rows, regOpen } = o;
+    const T = {
+      gap: () => tile('Gap to close ' + def('gap'), gap == null ? '—' : f(gap), board ? esc(board.name) : 'no board version yet'),
+      save: () => tile('SAVE balance ' + def('save'), sb ? f(Number(sb.amount)) : '—', sb ? 'as of ' + esc(day(sb.as_of)) : ''),
+      ppel: () => tile('PPEL balance ' + def('ppel'), pb ? f(Number(pb.amount)) : '—', pb ? 'as of ' + esc(day(pb.as_of)) : ''),
+      solvency: () => { const g = board ? gfRun(rows, board.id) : null; if (!g) return ''; const ys = g.R.years; return tile('General Fund solvency ' + def('solvency'), pct1(ys[0].solvency), `${pct1(ys[ys.length - 1].solvency)} by FY${ys[ys.length - 1].fy} ${link('resources/general', 'forecast')}`); },
+      ledger: () => tile('Ledger', gl ? 'Through ' + esc(day(gl.period_end).replace(/, \d{4}$/, '')) : 'None yet', gl ? 'monthly GL' : (c.finance ? link('progress/uploads', 'upload the month-end export') : '')),
+      nextClose: () => { if (!gl) return ''; const d0 = new Date(gl.period_end + 'T12:00:00'), nx = new Date(d0.getFullYear(), d0.getMonth() + 2, 0); return tile('Next month-end', esc(nx.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })), link('progress/uploads', 'upload when it closes')); },
+      register: () => tile('Check register', regOpen.length ? `${regOpen.length} open` : 'All answered', link('progress/registers', regOpen.length ? 'answer questions' : 'open')),
+      measures: () => tile('Measures on track ' + def('measure_status'), D.measures.length ? `${on} of ${D.measures.length}` : '—', D.measures.length ? `${off.length} off track` : (c.plan ? link('direction/measures', 'add measures') : 'none yet')),
+      decisions: () => tile(c.plan ? 'Decisions ahead' : 'Awaiting a decision', pending.length, pending.length ? 'initiatives not yet approved' : ''),
+      report: () => tile('Latest board report', latestRep[0] ? esc(day(latestRep[0].period_end).replace(/, \d{4}$/, '')) : 'None yet', latestRep[0] ? link('reports/board', 'open reports') : (c.admin || c.plan || c.finance ? link('reports/board', 'create one') : '')),
+      people: () => tile('People with access', mem.length, `${rows.initiatives.length} initiatives · ${rows.scenarios.length} scenarios`),
+    };
+    const order = c.admin || c.staff ? ['gap', 'save', 'ppel', 'ledger', 'measures', 'decisions', 'report', 'people']
+      : c.finance ? ['ledger', 'register', 'nextClose', 'save', 'ppel', 'gap', 'solvency', 'report']
+      : c.plan ? ['gap', 'save', 'ppel', 'solvency', 'measures', 'decisions', 'report', 'ledger']
+      : ['gap', 'save', 'ppel', 'solvency', 'measures', 'decisions', 'report'];
+    return order.map((k) => T[k]()).join('');
+  }
   // ------------------------------------------------------------------ views: Direction
   /* ---- search: initiatives, priorities, measures, scenarios and reports in this district ---- */
   const SRCH = { key: null, items: [] };
@@ -393,6 +570,7 @@
     const unlinked = rows.initiatives.filter((i) => !i.priority_id && !['declined', 'deferred'].includes(i.status)).length;
     if (D.priorities.length) { const linked = rows.initiatives.filter((i) => i.priority_id).length;
       setLead(`${D.priorities.length} priorit${D.priorities.length === 1 ? 'y' : 'ies'}, served by <b>${linked}</b> initiative${linked === 1 ? '' : 's'}${unlinked ? `; ${unlinked} not linked to a priority yet` : ''}.`); }
+    if (!D.priorities.length && !c.plan) return '<div class="card"><h3>No strategic plan yet</h3><p>The district hasn’t entered its strategic plan in HighGround yet. Its priorities, outcomes and measures will show here.</p></div>';
     if (!D.priorities.length) return `<div class="card"><h3>No priorities yet</h3><p>Start with the strategic plan’s priorities: the few things the district most wants to achieve. Each gets outcomes and measures, and initiatives link to the priority they serve.</p>
       ${c.plan ? '<div class="row"><button type="button" class="btn primary" data-action="editPriority" data-id="">Add a priority</button><label class="btn">Upload goals<input type="file" data-dir-upload="goals" accept=".csv,.xlsx" hidden></label> <a href="#" class="small" data-action="dirTemplate" data-k="goals">template</a></div>' : ''}<div id="dir-upload"></div></div>`;
     return `<div id="dir-upload"></div>
@@ -514,6 +692,7 @@
 
   async function vProgMeasures(c) {
     const D = await loadDirection(c.district); DIR.D = D;
+    if (!D.measures.length && !c.plan && !c.finance) return '<div class="card"><h3>No measures yet</h3><p>The district hasn’t set up how it measures its goals yet.</p></div>';
     if (!D.measures.length) return `<div class="card"><h3>No measures yet</h3><p>Add measures under Direction, then record their results here.</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/direction/measures">Measures</a></div>`;
     const can = c.plan || c.finance, owed = D.measures.filter((m) => D.st.get(m.id).owed);
     const byOwner = {}; owed.forEach((m) => { (byOwner[m.owner_name || 'No owner'] = byOwner[m.owner_name || 'No owner'] || []).push(m); });
@@ -672,7 +851,7 @@
     return `
       <div class="pipeline" role="group" aria-label="Filter by status">
         <button type="button" class="pipe ${!INI.status ? 'on' : ''}" data-action="iniStatus" data-v="">All <b>${rows.initiatives.length}</b></button>
-        ${INIT_STATUS.map(([k, v]) => `<button type="button" class="pipe ${INI.status === k ? 'on' : ''}" data-action="iniStatus" data-v="${k}">${v} <b>${counts[k]}</b></button>`).join('')}
+        ${INIT_STATUS.filter(([k]) => counts[k] || INI.status === k).map(([k, v]) => `<button type="button" class="pipe ${INI.status === k ? 'on' : ''}" data-action="iniStatus" data-v="${k}">${v} <b>${counts[k]}</b></button>`).join('')}
       </div>
       <div class="row">
         ${rows.scenarios.length ? `<label class="chip"><span class="small muted">Costs from</span><select data-ini-sid aria-label="Costs from">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === INI.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}</option>`).join('')}</select></label>` : ''}
@@ -686,7 +865,10 @@
         { label: 'Status', html: (i) => `<span class="st st-${esc(i.status || 'proposed')}">${esc(STATUS[i.status || 'proposed'])}</span>` },
         { label: 'In plans', html: (i) => { const pl = plansOf(i.id); const inBoard = board && pl.some((x) => x.id === board.id);
           const warn = (i.status === 'approved' || i.status === 'underway') && board && !inBoard ? `<br><span class="small gaptext">Approved, but not in the board version yet</span>` : '';
-          return (pl.length ? pl.map((x) => esc(x.name) + (x.is_board_version ? ' <span class="small muted">(board)</span>' : '')).join('<br>') : '<span class="muted">Not in a plan yet</span>') + warn; } },
+          // the board version is what matters; other scenarios collapse to a count (names on hover)
+          const others = pl.filter((x) => !(board && x.id === board.id));
+          const more = others.length ? `<span class="small muted" title="${esc(others.map((x) => x.name).join(', '))}">${inBoard ? ` · +${others.length} other${others.length === 1 ? '' : 's'}` : others.map((x) => esc(x.name)).join(', ')}</span>` : '';
+          return (pl.length ? (inBoard ? 'Board version' : '') + more : '<span class="muted">Not in a plan yet</span>') + warn; } },
         { label: 'Priority', get: (i) => (HGUploads.TIER_WORD[HGRanking.tierOf(i).tier] || '') },
         ...((rows.priorities || []).length ? [{ label: 'Strategic priority', get: (i) => P[i.priority_id] || '' }] : []),
         { label: 'Owner', get: (i) => i.owner_name || '' },
@@ -696,54 +878,139 @@
       ${costSc ? `<p class="small muted" style="margin-top:8px">Costs are from ${esc(costSc.name)}${costSc.is_board_version ? ', the board version' : ''}, in today’s dollars (yearly costs at their starting amount). Change them here or on the capital plan; both edit the same plan.</p>` : ''}</div>`;
   }
   const RK = { key: null, sid: null };
+  /* ---- the year-by-year funding line (schedule.js): who waits, by how long, and what's still short ---- */
+  function yearsTimeline(S, cfg) {
+    const yrs = cfg.years, list = S.items, labelW = 250, colW = 64, rowH = 30, top = 44, W = labelW + yrs.length * colW + 10, H = top + list.length * rowH + 8;
+    const X = (fy) => labelW + (fy - cfg.start) * colW + colW / 2;
+    const ST = { 'on time': ['#2F6B4F', 'On time'], later: ['#B54708', 'Waits'], short: ['#B42318', 'Short'], outside: ['#8A948F', 'Campaign or boosters'] };
+    const head = yrs.map((fy, i) => { const y = S.years[i]; return `<text x="${X(fy)}" y="16" font-size="12" text-anchor="middle" fill="#5A6660">FY${String(fy).slice(2)}</text>
+      ${y && y.short > 0.5 ? `<text x="${X(fy)}" y="32" font-size="11" text-anchor="middle" fill="#B42318" font-weight="600">−${esc(fmtK(y.short))}</text>` : ''}`; }).join('');
+    const grid = yrs.map((fy) => `<line x1="${X(fy)}" x2="${X(fy)}" y1="${top - 6}" y2="${H - 4}" stroke="#EEEAE0"/>`).join('');
+    const rows = list.map((x, r) => {
+      const y = top + r * rowH + rowH / 2, [color, word] = ST[x.status];
+      const late = x.needBy != null && Math.max(...x.scheduled) > x.needBy;
+      const nb = x.needBy && x.needBy >= cfg.start && x.needBy < cfg.start + yrs.length ? `<line x1="${X(x.needBy) + colW / 2 - 4}" x2="${X(x.needBy) + colW / 2 - 4}" y1="${y - 11}" y2="${y + 11}" stroke="#1C2A24" stroke-width="2"><title>${esc(x.name)}: needed by FY${x.needBy}</title></line>` : '';
+      const marks = x.scheduled.map((fy, k) => { const from = x.planned[k];
+        return `${from !== fy ? `<line x1="${X(from)}" x2="${X(fy) - 9}" y1="${y}" y2="${y}" stroke="${color}" stroke-width="2" stroke-dasharray="3 3"/><circle cx="${X(from)}" cy="${y}" r="6" fill="#fff" stroke="${color}" stroke-width="2"><title>${esc(x.name)}: planned FY${from}</title></circle>` : ''}
+          <rect x="${X(fy) - 9}" y="${y - 9}" width="18" height="18" rx="4" fill="${color}"><title>${esc(x.name)}: ${esc(word.toLowerCase())}, FY${fy}${from !== fy ? ` (planned FY${from})` : ''}${x.needBy ? `; needed by FY${x.needBy}` : ''}</title></rect>`; }).join('');
+      return `<text x="8" y="${y + 4}" font-size="13" fill="#1C2A24">${esc(x.name.length > 34 ? x.name.slice(0, 33) + '…' : x.name)}</text>
+        <text x="${labelW - 10}" y="${y + 4}" font-size="11" text-anchor="end" fill="${late ? '#B42318' : x.status === 'on time' || x.status === 'outside' ? '#5A6660' : color}">${x.status === 'short' ? 'short' : late ? 'after it’s needed' : x.status === 'later' ? `waits ${x.slip} yr${x.slip === 1 ? '' : 's'}` : ''}</text>${nb}${marks}`;
+    }).join('');
+    return `<div class="scroll"><svg class="yrtimeline" viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${Math.min(W, 900)}px" role="img" aria-label="Each initiative by year: when it was planned, when the capital funds can pay for it, and the year it is needed by">${grid}${head}${rows}</svg></div>
+      <p class="small legend"><span><i style="background:#2F6B4F"></i>On time</span><span><i style="background:#B54708"></i>Waits (still by its needed-by year)</span><span><i style="background:#B42318"></i>Short that year</span><span><i style="background:#8A948F"></i>Campaign or boosters</span><span>○ planned year</span><span>│ needed by</span></p>`;
+  }
   async function vRanking(c) {
     const rows = await loadCapitalRows(c.district);
     RK.rows = rows;
     if (!rows.settings || !rows.scenarios.length) return notReady(c, { rows });
     if (RK.key !== c.district.id || !rows.scenarios.some((x) => x.id === RK.sid)) { RK.key = c.district.id; RK.sid = (rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0]).id; }
-    const sc = rows.scenarios.find((x) => x.id === RK.sid), k = HGRanking.build(rows, RK.sid);
-    RK.k = k;
+    const sc = rows.scenarios.find((x) => x.id === RK.sid), k = HGRanking.build(rows, RK.sid, { by: RK.by || 'rank' });
+    RK.k = k; RK.ctx = c;
+    const SG = HGSuggest.suggest(HGCapital.buildInputs(rows, RK.sid), k.items, rows.initiatives); RK.sugg = SG.suggestions;
+    const lateIds = new Set(SG.late.map((x) => x.id));
     const canMove = c.plan && !sc.is_locked, TN = HGRanking.TIER_NAME;
     const outside = k.items.filter((x) => x.outside > 0.5);
     const campTotal = outside.reduce((a, x) => a + x.camp, 0), boostTotal = outside.reduce((a, x) => a + x.boost, 0);
     const summary = k.line >= k.items.length
-      ? `<b>Everything fits</b> within SAVE, PPEL, V-PPEL and grants, in rank order.`
+      ? (outside.length ? `<b>Everything planned for SAVE, PPEL, V-PPEL and grants fits</b>, in rank order; ${[campTotal > 0.5 ? `${fmtK(campTotal)} waits on a campaign or bond` : '', boostTotal > 0.5 ? `${fmtK(boostTotal)} on boosters` : ''].filter(Boolean).join(' and ')}.`
+        : `<b>Everything fits</b> within SAVE, PPEL, V-PPEL and grants, in rank order.`)
       : `<b>The money runs out at #${k.line + 1}.</b> The first ${k.line} initiative${k.line === 1 ? '' : 's'} (${fmtK(k.aboveCost)}) fit within SAVE, PPEL, V-PPEL and grants; ${k.items.length - k.line} fall below the line.`;
+    if (RK.view === 'years') return rankYearsHtml(c, rows, sc, k);
     const tierSel = (x) => c.plan ? `<select data-rank-tier="${esc(x.id)}" aria-label="Priority for ${esc(x.name)}">${HGRanking.TIERS.map((t) => `<option value="${t}" ${x.tier === t ? 'selected' : ''}>${TN[t]}</option>`).join('')}</select>${x.suggested ? '<br><span class="small muted">from the old High/Med/Low</span>' : ''}`
       : `${TN[x.tier]}${x.suggested ? ' <span class="small muted">(suggested)</span>' : ''}`;
-    const sameTier = (x, d) => { const j = k.items.indexOf(x) + d; return j >= 0 && j < k.items.length && k.items[j].tier === x.tier; };
+    const canStep = (x, d) => { const j = k.items.indexOf(x) + d; return j >= 0 && j < k.items.length; };
+    const ranked = (RK.by || 'rank') === 'rank';   // moving only makes sense in the force-rank view
     const row = (x) => `<tr class="${x.above ? '' : 'below'}">
-      <td class="num"><b>#${x.position}</b></td>
+      <td class="num">${canMove && ranked ? `<input class="rankpos" data-rank-to="${esc(x.id)}" inputmode="numeric" value="${x.position}" aria-label="Rank for ${esc(x.name)}">` : `<b>#${x.position}</b>`}</td>
       <td>${tierSel(x)}</td>
       <td>${esc(x.name)}${x.camp > 0.5 ? `<br><span class="small muted">${fmtK(x.camp)} from a campaign or bond</span>` : ''}${x.boost > 0.5 ? `<br><span class="small muted">${fmtK(x.boost)} from boosters</span>` : ''}</td>
-      <td>${x.years.length ? 'FY' + x.years.join(', ') : '<span class="muted">yearly only</span>'}</td>
+      <td>${x.years.length ? 'FY' + x.years.join(', ') : '<span class="muted">yearly only</span>'}${x.needBy ? `<br><span class="small ${lateIds.has(String(x.id)) ? 'gaptext' : 'muted'}">needed by FY${x.needBy}${lateIds.has(String(x.id)) ? ' (planned later)' : ''}</span>` : ''}</td>
       <td class="num">${x.oneTime ? fmtK(x.oneTime) : ''}</td>
       <td class="num">${x.yearly ? fmtK(x.yearly) + '/yr' : ''}</td>
       <td>${x.above && x.outsideOnly ? `<span class="st st-proposed">${x.camp > 0.5 ? 'Campaign or bond' : 'Boosters'}</span>` : x.above ? '<span class="st st-approved">Fits</span>' : x.fitsAlone ? '<span class="st st-proposed">Below the line, but would fit on its own</span>' : '<span class="st st-declined">Below the line</span>'}</td>
-      <td class="moves">${canMove ? `<button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="-1" ${sameTier(x, -1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} up">▲</button><button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="1" ${sameTier(x, 1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} down">▼</button>` : ''}</td></tr>`;
+      <td class="moves">${canMove && ranked ? `<button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="-1" ${canStep(x, -1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} up">▲</button><button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="1" ${canStep(x, 1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} down">▼</button>` : ''}</td></tr>`;
     const body = k.items.map((x, j) => (j === k.line ? `<tr class="fline"><td colspan="8">Funding line: the money runs out here</td></tr>` : '') + row(x)).join('');
     const ro = k.rankOrder;
     return `
       <div class="row">
+        <label class="chip"><span class="small muted">Order by</span><select data-rank-by aria-label="Order by"><option value="rank" ${(RK.by || 'rank') === 'rank' ? 'selected' : ''}>Our rank</option><option value="need" ${RK.by === 'need' ? 'selected' : ''}>When needed, then our rank</option><option value="priority" ${RK.by === 'priority' ? 'selected' : ''}>Grouped by priority</option></select></label>
+        <div class="seg" role="group" aria-label="View"><button type="button" class="btn small ${(RK.view || 'list') === 'list' ? 'on' : ''}" data-action="rankView" data-v="list" aria-pressed="${(RK.view || 'list') === 'list'}">Ranked list</button><button type="button" class="btn small ${RK.view === 'years' ? 'on' : ''}" data-action="rankView" data-v="years" aria-pressed="${RK.view === 'years'}">Year by year</button></div>
+        ${canMove && ranked && RK.view !== 'years' ? '<button type="button" class="btn small" data-action="rankFromTiers">Start from priorities</button>' : ''}
         <label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}${x.is_locked ? ' (locked)' : ''}</option>`).join('')}</select></label>
       </div>
       ${(() => { setLead(summary.replace(/<\/?b>/g, (m) => m)); return ''; })()}<div class="card">
-        ${outside.length ? `<p class="small">Separately, ${[campTotal > 0.5 ? `<b>${fmtK(campTotal)}</b> depends on a campaign or bond` : '', boostTotal > 0.5 ? `<b>${fmtK(boostTotal)}</b> on boosters` : ''].filter(Boolean).join(' and ')}: ${outside.map((x) => `#${x.position} ${esc(x.name)}`).join(', ')}.</p>` : ''}
-        <p class="small muted">Priorities say why something matters: <b>must-have</b> (safety, law, failing systems), <b>strategic</b> (moves the strategic plan forward), <b>nice to have</b> (worth doing when money allows). The list runs from #1 must-have to the last nice-to-have; ▲ ▼ change the order within a priority.${sc.is_locked ? ' This scenario is locked, so its order can’t change; priorities can, because they belong to the initiative.' : ''}</p></div>
+        ${outside.length ? `<p class="small">${k.line >= k.items.length ? 'Paid outside the levies' : 'Separately'}, ${[campTotal > 0.5 ? `<b>${fmtK(campTotal)}</b> depends on a campaign or bond` : '', boostTotal > 0.5 ? `<b>${fmtK(boostTotal)}</b> on boosters` : ''].filter(Boolean).join(' and ')}: ${outside.map((x) => `#${x.position} ${esc(x.name)}`).join(', ')}.</p>` : ''}
+        <p class="small muted">Priorities say why something matters: <b>must-have</b> (safety, law, failing systems), <b>strategic</b> (moves the strategic plan forward), <b>nice to have</b> (worth doing when money allows). The list is the district’s own force rank: #1 is funded first, whatever its priority. Use ▲ ▼ or type a new number to move one; “Start from priorities” orders the whole list by priority as a starting point.${sc.is_locked ? ' This scenario is locked, so its order can’t change; priorities can, because they belong to the initiative.' : ''}</p></div>
       <div class="card"><div class="scroll"><table class="data ranktable"><thead><tr><th>#</th><th>Priority</th><th>Initiative</th><th>Years</th><th class="num">One-time</th><th class="num">Yearly</th><th>Funding line</th><th></th></tr></thead>
         <tbody>${body}</tbody></table></div></div>
+      ${(() => {
+        const useful = SG.suggestions.filter((g) => g.funds.length || g.gapChange < -0.5);
+        const warn = [...SG.urgentBelow.map((x) => `<li class="gaptext">${esc(x.name)} is below the line but needed by FY${x.needBy}.</li>`), ...(SG.late.length ? [`<li>${SG.late.length} initiative${SG.late.length === 1 ? ' is' : 's are'} planned after the year ${SG.late.length === 1 ? 'it’s' : 'they’re'} needed (marked in the list).</li>`] : [])];
+        if (!useful.length && !warn.length) return '';
+        return `<div class="card" data-suggest><h3>Ways to fit more</h3>
+          ${warn.length ? `<ul>${warn.join('')}</ul>` : ''}
+          ${useful.length ? `<p class="small muted">Each is one change, tried against this scenario: the plan rerun with that initiative moved, keeping everything above the line where it is and nothing later than the year it’s needed.</p>
+          <ol class="sugg">${useful.map((g) => `<li><b>Move ${esc(g.name)}</b> ${g.delta > 0 ? 'later' : 'earlier'} by ${Math.abs(g.delta)} year${Math.abs(g.delta) === 1 ? '' : 's'} (FY${g.from.join(', FY')} → FY${g.to.join(', FY')}${g.needBy ? `; needed by FY${g.needBy}` : ''}):
+            ${g.funds.length ? `funds ${g.funds.map((f) => `<b>${esc(f.name)}</b>`).join(', ')}` : 'funds nothing new'}${g.gapChange < -0.5 ? `${g.funds.length ? ', and ' : ', but '}the gap falls by ${fmtK(-g.gapChange)}` : ''}.
+            ${c.plan ? ` <button type="button" class="btn small" data-action="rankSuggest" data-id="${esc(g.id)}">Make a scenario with this</button>` : ''}</li>`).join('')}</ol>` : ''}
+          <p class="small muted">Add the year each initiative is needed by in its editor; without one, a remaining life is used.</p></div>`; })()}
       ${k.flags.length ? `<div class="card"><h3>Spent before a higher-ranked need</h3><ul class="flags">${k.flags.slice(0, 12).map((f) => `<li>${esc(f.text)}</li>`).join('')}</ul>
         ${k.flags.length > 12 ? `<p class="small muted">and ${k.flags.length - 12} more.</p>` : ''}
         <p class="small muted">Moving the lower-ranked item to a later year, or to another fund, usually fixes this.</p></div>` : ''}
+      <div class="card" data-goal><h3>What would it take?</h3>
+        <p class="small muted">Pick an initiative and the year it has to be done by. HighGround looks for the smallest change that funds it: ranking it higher, or moving one or two others, never past the year they’re needed by.</p>
+        <div class="inline-form"><label class="field">Initiative<select data-goal-id>${k.items.filter((x) => x.project).map((x) => `<option value="${esc(x.id)}" ${!x.above && !RK.goalId ? (RK.goalId = x.id, 'selected') : RK.goalId === x.id ? 'selected' : ''}>#${x.position} ${esc(x.name)}${x.above ? '' : ' (below the line)'}</option>`).join('')}</select></label>
+          <label class="field">Done by<select data-goal-fy><option value="">As planned</option>${k.cfg.years.map((fy) => `<option value="${fy}">FY${fy}</option>`).join('')}</select></label>
+          <button type="button" class="btn" data-action="goalFind">Find a way</button></div>
+        <div id="goal-results"></div></div>
       <div class="card"><h3>Fund in rank order</h3>
         ${ro.deferred.length ? `<p>Keep the ${k.line} initiatives above the line and defer the rest (${fmtK(ro.deferredCost)} one-time${ro.deferredYearly ? `, ${fmtK(ro.deferredYearly)} a year` : ''}): the gap goes from <b>${fmtK(k.current.gap)}</b> to <b>${fmtK(ro.gap)}</b>.</p>
           <p class="small">Deferred: ${ro.deferred.map((x) => esc(x.name)).join(', ')}.</p>
           ${c.plan ? '<button type="button" class="btn primary" data-action="rankScenario">Make a scenario with only what fits</button>' : ''}`
         : `<p>Nothing needs deferring: every initiative fits in rank order.${outside.length ? ` The gap of ${fmtK(k.current.gap)} is the campaign or bond share above that isn’t paid for yet.` : ''}</p>`}</div>`;
   }
+  /* ---- goal seek: what would it take to fund one initiative by a year ---- */
+  function goalHtml(g, k) {
+    const item = k.items.find((x) => String(x.id) === String(RK.goalId)) || {};
+    if (!g.options.length) return `<div class="notice ${g.possible ? 'ok' : ''}" style="margin-top:10px">${esc(g.notes.join(' ')) || 'No single change or pair of moves funds it without dropping something else. Look at a campaign, a bond, or a smaller scope.'}</div>`;
+    const mv = (m) => `${esc(m.name)} ${m.delta > 0 ? 'later' : 'earlier'} by ${Math.abs(m.delta)} year${Math.abs(m.delta) === 1 ? '' : 's'} (FY${m.from.join(', FY')} → FY${m.to.join(', FY')})`;
+    return `${g.notes.length ? `<p class="small" style="margin-top:10px">${esc(g.notes.join(' '))}</p>` : ''}<ol class="sugg">${g.options.map((o, i) => `<li>${o.kind === 'rank'
+      ? `<b>Rank it #${o.position}</b>${o.drops.length ? `; then ${o.drops.map((d) => `<b>${esc(d.name)}</b>`).join(', ')} ${o.drops.length === 1 ? 'falls' : 'fall'} below the line` : ''}.`
+      : `<b>Move ${o.moves.map(mv).join('</b> and <b>')}</b>; ${esc(item.name || 'it')} then fits at its current rank, and nothing else drops.`}
+      ${RK.ctx && RK.ctx.plan ? ` <button type="button" class="btn small" data-action="goalApply" data-i="${i}">Make a scenario with this</button>` : ''}</li>`).join('')}</ol>`;
+  }
+  function rankYearsHtml(c, rows, sc, k) {
+    const inp = HGCapital.buildInputs(rows, RK.sid), cfg = inp.cfg, S = HGSchedule.schedule(inp, k.items); RK.sched = S;
+    const waits = S.items.filter((x) => x.status === 'later'), short = S.items.filter((x) => x.status === 'short'), shortYrs = S.years.filter((y) => y.short > 0.5);
+    setLead(!waits.length && !short.length ? '<b>Every initiative fits in the year it’s planned</b>, paid from SAVE, PPEL, V-PPEL and grants.'
+      : `${short.length ? `<b>${shortYrs.map((y) => `FY${y.fy}`).join(', ')} ${shortYrs.length === 1 ? 'is' : 'are'} short ${fmtK(shortYrs.reduce((a, y) => a + y.short, 0))}</b> even after moving what can wait` : '<b>Everything fits</b>'}${waits.length ? `${short.length ? ';' : ' if'} ${waits.length} initiative${waits.length === 1 ? ' waits' : 's wait'}: ${waits.map((x) => `${esc(x.name)} ${x.slip} year${x.slip === 1 ? '' : 's'}`).join(', ')}` : ''}.`);
+    const sel = `<div class="row">
+        <label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}</option>`).join('')}</select></label>
+        <div class="seg" role="group" aria-label="View"><button type="button" class="btn small" data-action="rankView" data-v="list" aria-pressed="false">Ranked list</button><button type="button" class="btn small on" data-action="rankView" data-v="years" aria-pressed="true">Year by year</button></div></div>`;
+    return `${sel}
+      <div class="card"><h3>When each can be paid for</h3>
+        <p class="small muted">Going a year at a time: when the capital funds are short, the initiative that can best wait moves to the next year. That means the lowest in your rank, with room before the year it’s needed by. Nothing moves past its needed-by year, and nothing already underway moves. Campaign and booster projects are shown but don’t compete for levy money.</p>
+        ${yearsTimeline(S, cfg)}</div>
+      ${waits.length || short.length ? `<div class="card"><h3>What changes</h3>${table([
+        { label: 'Initiative', get: (x) => x.name }, { label: 'Priority', get: (x) => HGRanking.TIER_NAME[x.tier] || '' },
+        { label: 'Planned', get: (x) => 'FY' + x.planned.join(', FY') }, { label: 'Paid for', html: (x) => x.status === 'short' ? '<span class="gaptext">short</span>' : 'FY' + x.scheduled.join(', FY') },
+        { label: 'Needed by', get: (x) => (x.needBy ? 'FY' + x.needBy : '') }], waits.concat(short), '')}
+        ${c.plan && S.moves.length ? '<div class="row" style="margin-top:10px"><button type="button" class="btn primary" data-action="rankSchedule">Make a scenario with this timing</button><span class="small muted">The original scenario is unchanged.</span></div>' : ''}</div>` : ''}
+      <p class="small muted">Add the year each initiative is needed by in its editor; without one, a capital project’s remaining life is used, and an initiative with neither can wait as long as needed.</p>`;
+  }
+  async function rankSave(order) {
+    await HG.db.upsert('scenario_initiative', order.map((id, n) => ({ scenario_id: RK.sid, initiative_id: id, district_id: S.district.id, rank: n + 1, included: true })), 'scenario_id,initiative_id');
+    here();
+  }
+  async function rankTo(el) {
+    const k = RK.k, order = k.items.map((i) => i.id), from = order.indexOf(el.dataset.rankTo), to = Math.round(toNum(el.value));
+    if (from < 0 || !(to >= 1)) { el.value = from + 1; return; }
+    const [id] = order.splice(from, 1); order.splice(Math.min(order.length, to - 1), 0, id);
+    await rankSave(order);
+  }
   async function rankMove(el) {
     const k = RK.k, x = k.items.find((i) => i.id === el.dataset.id), j = k.items.indexOf(x), d = Number(el.dataset.d), y = k.items[j + d];
-    if (!y || y.tier !== x.tier) return;
+    if (!y) return;
     const order = k.items.map((i) => i.id); order[j] = y.id; order[j + d] = x.id;
     await HG.db.upsert('scenario_initiative', order.map((id, n) => ({ scenario_id: RK.sid, initiative_id: id, district_id: S.district.id, rank: n + 1, included: true })), 'scenario_id,initiative_id');
     here();
@@ -845,21 +1112,40 @@
     const r = HGEngine.compute(inp.projects, inp.levers, inp.cfg);
     return { rows, sc, inp, r, paths: HGCapital.fundPaths(r, inp.cfg) };
   }
-  const notReady = (c, b) => `<div class="card"><h3>${!b.rows.settings ? 'Starting numbers aren’t set up yet' : 'No scenarios yet'}</h3>
+  const notReady = (c, b) => ((!b.rows.settings && !c.finance) || (b.rows.settings && !c.plan && !c.finance)
+    ? `<div class="card"><h3>Not set up yet</h3><p>${!b.rows.settings ? 'The business office hasn’t entered the district’s starting numbers yet.' : 'The district’s projects haven’t been entered yet.'} This screen fills in once they are.</p></div>`
+    : `<div class="card"><h3>${!b.rows.settings ? 'Starting numbers aren’t set up yet' : 'No scenarios yet'}</h3>
     <p>${!b.rows.settings ? 'Enter the district’s receipts, balances and debt first.' : 'Upload the district’s projects to create its first scenario.'}</p>
-    <a class="btn primary" href="#/d/${enc(c.district.slug)}/${!b.rows.settings ? 'settings/setup' : 'progress/uploads'}">${!b.rows.settings ? 'Starting numbers' : 'Upload projects'}</a></div>`;
+    <a class="btn primary" href="#/d/${enc(c.district.slug)}/${!b.rows.settings ? 'settings/setup' : 'progress/uploads'}">${!b.rows.settings ? 'Starting numbers' : 'Upload projects'}</a></div>`);
   /** each capital fund's balance at the end of each year: one line per fund */
   function fundsChart(paths, funds) {
     const COLORS = { save: '#3E6190', ppel: '#2F6B4F', vppel: '#8A5A00', grants: '#7A4E8C' };
-    const ys = paths[funds[0]].years, n = ys.length, W = 660, H = 220, padL = 56, padR = 16;
+    const ys = paths[funds[0]].years, n = ys.length, W = 1000, H = 260, padL = 60, padR = 16;
     const all = funds.flatMap((k) => paths[k].years.map((y) => y.end)), hi = Math.max(1, ...all);
     const X = (i) => padL + (i / Math.max(1, n - 1)) * (W - padL - padR), Y = (v) => H - 26 - (v / hi) * (H - 44);
     const ticks = [0, 0.5, 1].map((t) => t * hi);
-    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="Each capital fund's balance at the end of each year">
+    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Each capital fund's balance at the end of each year">
       ${ticks.map((v) => `<line x1="${padL}" x2="${W - padR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${padL - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="11" text-anchor="end" fill="#5A6660">${fmtK(v)}</text>`).join('')}
       ${funds.map((k) => `<polyline fill="none" stroke="${COLORS[k]}" stroke-width="2.5" points="${paths[k].years.map((y, i) => `${X(i).toFixed(1)},${Y(y.end).toFixed(1)}`).join(' ')}"/>`).join('')}
       ${ys.map((y, i) => (i % 2 === 0 || n <= 6 ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="11" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>` : '')).join('')}</svg></div>
       <p class="small">${funds.map((k) => `<span style="color:${COLORS[k]}">●</span> ${esc(FUND_NAMES[k])}`).join(' &nbsp; ')}</p>`;
+  }
+  /** for each capital fund over the plan: money available (starting balance + receipts) split into what's already committed
+      (debt payments, ongoing and yearly costs), the board version's projects, and what's left; anything short shows in red */
+  function commitChart(paths, funds, L, cfg) {
+    const K = HGCapital.commitments(L, cfg), W = 1000, rowH = 46, padL = 170, padR = 16, top = 8;
+    const rows = funds.map((k) => { const p = paths[k], c = K[k], committed = c.debt + c.ongoing + c.yearly, avail = p.open + p.receipts + committed;
+      return { k, avail, debt: c.debt, other: c.ongoing + c.yearly, proj: p.spend, left: Math.max(0, avail - committed - p.spend), short: p.over }; });
+    const hi = Math.max(1, ...rows.map((r) => Math.max(r.avail, r.debt + r.other + r.proj) + r.short)), X = (v) => (v / hi) * (W - padL - padR);
+    const SEG = [['debt', '#5A6660', 'Debt payments'], ['other', '#A9B3AE', 'Ongoing and yearly costs'], ['proj', '#2F6B4F', 'Board-version projects'], ['left', '#CFE3D6', 'Left over'], ['short', '#B42318', 'Short']];
+    const H = top + rows.length * rowH + 4;
+    const bars = rows.map((r, i) => { let x = padL; const y = top + i * rowH;
+      const segs = SEG.map(([key, color, name]) => { const w = X(r[key]); if (w < 0.5) return ''; const out = `<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="22" fill="${color}"><title>${esc(FUND_NAMES[r.k])}: ${name} ${fmtK(r[key])}</title></rect>`; x += w; return out; }).join('');
+      return `<text x="${padL - 10}" y="${y + 15}" font-size="13" text-anchor="end" fill="#1C2A24">${esc(FUND_NAMES[r.k])}</text>${segs}
+        <text x="${padL}" y="${y + 38}" font-size="12" fill="#5A6660">${fmtK(r.avail)} available · ${fmtK(r.debt + r.other)} committed · ${fmtK(r.proj)} to projects · ${r.short > 0.5 ? `short ${fmtK(r.short)}` : `${fmtK(r.left)} left`}</text>`; }).join('');
+    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Each capital fund: money available against what is committed, planned and left">${bars}</svg></div>
+      <p class="small">${SEG.filter(([key]) => rows.some((r) => r[key] > 0.5)).map(([, color, name]) => `<span style="color:${color}">■</span> ${name}`).join(' &nbsp; ')}</p>
+      <p class="small muted">Over FY${cfg.start}–FY${cfg.start + cfg.n - 1}. Available = the starting balance plus every year’s receipts. Committed = payments on existing debt and planned borrowing, ongoing commitments, and yearly costs of programs and hires paid from the fund.</p>`;
   }
   /* ---- peer comparisons from the state's annual reports (part 16): only unusual numbers are shown ---- */
   const PEERS = { key: null, data: null };
@@ -909,6 +1195,7 @@
       </div>
       ${peers}
       <div class="card"><h3>Capital fund balances</h3>${fundsChart(paths, funds)}</div>
+      <div class="card"><h3>Funding vs. committed</h3>${commitChart(paths, funds, inp.levers, cfg)}</div>
       ${fold(c, 'Capital funds: the numbers', `<div class="card">${table([
         { label: 'Fund', get: (k) => FUND_NAMES[k] },
         { label: `Starting balance`, num: true, get: (k) => fmt(paths[k].open) },
@@ -953,14 +1240,14 @@
   }
   const pct1 = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
   function gfChart(R) {
-    const ys = R.years, W = 640, H = 200, pad = 34, n = ys.length;
+    const ys = R.years, W = 1000, H = 240, pad = 40, n = ys.length;
     const vals = ys.flatMap((y) => [y.solvency, y.unspentRatio]).filter((v) => v != null);
     const lo = Math.min(0, ...vals), hi = Math.max(0.2, ...vals), X = (i) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2), Y = (v) => H - 24 - ((v - lo) / (hi - lo)) * (H - 40);
     const line = (k, color) => `<polyline fill="none" stroke="${color}" stroke-width="2.5" points="${ys.map((y, i) => `${X(i).toFixed(1)},${Y(y[k] || 0).toFixed(1)}`).join(' ')}"/>${ys.map((y, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(y[k] || 0).toFixed(1)}" r="3" fill="${color}"/>`).join('')}`;
     const band = `<rect x="${pad}" width="${W - pad * 2}" y="${Y(0.10).toFixed(1)}" height="${(Y(0.05) - Y(0.10)).toFixed(1)}" fill="#E6F0EA"/>`;
     const grid = [0, 0.05, 0.10, 0.15, 0.20].filter((v) => v >= lo && v <= hi).map((v) => `<line x1="${pad}" x2="${W - pad}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${pad - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="11" text-anchor="end" fill="#5A6660">${(v * 100).toFixed(0)}%</text>`).join('');
     const zero = lo < 0 ? `<line x1="${pad}" x2="${W - pad}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#B42318"/>` : '';
-    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="Solvency ratio and unspent balance ratio by year">${band}${grid}${zero}${line('solvency', '#1E3A2F')}${line('unspentRatio', '#C9A24A')}
+    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Solvency ratio and unspent balance ratio by year">${band}${grid}${zero}${line('solvency', '#1E3A2F')}${line('unspentRatio', '#C9A24A')}
       ${ys.map((y, i) => `<text x="${X(i).toFixed(1)}" y="${H - 6}" font-size="11" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>`).join('')}</svg></div>
       <p class="small"><span style="color:#1E3A2F">●</span> Solvency ratio &nbsp; <span style="color:#C9A24A">●</span> Unspent balance ratio &nbsp; <span class="muted">shaded: the 5–10% range many districts aim for</span></p>`;
   }
@@ -1008,11 +1295,12 @@
     const [rows, peers] = await Promise.all([loadCapitalRows(c.district), peersCard(c, 'general')]);
     if (GF.key !== c.district.id) { GF.key = c.district.id; GF.sid = null; GF.over = {}; }
     GF.rows = rows; GF.ctx = c;
-    const caution = '<div class="notice">Planning estimates. Check the starting figures and results with the business manager before sharing them with the board.</div>';
+    const caution = c.plan || c.finance ? '<div class="notice">Planning estimates. Check the starting figures and results with the business manager before sharing them with the board.</div>'
+      : '<p class="small muted">A five-year planning estimate from the district’s own figures, not the state’s official calculation.</p>';
     if (!rows.settings) return caution + notReady(c, { rows }) + peers;
     const gfi = rows.settings.gf_inputs;
     if (!gfi) return `${caution}${peers}<div class="card"><h3>Set up the General Fund</h3><p>The forecast needs a few starting figures: enrollment, cost per pupil, other revenue, staff by group, other spending, and the fund balance and unspent balance from the last audit.</p>
-      ${c.finance ? '<button type="button" class="btn primary" data-action="gfEdit">Enter starting figures</button>' : '<p class="muted">The business office enters these.</p>'}</div>`;
+      ${c.finance ? '<button type="button" class="btn primary" data-action="gfEdit">Enter starting figures</button>' : '<p class="muted">The business office enters these.</p>'}</div>${gfAuto(c)}`;
     const run = gfRun(rows, GF.sid, GF.over); GF.run = run;
     const lv = (k, label, v, hint) => `<label class="field">${label}<input data-gf-lever="${k}" inputmode="decimal" value="${(v * 100).toFixed(2).replace(/\.?0+$/, '')}" style="width:90px"><span class="hint">${hint}</span></label>`;
     return `${caution}
@@ -1025,10 +1313,16 @@
         ${lv('health', 'Health insurance growth, %', run.a.health, 'a year')}${lv('inflation', 'Other spending growth, %', run.a.inflation, 'a year')}${lv('turnover', 'Turnover savings, %', run.gfi.turnover_savings || 0, 'newer staff on lower pay')}
       </div><div class="row"><button type="button" class="btn small" data-action="gfReset">Reset to the scenario’s assumptions</button></div></div>`)}
       <div id="gf-results">${gfResultsHtml(run)}</div>
-      ${peers}`;
+      ${peers}${gfAuto(c)}`;
   }
-  function openGfEditor() {
-    const st = GF.rows.settings, g = st.gf_inputs || { enrollment: st.enrollment || null, dcpp: HGGF.RULES.scpp[2027], misc_growth: 0.01, turnover_savings: 0.01,
+  /** arriving from Starting numbers → "Use in the General Fund setup": open the editor with the state's figures filled in */
+  function gfAuto(c) {
+    if (!GF.autoPrefill) return ''; GF.autoPrefill = false;
+    if (c.finance) setTimeout(async () => { await openGfEditor(); if (GF.prefill) { await ACTIONS.gfPrefill(); } }, 0);
+    return '';
+  }
+  function openGfEditor(opts) {
+    const wiz = !!(opts && opts.wizard), st = GF.rows.settings, g = st.gf_inputs || { enrollment: st.enrollment || null, dcpp: HGGF.RULES.scpp[2027], misc_growth: 0.01, turnover_savings: 0.01,
       staff: [{ name: 'Teachers', benefits: 0.1709 }, { name: 'Support staff', benefits: 0.1709 }, { name: 'Administrators', benefits: 0.1709 }], assume: Object.assign({}, HGGF.DEFAULTS) };
     const money2 = (v) => (v == null || v === '' ? '' : Number(v).toLocaleString('en-US'));
     const pc = (v) => (v == null ? '' : +(Number(v) * 100).toFixed(2));
@@ -1037,8 +1331,8 @@
       <td><input name="s_salary" inputmode="decimal" value="${money2(x.salary)}" style="width:100px"></td><td><input name="s_benefits" inputmode="decimal" value="${pc(x.benefits)}" style="width:70px"></td>
       <td><input name="s_health" inputmode="decimal" value="${money2(x.health)}" style="width:90px"></td><td><button type="button" class="btn small" data-action="gfStaffRemove" aria-label="Remove">×</button></td></tr>`;
     const A = Object.assign({}, HGGF.DEFAULTS, g.assume || {});
-    modal(`<form class="stack" data-form="saveGf" novalidate>
-      <div class="row" style="justify-content:space-between"><h2 id="modal-title">General Fund starting figures</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+    const html = `<form class="stack" data-form="${wiz ? 'wizGf' : 'saveGf'}" novalidate>
+      ${wiz ? '' : '<div class="row" style="justify-content:space-between"><h2 id="modal-title">General Fund starting figures</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>'}
       <p class="small muted">For the first year of the plan. The certified budget, the Certified Annual Report and the Department of Management’s unspent balance report have most of these.</p>
       <div data-gf-hint></div>
       <h3>Revenue</h3><div class="fgrid">
@@ -1054,18 +1348,31 @@
       <h3>Default assumptions</h3><p class="small muted">Used when a scenario’s assumption set leaves them blank.</p><div class="fgrid">
         ${f('a_ssa', 'State aid growth, %', pc(A.ssa))}${f('a_enroll', 'Enrollment change, %', pc(A.enroll))}${f('a_settle', 'Settlement, %', pc(A.settle))}${f('a_health', 'Health insurance growth, %', pc(A.health))}${f('a_inflation', 'Other spending growth, %', pc(A.inflation))}</div>
       <div class="notice error" data-form-errors hidden></div>
-      <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
-    gfHint();
+      <div class="row">${wiz ? '<button type="submit" class="btn primary">Save and finish</button><button type="button" class="btn" data-action="wizSkip">Skip for now</button>' : '<button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>'}</div></form>`;
+    if (wiz) return html;
+    modal(html);
+    return gfHint();
   }
   /** the state's latest year-end figures for this district (part 16), or null */
   async function statePrefill(d) {
     if (!d || !d.state_district_id) return null;
-    try { const p = await HG.db.rpc('ia_prefill', { p_de: d.state_district_id }); return p && p.fiscal_year ? p : null; } catch (e) { return null; }
+    const [p, lv] = await Promise.all([HG.db.rpc('ia_prefill', { p_de: d.state_district_id }).catch(() => null), HG.db.rpc('ia_levy', { p_de: d.state_district_id }).catch(() => null)]);
+    const out = p && p.fiscal_year ? p : lv && lv.fiscal_year ? {} : null;
+    if (out && lv && lv.fiscal_year) out.levy = lv;
+    return out;
+  }
+  /** the annual report has one PPEL fund for regular and voted PPEL together: split its revenue by the two rates */
+  function ppelSplit(st) {
+    const R2 = (st && st.receipts) || {}, lv = st && st.levy, total = R2.ppel == null ? null : Number(R2.ppel);
+    const reg = lv ? Number(lv.regular_ppel || 0) : null, vot = lv ? Number(lv.voted_ppel || 0) : 0;
+    if (total == null || !lv || !(vot > 0) || !(reg + vot > 0)) return { regular: total, voted: null };
+    return { regular: total * reg / (reg + vot), voted: total * vot / (reg + vot) };
   }
   const schoolYear = (fy) => `${fy - 1}-${String(fy).slice(2)}`;
   async function gfHint() {
     // help: what the latest ledger or adopted budget says, so the business manager can split it into these fields
     const d = S.district, box = document.querySelector('[data-gf-hint]'); if (!box) return;
+    GF.prefill = null;
     const st = await statePrefill(d);
     if (st && document.querySelector('[data-gf-hint]') === box) {
       const g = st.general || {}, le = st.latest_enrollment || {}, bal = g.unassigned != null || g.assigned != null ? Number(g.unassigned || 0) + Number(g.assigned || 0) : null;
@@ -1101,9 +1408,10 @@
     Object.entries(g).forEach(([k, v]) => { if (typeof v === 'number' && isNaN(v)) errs.push(`${k.replace(/_/g, ' ')} must be a number.`); });
     staff.forEach((x) => { if ([x.fte, x.salary, x.benefits, x.health].some((v) => v != null && isNaN(v))) errs.push(`${x.name}: numbers only.`); });
     Object.keys(g.assume).forEach((k) => { if (g.assume[k] == null) delete g.assume[k]; });
-    if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return; }
+    if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return false; }
     await HG.db.update('district_settings', `district_id=eq.${S.district.id}`, { gf_inputs: g });
-    closeModal(); toast('Saved', 'General Fund starting figures.'); here();
+    if (form.dataset.form === 'wizGf') return true;
+    closeModal(); toast('Saved', 'General Fund starting figures.'); here(); return true;
   }
 
   const FUND_RULES = {
@@ -1185,7 +1493,21 @@
       q('initiative', '&order=name'), q('phase'), q('phase_funding'), q('financing'), q('recurring_cost'), q('priority', '&order=position'), q('scenario_initiative'), q('assumption_set', '&order=name')]);
     return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenario_initiative: scenarioInitiatives, assumption_sets: assumptionSets };
   }
-  function capCompute() { return HGEngine.compute(CAP.inputs.projects, CAP.levers, CAP.inputs.cfg); }
+  const capIn = () => (CAP.out && CAP.out.size ? CAP.inputs.projects.filter((p) => !CAP.out.has(String(p.id))) : CAP.inputs.projects);
+  function capCompute() { return HGEngine.compute(capIn(), CAP.levers, CAP.inputs.cfg); }
+  /* what-if: leave projects out and see the plan without them; nothing is saved unless it becomes a new scenario */
+  function capOutHtml() {
+    const cfg = CAP.inputs.cfg, L = CAP.levers, out = CAP.out || new Set();
+    const list = CAP.inputs.projects.map((p) => ({ p, total: p.phases.reduce((a, ph) => a + (ph.status === 'done' && ph.actual != null ? ph.actual : ph.cost * Math.pow(1 + L.infl, ph.year)), 0),
+      years: [...new Set(p.phases.map((ph) => cfg.start + ph.year))].sort() })).sort((a, b) => b.total - a.total);
+    if (!list.length) return '';
+    const base = HGEngine.compute(CAP.inputs.projects, L, cfg), now = capCompute(), saved = list.filter((x) => out.has(String(x.p.id))).reduce((a, x) => a + x.total, 0);
+    return `<h3>Leave projects out</h3>
+      <p class="small muted">Tick a project to see the plan without its one-time costs (yearly costs of programs and hires stay). Nothing is saved${CAP.pub ? '' : ' unless you save it as a new scenario'}.</p>
+      ${out.size ? `<p class="lead" style="font-size:15px">Leaving out ${out.size} project${out.size === 1 ? '' : 's'} (${fmtK(saved)}): the gap goes from <b>${fmtK(base.gap)}</b> to <b>${fmtK(now.gap)}</b>.</p>` : ''}
+      <div class="outlist">${list.map((x) => `<label class="row small"><input type="checkbox" data-cap-out="${esc(x.p.id)}" ${out.has(String(x.p.id)) ? 'checked' : ''}> <span>${esc(x.p.name)} <span class="muted">FY${x.years.join(', FY')}</span></span><b style="margin-left:auto">${fmtK(x.total)}</b></label>`).join('')}</div>
+      ${out.size ? `<div class="row" style="margin-top:10px"><button type="button" class="btn small" data-action="capOutClear">Put them all back</button>${!CAP.pub && CAP.ctx && CAP.ctx.plan ? '<button type="button" class="btn small primary" data-action="capOutSave">Save as a new scenario</button>' : ''}</div>` : ''}`;
+  }
 
   async function vCapital(c) {
     const [rows, peers] = await Promise.all([loadCapitalRows(c.district), peersCard(c, 'capital')]);
@@ -1196,6 +1518,7 @@
         <div class="row">${c.finance ? `<a class="btn primary" href="#/d/${enc(c.district.slug)}/settings/setup">Set up starting numbers</a>` : '<span class="small muted">A business manager or admin can set these up.</span>'}</div>
         ${S.isStaff && c.district.is_demo ? '<p class="small muted" style="margin-top:10px">This is a demo district: you can fill it with fictional data from the Willow Holler page.</p>' : ''}</div>`;
     }
+    if (!rows.scenarios.length && !c.plan) return '<div class="card"><h3>No capital plan yet</h3><p>The district’s projects haven’t been entered yet. The plan shows here once they are.</p></div>';
     if (!rows.scenarios.length) {
       return `<div class="card"><h3>No scenarios yet</h3><p>Upload the district’s project spreadsheet to create its first scenario.</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/progress/uploads">Upload projects</a></div>`;
     }
@@ -1220,7 +1543,8 @@
       ${fold(c, 'What-if and financing', `<div class="cap-grid">
         <div class="card" id="cap-levers">${capLeversHtml()}</div>
         <div class="card" id="cap-fin">${capFinHtml()}</div>
-      </div>`)}
+      </div>
+      <div class="card" id="cap-out">${capOutHtml()}</div>`)}
       ${fold(c, 'What it means for taxpayers', `<div class="card" id="cap-tax">${capTaxHtml()}</div>`)}
       ${fold(c, 'Projects by year', `<div id="cap-filters">${capFiltersHtml()}</div>
       <div id="cap-years">${capYearsHtml()}</div>
@@ -1235,6 +1559,7 @@
     CAP.editable = !CAP.pub && !!CAP.ctx && CAP.ctx.plan && !CAP.sc.is_locked;
     CAP.inputs = HGCapital.buildInputs(CAP.rows, CAP.scenarioId);
     CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
+    CAP.out = new Set();
   }
   function capResultsHtml() {
     const cfg = CAP.inputs.cfg, r = capCompute(), yrs = HGCapital.yearSummary(r, cfg);
@@ -1243,8 +1568,8 @@
     const tiles = [
       ['10-year need', fmtK(r.need), `FY${cfg.start}–FY${cfg.start + cfg.n - 1}`],
       ['Levies & grants', fmtK(r.levyFunded), 'SAVE, PPEL, V-PPEL, grants'],
-      ['Campaign / bond', fmtK(r.spentByBucket.camp), r.spentByBucket.boost ? `plus ${fmtK(r.spentByBucket.boost)} boosters` : (r.financed ? `${fmtK(r.financed)} financed` : 'none planned')],
-      ['Gap to close', fmtK(r.gap), r.gap > 0.5 ? [r.unfunded > 0.5 ? `${fmtK(r.unfunded)} campaign or bond not yet financed` : '', r.overflow > 0.5 ? `${fmtK(r.overflow)} over what the funds can pay` : ''].filter(Boolean).join('; ') : 'Fully paid for in this scenario'],
+      (r.financed > 0.5 || r.spentByBucket.boost > 0.5) ? ['Borrowing & gifts', fmtK(r.financed + r.spentByBucket.boost), [r.financed > 0.5 ? `${fmtK(r.financed)} financed` : '', r.spentByBucket.boost > 0.5 ? `${fmtK(r.spentByBucket.boost)} boosters` : ''].filter(Boolean).join(', ')] : null,
+      ['Gap to close', fmtK(r.gap), r.gap > 0.5 ? [r.unfunded > 0.5 ? `campaign or bond projects not yet financed${r.overflow > 0.5 ? ` (${fmtK(r.unfunded)})` : ''}` : '', r.overflow > 0.5 ? `${fmtK(r.overflow)} over what the funds can pay` : ''].filter(Boolean).join('; ') : 'Fully paid for in this scenario'],
       ['Busiest year', 'FY' + busiest.fy, fmtK(busiest.total)],
       enr ? ['Per pupil', '$' + Math.round(r.need / enr).toLocaleString('en-US'), `${enr.toLocaleString('en-US')} enrolled`] : null,
     ].filter(Boolean);
@@ -1258,7 +1583,8 @@
         ${y.total > 0.5 ? `<text x="${x + w / 2}" y="${(yy - 6).toFixed(1)}" class="b-lab ${y.campNeeded > 0.5 || y.over > 0.5 ? 'warn' : ''}">${fmtK(y.total)}</text>` : ''}
         <text x="${x + w / 2}" y="${base + 16}" class="b-fy">${y.fy}</text></g>`;
     }).join('');
-    return `<div class="grid tiles">${tiles.map((t, i) => `<div class="card tile-card ${i === 3 && r.gap > 0.5 ? 'gap' : ''}"><div class="small muted">${esc(t[0])}</div><div class="stat">${esc(t[1])}</div><div class="small muted">${esc(t[2])}</div></div>`).join('')}</div>
+    const moved = CAP.pub && CAP.inputs && JSON.stringify(CAP.levers) !== JSON.stringify(CAP.inputs.levers);
+    return `${moved ? '<div class="notice warn whatif-tag"><b>What-if:</b> these figures include your changes to the levers. They are not the published plan. <a href="#" data-action="capReset">Reset</a></div>' : ''}<div class="grid tiles">${tiles.map((t) => `<div class="card tile-card ${t[0] === 'Gap to close' && r.gap > 0.5 ? 'gap' : ''}"><div class="small muted">${esc(t[0])}</div><div class="stat">${esc(t[1])}</div><div class="small muted">${esc(t[2])}</div></div>`).join('')}</div>
       <div class="card"><div class="row" style="justify-content:space-between"><h3>Capital spending by year</h3>
         <div class="legend small"><span><i class="b-funds"></i>Levies &amp; grants</span><span><i class="b-boost"></i>Boosters</span><span><i class="b-fin"></i>Financed</span><span><i class="b-camp"></i>Campaign / bond needed</span><span><i class="b-over"></i>Over capacity</span></div></div>
         <div class="scroll"><svg class="capchart" viewBox="0 0 ${yrs.length * W} ${base + 24}" role="img" aria-label="Capital spending by year">${bars}</svg></div></div>`;
@@ -1306,7 +1632,7 @@
       const tier = HGRanking.tierOf(init).tier;
       p.phases.forEach((ph, k) => {
         const cost = ph.status === 'done' && ph.actual != null ? ph.actual : ph.cost * Math.pow(1 + L.infl, ph.year);
-        out.push({ p, ph, k, tier, area: p.area || init.focus_area || '', fy: cfg.start + ph.year, today: ph.cost, cost });
+        out.push({ p, ph, k, tier, area: p.area || init.focus_area || '', fy: cfg.start + ph.year, today: ph.cost, cost, left: !!(CAP.out && CAP.out.has(String(p.id))) });
       });
     });
     return out;
@@ -1340,7 +1666,7 @@
     if ((CAP.view || 'cards') === 'table') {
       const list = shown.slice().sort((a, b) => a.fy - b.fy || a.p.name.localeCompare(b.p.name));
       const TN = { must: 'Must-have', strategic: 'Strategic', nice: 'Nice to have', '': '' };
-      return `<h2 style="margin-top:6px">Projects by year</h2>${note}
+      return `${CAP.pub ? '<h2 style="margin-top:6px">Projects by year</h2>' : ''}${note}
         <div class="card"><div class="scroll"><table class="data captable"><thead><tr><th>Year</th><th>Initiative</th><th>Phase</th><th>Priority</th><th>Focus area</th><th>Paid from</th><th>Status</th><th class="num">Today’s $</th><th class="num">That year’s $</th></tr></thead><tbody>
           ${list.map((x) => `<tr><td>FY${x.fy}</td><td>${nameLink(x.p)}</td><td>${esc(x.ph.label || (x.p.phases.length > 1 ? `${x.k + 1} of ${x.p.phases.length}` : ''))}</td><td>${TN[x.tier] || ''}</td><td>${esc(x.area)}</td><td>${chips(x.ph)}</td>
             <td>${x.ph.status === 'done' ? '<b class="ok">Done</b>' : x.ph.status === 'underway' ? 'Underway' : 'Planned'}</td><td class="num">${fmtK(x.today)}</td><td class="num">${fmtK(x.cost)}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">Nothing matches these filters.</td></tr>'}
@@ -1348,7 +1674,7 @@
           <div style="margin-top:10px"><button type="button" class="btn small" data-action="capDownload">Download this table (.csv)</button></div></div>`;
     }
     const cards = yrs.map((y, i) => {
-      const items = shown.filter((x) => x.ph.year === i).map((x) => `<li><span>${nameLink(x.p)}${x.ph.label ? ` <span class="muted">· ${esc(x.ph.label)}</span>` : x.p.phases.length > 1 ? ` <span class="muted">${x.k + 1}/${x.p.phases.length}</span>` : ''}
+      const items = shown.filter((x) => x.ph.year === i).map((x) => `<li class="${x.left ? 'leftout' : ''}" ${x.left ? 'title="Left out in this what-if"' : ''}><span>${nameLink(x.p)}${x.ph.label ? ` <span class="muted">· ${esc(x.ph.label)}</span>` : x.p.phases.length > 1 ? ` <span class="muted">${x.k + 1}/${x.p.phases.length}</span>` : ''}
           ${x.ph.status === 'done' ? '<b class="ok">Done</b>' : x.ph.status === 'underway' ? '<span class="muted">underway</span>' : ''}
           ${chips(x.ph)}</span><b>${fmtK(x.cost)}</b></li>`);
       const spend = HGCapital.CAP_FUNDS.reduce((a, b) => a + r.res[i].spend[b], 0);
@@ -1361,7 +1687,7 @@
         ${y.boost > 0.5 ? `<div class="small">Boosters ${fmtK(y.boost)}</div>` : ''}
         <ul class="ylist">${items.join('') || `<li class="muted">${capFiltering() ? 'Nothing matching' : 'Nothing planned'}</li>`}</ul></div>`;
     }).join('');
-    return `<h2 style="margin-top:6px">Projects by year</h2>${note}<div class="ygrid">${cards}</div>`;
+    return `${CAP.pub ? '<h2 style="margin-top:6px">Projects by year</h2>' : ''}${note}<div class="ygrid">${cards}</div>`;
   }
   function capDownload() {
     const TN = { must: 'Must-have', strategic: 'Strategic', nice: 'Nice to have', '': '' };
@@ -1383,7 +1709,7 @@
     const cfg = CAP.inputs.cfg, imp = HGTax.impact(cfg, CAP.levers, CAP.inputs.tax || {}), R = HGTax.RULES;
     const dollars = (v) => (v == null ? '' : v < 100 ? '$' + v.toFixed(2) : '$' + Math.round(v).toLocaleString('en-US'));
     const homeTxt = '$' + Math.round(imp.homeValue).toLocaleString('en-US') + ' home';
-    const head = '<h3>What it means for taxpayers</h3>';
+    const head = CAP.pub ? '<h3>What it means for taxpayers</h3>' : '';   // on the plan screen the fold already says it
     if (!imp.taxed.length) return head + `<p>This scenario adds <b>no property tax</b>: it has no general-obligation bond, and no new V-PPEL.</p>
       <p class="small muted">SAVE revenue bonds, leases paid from PPEL, and campaigns or gifts don’t add a levy.</p>`;
     const first = imp.taxed[0].fy, last = imp.taxed[imp.taxed.length - 1].fy;
@@ -1425,6 +1751,7 @@
     const yc = document.getElementById('cap-yearly'); if (yc) yc.innerHTML = capYearlyHtml();
     const tx = document.getElementById('cap-tax'); if (tx) tx.innerHTML = capTaxHtml();
     const cl = document.getElementById('cap-lead'); if (cl) cl.innerHTML = capLeadHtml();
+    const co = document.getElementById('cap-out'); if (co) co.innerHTML = capOutHtml();
     LEVERS.forEach((l) => { const el = document.querySelector(`[data-lever-val="${l.k}"]`); if (el) el.textContent = l.show(CAP.levers[l.k]); });
   }
   const SET_FIELDS = [
@@ -1503,6 +1830,7 @@
     const d = c.district, rows = await loadCapitalRows(d);
     if (!rows.settings || !rows.scenarios.length) return notReady(c, { rows });
     const board = rows.scenarios.find((x) => x.is_board_version);
+    if (!board && !c.admin) return '<div class="card"><h3>No board version yet</h3><p>Progress is tracked against the plan the board adopted. A district admin marks that scenario as the board version.</p></div>';
     if (!board) return `<div class="card"><h3>No board version yet</h3><p>Progress is tracked against the plan the board adopted. On the capital plan, make one scenario the board version.</p>
       <a class="btn primary" href="#/d/${enc(d.slug)}/resources/capital">Capital plan</a></div>`;
     const [accounts, batches] = await Promise.all([
@@ -1538,7 +1866,7 @@
     items.sort((x, y) => (y.pl - x.pl) || x.i.name.localeCompare(y.i.name));
     const tot = items.reduce((t, x) => ({ pl: t.pl + x.pl, spent: t.spent + x.spent, encd: t.encd + x.encd }), { pl: 0, spent: 0, encd: 0 });
     { const flagged = items.filter((x) => /gaptext/.test(x.note)).length;
-      setLead(items.length ? `In FY${fy}, <b>${fmtK(tot.spent)}</b> spent and ${fmtK(tot.encd)} committed, against ${fmtK(tot.pl)} planned${flagged ? `; <b>${flagged}</b> initiative${flagged === 1 ? ' needs' : 's need'} a look` : ''}.` : `Nothing is planned or spent in FY${fy}.`); }
+      setLead(items.length ? `FY${fy} only${through ? `, ledger through ${esc(day(through))}` : ''}: <b>${fmtK(tot.spent)}</b> spent and ${fmtK(tot.encd)} encumbered (open purchase orders), against ${fmtK(tot.pl)} the board version plans for FY${fy}${flagged ? `; <b>${flagged}</b> initiative${flagged === 1 ? ' needs' : 's need'} a look` : ''}.` : `Nothing is planned or spent in FY${fy}.`); }
     const nameOf = (id) => (INIT.get(id) || {}).name || '';
     const linkCard = c.finance && sugg.length ? `<div class="card"><h3>Link spending to initiatives</h3>
       <p class="small muted">Capital-fund spending accounts from the monthly ledger that aren’t linked to an initiative yet. Linking counts their spending toward that initiative; it doesn’t change the fund balances.</p>
@@ -1814,6 +2142,7 @@
         <label class="field">Cost<select name="conf"><option value="estimate" ${i.cost_confidence !== 'firm' ? 'selected' : ''}>Estimate</option><option value="firm" ${i.cost_confidence === 'firm' ? 'selected' : ''}>Firm (bid or quote)</option></select></label>
         <label class="field">Condition<select name="cond">${['', 'good', 'fair', 'poor', 'critical'].map((v) => `<option value="${v}" ${(i.condition || '') === v ? 'selected' : ''}>${v ? v[0].toUpperCase() + v.slice(1) : 'Not rated'}</option>`).join('')}</select></label>
         <label class="field">Remaining life, years<input name="life" inputmode="numeric" value="${i.remaining_life == null ? '' : i.remaining_life}"></label>
+        <label class="field">Needed by, fiscal year<input name="need_by" inputmode="numeric" placeholder="2031" value="${i.need_by_fy == null ? '' : i.need_by_fy}"><span class="hint">The latest year it can wait until. Suggestions never move it later.</span></label>
         ${dec ? `
         <label class="field">Owner<input name="owner_name" maxlength="80" value="${esc(i.owner_name || '')}" placeholder="Name or role"></label>
         <label class="field">Strategic priority<select name="priority_id"><option value="">None</option>${(rows.priorities || []).map((p) => `<option value="${esc(p.id)}" ${i.priority_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
@@ -1839,6 +2168,7 @@
     const errs = [], v = (n) => (form.querySelector(`[name="${n}"]`) || {}).value || '';
     const name = v('name').trim(); if (!name) errs.push('Give the initiative a name.');
     const life = toNum(v('life')); if (life !== null && (isNaN(life) || life < 0 || !Number.isInteger(life))) errs.push('Remaining life must be a whole number of years.');
+    const needBy = toNum(v('need_by')); if (needBy !== null && (isNaN(needBy) || !Number.isInteger(needBy) || needBy < 2000 || needBy > 2100)) errs.push('Needed by must be a fiscal year, like 2031.');
     const phases = [...form.querySelectorAll('[data-phase-body] [data-phase-row]')].map((tr, k) => {
       const g = (n) => tr.querySelector(`[name="${n}"]`).value;
       const cost = toNum(g('cost')); if (cost === null || isNaN(cost) || cost < 0) errs.push(`Phase ${k + 1}: enter the cost in dollars.`);
@@ -1864,13 +2194,15 @@
     const extra = {};
     if (form.querySelector('[name=owner_name]')) Object.assign(extra, { owner_name: v('owner_name').trim() || null,
       priority_id: v('priority_id') || null, approved_on: v('approved_on') || null, description: v('description').trim() || null });
-    return { errs, name, type: v('type') || 'capital', status: v('status') || 'proposed', tier: v('tier') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, phases, yearly, extra };
+    return { errs, name, type: v('type') || 'capital', status: v('status') || 'proposed', tier: v('tier') || null, area: v('area').trim() || null, conf: v('conf'), cond: v('cond') || null, life, needBy, phases, yearly, extra };
   }
   async function saveProject(form) {
     const box = form.querySelector('[data-form-errors]'), r = readProject(form);
     if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); return; }
     const rows = ED.rows, d = S.district.id, sid = ED.sid, sc = rows.scenarios.find((x) => x.id === sid); let iid = form.dataset.id || null;
-    const fields = Object.assign({ name: r.name.slice(0, 120), type: r.type, status: r.status, tier: r.tier, engine_priority: ({ must: 'High', strategic: 'Med', nice: 'Low' })[r.tier] || null, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life }, r.extra);
+    const fields = Object.assign({ name: r.name.slice(0, 120), type: r.type, status: r.status, tier: r.tier, engine_priority: ({ must: 'High', strategic: 'Med', nice: 'Low' })[r.tier] || null, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life },
+      // needed-by is part 18; sent only when the database has it (or someone typed one), so an older database still saves
+      r.needBy != null || rows.initiatives.some((x) => 'need_by_fy' in x) ? { need_by_fy: r.needBy } : {}, r.extra);
     const norm = (t) => t.toLowerCase().replace(/\s+/g, ' ');
     if (!iid) {
       const same = rows.initiatives.find((x) => norm(x.name) === norm(r.name));
@@ -2382,6 +2714,9 @@
       HG.db.select('report_snapshot', `select=id,kind,title,period_end,created_at,payload&district_id=eq.${d.id}&kind=in.(board_monthly,decision_packet)&order=period_end.desc,created_at.desc`),
       HG.db.select('import_batch', `select=id,period_end&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc&limit=1`).catch(() => []),
     ]);
+    const pubNow = d.public_link_enabled ? (await HG.db.select('publication', `select=published_at&district_id=eq.${d.id}&kind=eq.board_plan&is_current=eq.true&limit=1`).catch(() => []))[0] || null : null;
+    const pubUrl = `${HG.appUrl()}#/p/${enc(d.slug)}`;
+    const pubCard = d.public_link_enabled ? `<div class="card"><h3>Community page</h3><p>${pubNow ? `Published ${esc(day(pubNow.published_at))}: <a href="${esc(pubUrl)}" target="_blank" rel="noopener">${esc(pubUrl)}</a>` : 'Nothing is published on the public link yet.'}${c.admin ? ` <a href="#/d/${enc(d.slug)}/reports/community">Manage</a>` : ''}</p></div>` : '';
     const packets = snaps.filter((x) => x.kind === 'decision_packet');
     if (S.landing && !RP.open) { const latest = snaps.find((x) => x.kind === 'board_monthly'); if (latest) RP.open = latest.id; }
     S.landing = false;
@@ -2404,6 +2739,7 @@
         <div class="inline-form"><label class="field">Month end<input type="date" data-rp-date value="${esc(dflt)}"></label>
           <button type="button" class="btn primary" data-action="rpCreate">Create the report</button></div>
         ${batches[0] ? `<p class="small muted">The latest monthly ledger is through ${esc(day(batches[0].period_end))}.</p>` : '<p class="small muted">No monthly ledger yet: the report will leave out budget vs. actual and spending.</p>'}</div>` : ''}
+      ${c.admin ? '' : pubCard}
       <div class="card"><h3>Board reports</h3>${table([
         { label: 'Month end', html: (r) => `<a href="#" data-action="rpOpen" data-id="${esc(r.id)}">${esc(day(r.period_end))}</a>` },
         { label: 'Report', get: (r) => r.title },
@@ -2914,7 +3250,8 @@
     ];
     return `
       <div class="card"><h3>Where to start</h3><ol>${start.map((x) => `<li>${x}</li>`).join('')}</ol>
-        <p class="small muted">The menu shows the screens most useful to your role. To see every screen, use Account → Your menu.</p></div>
+        <p class="small muted">The menu shows the screens most useful to your role. To see every screen, use Account → Your menu.</p>
+        ${c.admin || c.plan || c.finance ? '<p class="small"><a href="#" data-action="setupShow">Show the “Getting set up” steps on the Overview</a></p>' : ''}</div>
       <div class="card"><h3>How do I…</h3><table class="data"><tbody>${tasks.map(([q, a]) => `<tr><td>${esc(q)}</td><td class="small">${esc(a)}</td></tr>`).join('')}</tbody></table></div>
       <div class="card"><h3>What the terms mean</h3><dl class="glossary">${Object.values(TERMS).sort((x, y) => x[0].localeCompare(y[0])).map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl>
         <p class="small muted">Iowa figures were checked on ${esc(day(HGGF.RULES.checked))}. HighGround is a planning tool; confirm decisions with the district’s auditor, attorney or financial advisor.</p></div>
@@ -2980,6 +3317,9 @@
       if (implied > 0.34) warn.push(`PPEL receipts and taxable valuation imply $${implied.toFixed(2)} per $1,000, above the $0.33 a board can levy without a vote. Check the valuation, or whether receipts include an income surtax.`);
       else tip.push('Add the PPEL rate from the certified budget, so receipts can be checked against it.');
     }
+    const lvs = SETUP_PREFILL.data && SETUP_PREFILL.data.levy, vst = val('vppel_status');
+    if (lvs && Number(lvs.voted_ppel) > 0 && vst === 'none') warn.push(`The state lists a voter-approved PPEL of $${Number(lvs.voted_ppel).toFixed(3)} per $1,000 for FY${lvs.fiscal_year}, but V-PPEL is set to None. Set it to Active and enter its receipts and years, or the plan leaves that money out.`);
+    if (lvs && !(Number(lvs.voted_ppel) > 0) && vst === 'active') warn.push(`V-PPEL is Active, but the state lists no voter-approved PPEL for FY${lvs.fiscal_year}. Check whether the vote has passed or ended.`);
     if (av > 0 && tv > 0 && av < tv) warn.push('Actual (100%) valuation is lower than taxable valuation. Actual valuation is normally the larger figure; check they aren’t swapped.');
     const sr = num('save_receipts'), en = num('enrollment');
     if (sr > 0 && en > 0) {
@@ -3010,10 +3350,16 @@
     const st = SETUP_PREFILL.data, form = document.querySelector('form[data-form=saveSetup]'); if (!st || !form) return;
     const set = (n, v) => { const el = form.querySelector(`[name=${n}]`); if (el && v != null && v !== '') el.value = v; };
     const B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {};
-    set('enrollment', le.certified); if (le.fiscal_year) set('enrollment_year', schoolYear(le.fiscal_year));
+    set('enrollment', le.certified == null ? null : Math.round(Number(le.certified))); /* the state certifies tenths; this field takes whole pupils */ if (le.fiscal_year) set('enrollment_year', schoolYear(le.fiscal_year));
     if (B2.save != null || B2.ppel != null) { set('as_of', `${st.fiscal_year}-06-30`); set('bal_save', moneyIn(B2.save)); set('bal_ppel', moneyIn(B2.ppel)); }
     if (R2.save != null) { set('save_receipts', moneyIn(Math.round(R2.save))); set('save_receipts_fy', st.fiscal_year); }
-    if (R2.ppel != null) set('ppel_receipts', moneyIn(Math.round(R2.ppel)));
+    const sp = ppelSplit(st), lv = st.levy;
+    if (sp.regular != null) set('ppel_receipts', moneyIn(Math.round(sp.regular)));
+    if (lv) {
+      set('ppel_rate', Number(lv.regular_ppel).toFixed(5).replace(/0+$/, '').replace(/\.$/, ''));
+      const vs = form.querySelector('[name=vppel_status]');
+      if (Number(lv.voted_ppel) > 0) { if (vs && vs.value === 'none') vs.value = 'active'; if (sp.voted != null) set('vppel_annual', moneyIn(Math.round(sp.voted))); }
+    }
     renderSetupChecks(form);
     toast('Filled in', 'Check the numbers, then click Save starting numbers.');
   }
@@ -3041,13 +3387,28 @@
     return `
       ${c.finance ? '' : '<div class="notice">Only a business manager or admin can change these numbers.</div>'}
       ${(() => { setTimeout(() => { const sf = document.querySelector('form[data-form=saveSetup]'); if (sf) renderSetupChecks(sf); }, 0); return ''; })()}
-      ${st ? (() => { const B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {};
-        const li = [[`Certified enrollment (${le.fiscal_year ? schoolYear(le.fiscal_year) : ''})`, le.certified != null ? Number(le.certified).toLocaleString('en-US') : null],
-          [`SAVE balance, June 30, ${st.fiscal_year}`, B2.save], [`PPEL balance, June 30, ${st.fiscal_year}`, B2.ppel], [`SAVE revenue, FY${st.fiscal_year}`, R2.save], [`PPEL revenue, FY${st.fiscal_year}`, R2.ppel]]
-          .filter(([, v]) => v != null).map(([l, v]) => `<li>${esc(l)}: <b>${typeof v === 'number' ? esc(money(v)) : esc(v)}</b></li>`).join('');
-        return li ? `<div class="card" data-setup-state><h3>From the state’s annual report</h3><ul>${li}</ul>
-          <div class="row"><button type="button" class="btn" data-action="setupPrefill">Fill in the form with these</button><span class="small muted">Nothing is saved until you click Save. Check them against the audit; the state figures include interest and are a year behind.</span></div>
-          <p class="small muted">${esc(st.source)}</p></div>` : ''; })()
+      ${st ? (() => { const B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {}, setUp = !!s.district_id, sp = ppelSplit(st), lv = st.levy;
+        const G2 = st.general || {}, gfb = G2.unassigned != null || G2.assigned != null ? Number(G2.unassigned || 0) + Number(G2.assigned || 0) : null, gi = s.gf_inputs || {};
+        /* [label, the state's figure, yours (once set up), formatter] */
+        const rowsS = [[`Certified enrollment (${le.fiscal_year ? schoolYear(le.fiscal_year) : ''})`, le.certified, s.enrollment, (v) => Number(v).toLocaleString('en-US')],
+          [`SAVE balance, June 30, ${st.fiscal_year}`, B2.save, B.save], [`PPEL balance, June 30, ${st.fiscal_year}`, B2.ppel, B.ppel], [`SAVE revenue, FY${st.fiscal_year}`, R2.save, s.save_receipts],
+          ...(sp.voted != null ? [[`PPEL revenue, FY${st.fiscal_year}, regular share (estimated)`, sp.regular, s.ppel_receipts], [`V-PPEL revenue, FY${st.fiscal_year}, voted share (estimated)`, sp.voted, s.vppel_annual]] : [[`PPEL revenue, FY${st.fiscal_year}`, R2.ppel, s.ppel_receipts]]),
+          ...(lv ? [[`PPEL rates, FY${lv.fiscal_year}, per $1,000 of taxable valuation`, `regular $${Number(lv.regular_ppel).toFixed(3)}; ${Number(lv.voted_ppel) > 0 ? `voter-approved $${Number(lv.voted_ppel).toFixed(3)}` : 'no voter-approved PPEL'}`, s.ppel_rate == null ? null : `regular $${Number(s.ppel_rate).toFixed(3)}; V-PPEL ${s.vppel_status || 'none'}`]] : []),
+          ...(gfb != null ? [[`General Fund unassigned and assigned balance, June 30, ${st.fiscal_year}`, gfb, gi.fund_balance], ...(G2.aea_flowthrough != null ? [['AEA flowthrough', G2.aea_flowthrough, gi.aea_flowthrough]] : [])] : [])]
+          .filter(([, v]) => v != null);
+        if (!rowsS.length) return '';
+        const fmtv = (r, v) => (v == null || v === '' ? '' : typeof v === 'string' ? esc(v) : esc(r[3] ? r[3](v) : money(v)));
+        const differs = (r) => typeof r[1] === 'number' && r[2] != null && r[2] !== '' && Math.abs(Number(r[2]) - r[1]) > 0.1 * Math.max(Math.abs(r[1]), 1);
+        const nDiff = setUp ? rowsS.filter(differs).length : 0;
+        const hasForm = rowsS.some((r) => !/General Fund|AEA/.test(r[0]));
+        const body = `<div class="card" data-setup-state><h3>From the state’s annual report</h3>
+          ${setUp ? `<div class="scroll"><table class="data"><thead><tr><th></th><th class="num">State</th><th class="num">Yours</th></tr></thead><tbody>${rowsS.map((r) => `<tr><td>${esc(r[0])}</td><td class="num">${fmtv(r, r[1])}</td><td class="num ${differs(r) ? 'gaptext' : ''}">${fmtv(r, r[2])}</td></tr>`).join('')}</tbody></table></div>
+            <p class="small muted">Highlighted: more than 10% from the state’s figure. The state’s figures are a year behind and include interest, so some difference is normal.</p>`
+          : `<ul>${rowsS.map((r) => `<li>${esc(r[0])}: <b>${fmtv(r, r[1])}</b></li>`).join('')}</ul>`}
+          <div class="row">${hasForm ? `<button type="button" class="btn" data-action="setupPrefill">${setUp ? 'Replace the form’s figures with the state’s' : 'Fill in the form with these'}</button>` : ''}${gfb != null && setUp ? '<button type="button" class="btn" data-action="gfFromState">Use in the General Fund setup</button>' : ''}<span class="small muted">Nothing is saved until you click Save.</span></div>
+          ${lv && Number(lv.voted_ppel) > 0 ? `<p class="small">The state lists a <b>voter-approved PPEL</b> for FY${esc(lv.fiscal_year)}. Filling in sets V-PPEL to Active and splits the annual report’s PPEL revenue between PPEL and V-PPEL by the two rates. Add the vote’s first and last fiscal years from the ballot measure.</p>` : ''}
+          <p class="small muted">${esc([st.source, lv && lv.source].filter(Boolean).join('. '))}</p></div>`;
+        return setUp ? fold(c, `Compare with the state’s annual report${nDiff ? ` · ${nDiff} figure${nDiff === 1 ? '' : 's'} differ` : ''}`, body, false) : body; })()
       : c.finance && !c.district.state_district_id ? `<p class="small muted">${c.admin ? `Add the district’s Iowa district number in <a href="#/d/${enc(c.district.slug)}/settings/district">Settings → District</a> to fill these from the state’s annual report.` : 'Once an admin adds the district’s Iowa district number, these can be filled from the state’s annual report.'}</p>` : ''}
       <form class="stack setup" data-form="saveSetup" novalidate>
         <div class="card checks" data-setup-checks hidden></div>
@@ -3165,9 +3526,16 @@
     const r = readSetup(form);
     if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); box.scrollIntoView({ block: 'center' }); return; }
     box.hidden = true;
+    await persistSetup(r, true);
+    toast('Starting numbers saved', 'The capital plan now uses them.');
+    here();
+  }
+  /** save starting numbers; withDebts = the debt rows on the form are the whole list (the wizard leaves debt to the full screen) */
+  async function persistSetup(r, withDebts) {
     const d = S.district.id;
     await HG.db.upsert('district_settings', [Object.assign({ district_id: d }, r.settings)], 'district_id');
     await HG.db.upsert('fund_balance', r.balances.map((b) => ({ district_id: d, fund: b.fund, as_of: r.asOf, amount: b.amount || 0, source: 'manual' })), 'district_id,fund,as_of');
+    if (!withDebts) { for (const x of r.debts) await HG.db.insert('debt_obligation', Object.assign({ district_id: d }, { name: x.name, fund: x.fund, annual_payment: x.annual_payment, final_fy: x.final_fy })); return; }
     const existing = await HG.db.select('debt_obligation', `select=id&district_id=eq.${d}`);
     const keep = new Set(r.debts.filter((x) => x.id).map((x) => x.id));
     for (const x of existing) if (!keep.has(x.id)) await HG.db.remove('debt_obligation', `id=eq.${enc(x.id)}`);
@@ -3176,8 +3544,6 @@
       if (x.id) await HG.db.update('debt_obligation', `id=eq.${enc(x.id)}`, row);
       else await HG.db.insert('debt_obligation', Object.assign({ district_id: d }, row));
     }
-    toast('Starting numbers saved', 'The capital plan now uses them.');
-    here();
   }
 
   // ---------------------------------------------------------------- publishing the board version
@@ -3321,7 +3687,7 @@
   // ------------------------------------------------------------------ public page (no account)
   function publicBodyHtml(d, p) {
     const P = p.payload, cfg = HGEngine.makeConfig(P.settings), stored = P.stored || {};
-    CAP.pub = true; CAP.key = null; CAP.editable = false; CAP.sc = null; CAP.filter = {}; CAP.view = 'cards';
+    CAP.pub = true; CAP.key = null; CAP.editable = false; CAP.sc = null; CAP.filter = {}; CAP.view = 'cards'; CAP.out = new Set();
     CAP.inputs = { cfg, projects: HGEngine.cleanList(P.projects || [], cfg), stored, levers: HGEngine.leversOf(stored, cfg), notes: [], tax: P.tax || {} };
     CAP.levers = JSON.parse(JSON.stringify(CAP.inputs.levers));
     const accent = /^#[0-9a-f]{6}$/i.test(d.brand_color || '') ? d.brand_color : '#1E3A2F';
@@ -3361,7 +3727,7 @@
       <aside class="auth-side"><a class="brand auth-brand" href="#/signin">${LOGO_LIGHT}</a>
         <p>Strategy, decisions, capital planning and accountability for Iowa school districts.</p>
         <p class="small">Powered by Willow Holler.</p></aside>
-      <main class="auth-main"><div class="auth-card">${inner}</div></main></div>`;
+      <main class="auth-main"><div class="auth-card"><div class="auth-mobile-brand">${LOGO_COLOR}</div>${inner}</div></main></div>`;
   }
   function renderAuth(which) {
     const msg = flash ? `<div class="notice ${/confirm|sent|check|changed/i.test(flash) ? 'ok' : 'error'}">${esc(flash)}</div>` : '';
@@ -3442,12 +3808,22 @@
     async gfStaffRemove(el) { el.closest('[data-gf-staff]').remove(); },
     async gfReset() { GF.over = {}; here(); },
     async gfPrefill() {
-      const P = GF.prefill || {}, form = document.querySelector('form[data-form=saveGf]'); if (!form) return;
+      const P = GF.prefill || {}, form = document.querySelector('form[data-form=saveGf], form[data-form=wizGf]'); if (!form) return;
       const set = (n, v) => { const el = form.querySelector(`[name=${n}]`); if (el && v != null) el.value = n === 'enrollment' ? v : Number(Math.round(v)).toLocaleString('en-US'); };
       set('enrollment', P.enrollment); set('aea_flowthrough', P.aea_flowthrough); set('fund_balance', P.fund_balance);
       toast('Filled in', 'Enrollment, AEA flowthrough and fund balance. Check them, then Save.');
     },
     async setupPrefill() { setupPrefill(); },
+    async setupGo(el) { const st = (SETUP.steps || []).find((x) => x.k === el.dataset.k); if (!st) return; SETUP.step = st.k; go(`#/d/${enc(S.district.slug)}/${st.path}`); },
+    async setupBack() { SETUP.step = null; go(`#/d/${enc(S.district.slug)}/overview/today`); },
+    async wizSkip() { go(WIZ.next); },
+    async setupHide() { try { localStorage.setItem('highground-setup-hidden-' + S.district.id, '1'); } catch (e) {} toast('Setup steps hidden', 'Show them again from Help → Guide.'); here(); },
+    async setupShow() { try { localStorage.removeItem('highground-setup-hidden-' + S.district.id); } catch (e) {} go(`#/d/${enc(S.district.slug)}/overview/today`); },
+    async peerDetail(el) {
+      const P = PEERS.data; if (!P) return;
+      modal(`<div class="row" style="justify-content:flex-end"><button type="button" class="btn small" data-action="closeModal">Close</button></div>${HGPeers.detailHtml(P.rows, el.dataset.key, P)}`);
+    },
+    async gfFromState() { GF.autoPrefill = true; go(`#/d/${enc(S.district.slug)}/resources/general`); },
     async regAnswer(el) {
       const box = el.closest('[data-reg-flag]'), resp = (box.querySelector('[name=response]') || {}).value || '';
       if (el.dataset.status === 'explained' && !resp.trim()) throw new UserError('Write the answer first, or choose “Not a concern”.');
@@ -3483,6 +3859,7 @@
       form.querySelector('[data-ia-results]').innerHTML = '';
     },
     async openSearch() { await openSearch(); },
+    async openHelp() { openHelp(); },
     async define(el) { const t = TERMS[el.dataset.term]; if (t) toast(t[0], t[1]); },
     async searchGo(el) {
       const k = el.dataset.k, id = el.dataset.id, slug = S.district.slug; closeModal();
@@ -3530,6 +3907,21 @@
     async capView(el) { CAP.view = el.dataset.v; document.getElementById('cap-filters').innerHTML = capFiltersHtml(); document.getElementById('cap-years').innerHTML = capYearsHtml(); },
     async capClearFilters() { CAP.filter = {}; document.getElementById('cap-filters').innerHTML = capFiltersHtml(); document.getElementById('cap-years').innerHTML = capYearsHtml(); },
     async capDownload() { capDownload(); },
+    async capOutClear() { CAP.out = new Set(); capRefresh(); },
+    async capOutSave() {
+      const out = [...(CAP.out || [])]; if (!out.length) return;
+      const names = CAP.inputs.projects.filter((p) => out.includes(String(p.id))).map((p) => p.name);
+      const name = (prompt('Name the new scenario', `${CAP.sc.name} without ${names.length === 1 ? names[0] : names.length + ' projects'}`) || '').trim(); if (!name) return;
+      const res = await HG.db.rpc('copy_scenario', { p_source: CAP.sc.id, p_name: name.slice(0, 80) });
+      const sid = typeof res === 'string' ? res : res && res.copy_scenario;
+      if (!sid) throw new UserError('The copy wasn’t made. Try again.');
+      for (const iid of out) {
+        await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${enc(iid)}`);
+        await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${enc(iid)}`);
+        await HG.db.removeAll('scenario_initiative', `scenario_id=eq.${sid}&initiative_id=eq.${enc(iid)}`);
+      }
+      CAP.key = S.district.id; CAP.scenarioId = sid; toast('Saved', `“${name}” is a new scenario without ${names.join(', ')}. The original is unchanged.`); here();
+    },
     async openScenario(el) { CAP.key = S.district.id; CAP.scenarioId = el.dataset.id; go(`#/d/${enc(S.district.slug)}/resources/capital`); },
     async exportProjects() { await exportProjects(); },
     async exportPhases() { await exportPhases(); },
@@ -3566,6 +3958,54 @@
     async editProject(el) { openProjectEditor(el.dataset.id || null); },
     async rankMove(el) { await rankMove(el); },
     async rankScenario() { await rankScenario(); },
+    async rankView(el) { RK.view = el.dataset.v; here(); },
+    async goalFind() {
+      const id = document.querySelector('[data-goal-id]').value, fy = document.querySelector('[data-goal-fy]').value; RK.goalId = id;
+      RK.goal = HGSuggest.goalSeek(HGCapital.buildInputs(RK.rows, RK.sid), RK.k.items, RK.rows.initiatives, id, fy ? Number(fy) : null);
+      document.getElementById('goal-results').innerHTML = goalHtml(RK.goal, RK.k);
+    },
+    async goalApply(el) {
+      const g = RK.goal, o = g && g.options[Number(el.dataset.i)], sc = RK.rows.scenarios.find((x) => x.id === RK.sid), t = RK.k.items.find((x) => String(x.id) === String(RK.goalId));
+      if (!o || !sc || !t) return;
+      const name = (prompt('Name the new scenario', `${sc.name}, funding ${t.name}`) || '').trim(); if (!name) return;
+      const res = await HG.db.rpc('copy_scenario', { p_source: sc.id, p_name: name.slice(0, 80) });
+      const sid = typeof res === 'string' ? res : res && res.copy_scenario;
+      if (!sid) throw new UserError('The copy wasn’t made. Try again.');
+      const movePhases = async (iid, mvs) => { for (const m of mvs) await HG.db.update('phase', `scenario_id=eq.${sid}&initiative_id=eq.${enc(iid)}&fy=eq.${m.fy}&status=not.in.(done,underway)`, { fy: m.toFy }); };
+      if (g.pulledForward) {   // the target itself has to finish earlier
+        const last = Math.max(...t.years), d = g.byFY - last;
+        await movePhases(String(t.id), t.years.slice().sort((a, b) => a - b).map((fy) => ({ fy, toFy: fy + d })));
+      }
+      if (o.kind === 'rank') await HG.db.upsert('scenario_initiative', o.order.map((id, n) => ({ scenario_id: sid, initiative_id: id, district_id: S.district.id, rank: n + 1, included: true })), 'scenario_id,initiative_id');
+      else for (const m of o.moves) await movePhases(m.id, (m.delta > 0 ? HGSuggest.moves(m).slice().reverse() : HGSuggest.moves(m)));
+      RK.sid = sid; RK.goal = null; toast('Scenario made', `“${name}” funds ${t.name}. The original is unchanged.`); here();
+    },
+    async rankSchedule() {
+      const S = RK.sched, sc = RK.rows.scenarios.find((x) => x.id === RK.sid); if (!S || !S.moves.length || !sc) return;
+      const name = (prompt('Name the new scenario', `${sc.name}, year by year`) || '').trim(); if (!name) return;
+      const res = await HG.db.rpc('copy_scenario', { p_source: sc.id, p_name: name.slice(0, 80) });
+      const sid = typeof res === 'string' ? res : res && res.copy_scenario;
+      if (!sid) throw new UserError('The copy wasn’t made. Try again.');
+      // all moves go later: latest first, so a phase never lands on a year another phase still has to leave
+      for (const m of S.moves.slice().sort((a, b) => b.fromFY - a.fromFY)) await HG.db.update('phase', `scenario_id=eq.${sid}&initiative_id=eq.${enc(m.id)}&fy=eq.${m.fromFY}&status=not.in.(done,underway)`, { fy: m.toFY });
+      RK.sid = sid; toast('Scenario made', `“${name}”: ${new Set(S.moves.map((m) => m.id)).size} initiative(s) moved to the year they can be paid for.`); here();
+    },
+    async rankFromTiers() {
+      if (!confirm('Reorder the whole list by priority (must-have, strategic, nice to have), keeping the current order within each? You can then move items across priorities.')) return;
+      const T = HGRanking.TIERS, order = RK.k.items.slice().sort((a, b) => (T.indexOf(a.tier) - T.indexOf(b.tier)) || (a.position - b.position)).map((x) => x.id);
+      await rankSave(order);
+    },
+    async rankSuggest(el) {
+      const g = (RK.sugg || []).find((x) => x.id === el.dataset.id), sc = RK.rows.scenarios.find((x) => x.id === RK.sid); if (!g || !sc) return;
+      const name = (prompt('Name the new scenario', `${sc.name}, ${g.name} to FY${g.to[0]}`) || '').trim(); if (!name) return;
+      const res = await HG.db.rpc('copy_scenario', { p_source: sc.id, p_name: name.slice(0, 80) });
+      const sid = typeof res === 'string' ? res : res && res.copy_scenario;
+      if (!sid) throw new UserError('The copy wasn’t made. Try again.');
+      // move this initiative's phases that haven't started, each by the same number of years
+      const order = g.delta > 0 ? HGSuggest.moves(g).slice().reverse() : HGSuggest.moves(g);
+      for (const m of order) await HG.db.update('phase', `scenario_id=eq.${sid}&initiative_id=eq.${enc(g.id)}&fy=eq.${m.fy}&status=not.in.(done,underway)`, { fy: m.toFy });
+      RK.sid = sid; toast('Scenario made', `“${name}”: ${g.name} moved ${g.delta > 0 ? 'later' : 'earlier'} by ${Math.abs(g.delta)} year${Math.abs(g.delta) === 1 ? '' : 's'}. The original is unchanged.`); here();
+    },
     async addFund(el) {
       const cell = el.parentElement.querySelector('[data-srcs]'), used = [...cell.querySelectorAll('[name=src]')].map((x) => x.value);
       if (used.length >= 3) return;
@@ -3665,6 +4105,25 @@
       await HG.db.update('profile', `user_id=eq.${enc(S.user.id)}`, { full_name: f.full_name.trim() || null, title: f.title.trim() || null });
       await loadContext(true); toast('Saved'); here();
     },
+    async wizNumber(f) {
+      const t = String(f.state_district_id || '').trim();
+      if (t) {
+        if (!/^\d{1,4}$/.test(t)) throw new UserError('The Iowa district number is up to 4 digits, like 0009.');
+        const de = t.padStart(4, '0');
+        const hit = await HG.db.select('ia_district', `select=de_district&de_district=eq.${de}`).catch(() => []);
+        if (!hit.length) throw new UserError(`No Iowa district numbered ${de} in the state data. Use Find to look it up by name.`);
+        await HG.db.update('district', `id=eq.${S.district.id}`, { state_district_id: de });
+        await loadContext(true);
+      }
+      go(WIZ.next);
+    },
+    async wizStart(f, form) {
+      const box = form.querySelector('[data-setup-errors]'), r = readSetup(form);
+      if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); box.scrollIntoView({ block: 'center' }); return; }
+      await persistSetup(r, false);
+      toast('Starting numbers saved'); go(WIZ.next);
+    },
+    async wizGf(f, form) { if (await saveGf(f, form)) { toast('General Fund figures saved'); go(WIZ.next); } },
     async saveDistrict(f) {
       let de;
       if (f.state_district_id !== undefined) {
@@ -3738,6 +4197,8 @@
     if (lv && CAP.inputs) { CAP.levers[lv.dataset.lever] = Number(lv.value); capRefresh(); }
   });
   document.addEventListener('change', (e) => {
+    const co = e.target.closest('[data-cap-out]');
+    if (co && CAP.inputs) { CAP.out = CAP.out || new Set(); if (co.checked) CAP.out.add(co.dataset.capOut); else CAP.out.delete(co.dataset.capOut); capRefresh(); return; }
     const lc = e.target.closest('input[type=checkbox][data-lever]');
     if (lc && CAP.inputs) { CAP.levers[lc.dataset.lever] = lc.checked; capRefresh(); return; }
     if (e.target.closest('[data-upload-file]') || (e.target.closest('[data-upload-kind]') && document.querySelector('[data-upload-file]').files.length)) { run(readUpload); return; }
@@ -3769,6 +4230,10 @@
     if (ph2) { CP.holdBack = ph2.checked; CP.note = (document.querySelector('[data-pub-note]') || {}).value; here(); return; }
     const psv = e.target.closest('[data-pub-survey]');
     if (psv) { CP.survey = psv.checked; CP.note = (document.querySelector('[data-pub-note]') || {}).value; here(); return; }
+    const rt2 = e.target.closest('[data-rank-to]');
+    if (rt2) { run(() => rankTo(rt2), rt2); return; }
+    const rb = e.target.closest('[data-rank-by]');
+    if (rb) { RK.by = rb.value; return here(); }
     const rs2 = e.target.closest('[data-rank-sid]');
     if (rs2) { RK.sid = rs2.value; return here(); }
     const rt = e.target.closest('[data-rank-tier]');

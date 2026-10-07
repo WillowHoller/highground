@@ -268,6 +268,6 @@
     VERSION: '2026-10-01',
     BUCKETS, BUCKET_NAMES, CAP_ORDER, PRI_LIST,
     fyOfDate, firstYearFraction, normSettings, makeConfig, defaultLevers, leversOf, cleanFin,
-    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, compute, pmt, sfCut, saveBondCapacity, goDebtRoom,
+    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, debtIn, finPay, compute, pmt, sfCut, saveBondCapacity, goDebtRoom,
   };
 });

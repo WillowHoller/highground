@@ -11,7 +11,9 @@ check('every initiative in the scenario is listed once', k.items.length === 16 &
 check('priorities come from the initiatives', k.items.every((x) => !x.suggested) && k.items[0].tier === 'must');
 const oldOnly = K.tierOf({ engine_priority: 'Med' }), none = K.tierOf({});
 check('an initiative with only the old High/Med/Low still gets a priority', oldOnly.tier === 'strategic' && oldOnly.suggested && none.tier === '');
-check('list runs must-have, then strategic, then nice to have', k.items.every((x, j, a) => !j || K.TIERS.indexOf(a[j - 1].tier) <= K.TIERS.indexOf(x.tier)));
+check('force rank: the list follows the district’s own rank, across priorities', k.by === 'rank' && k.items.every((x, j, a) => !j || a[j - 1].rank <= x.rank) && new Set(k.items.slice(0, 7).map((x) => x.tier)).size > 1);
+{ const kp = K.build(rows, sid, { by: 'priority' });
+  check('grouped by priority on request (the old view)', kp.items.every((x, j, a) => !j || K.TIERS.indexOf(a[j - 1].tier) <= K.TIERS.indexOf(x.tier))); }
 check('positions are 1..n', k.items.map((x) => x.position).join() === Array.from({ length: 16 }, (_, j) => j + 1).join());
 // everything above the line really fits: running just those leaves no capital fund short
 const keepIds = new Set(k.items.slice(0, k.line).map((x) => x.id));

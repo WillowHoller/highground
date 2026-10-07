@@ -235,6 +235,21 @@
     return out;
   }
 
+  /* what each capital fund is already committed to over the plan, before any project: payments on existing debt and new
+     borrowing, ongoing commitments, and yearly costs of programs and hires charged to the fund (year 0 scaled like receipts) */
+  function commitments(L, cfg) {
+    const out = {};
+    CAP_FUNDS.forEach((b) => { out[b] = { debt: 0, ongoing: 0, yearly: 0 }; });
+    cfg.years.forEach((fy, y) => {
+      const f = y === 0 ? cfg.f0 : 1;
+      ['save', 'ppel'].forEach((b) => {
+        out[b].debt += (E.debtIn(cfg, b, y) + E.finPay(cfg, b, y, L)) * f;
+        out[b].ongoing += (b === 'save' ? cfg.saveOng : cfg.ppelOng) * f;
+      });
+      CAP_FUNDS.forEach((b) => { out[b].yearly += E.recurIn(cfg, b, y, L) * f; });
+    });
+    return out;
+  }
   /* yearly costs by year: capital (counted in the plan) and other (general fund, boosters: shown as commitments) */
   function recurByYear(L, cfg) {
     return cfg.years.map((fy, y) => {
@@ -258,5 +273,5 @@
     ];
   }
 
-  return { starterSets, settingsFromRows, projectsFromRows, leversFromRows, recurFromRows, buildInputs, demoRows, yearSummary, fundPaths, recurByYear, CAP_FUNDS };
+  return { starterSets, settingsFromRows, projectsFromRows, leversFromRows, recurFromRows, buildInputs, demoRows, yearSummary, fundPaths, recurByYear, commitments, CAP_FUNDS };
 });

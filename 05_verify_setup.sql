@@ -3,7 +3,7 @@ with t as (
   select c.relname, c.relrowsecurity
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public' and c.relkind = 'r'
-  -- HighGround's own 36 tables; state peer data and check registers (parts 15-16) are counted in test 10
+  -- HighGround's own 36 tables; state data, peer comparisons and check registers (parts 15-17) are counted in test 10
     and c.relname not like 'ia\_%' and c.relname not like 'register\_%'
     and c.relname not in ('benchmark_rule','benchmark_flaggable','district_peer','vendor_note')
 ), t_all as (
@@ -56,8 +56,8 @@ select 9, 'Iowa rule values loaded',
        case when count(*) >= 18 then 'PASS' else 'FAIL' end, count(*)::text || ' values'
   from public.rule_value where state = 'IA'
 union all
-select 10, 'State peer data and check register tables (parts 15-16)',
-       case when count(*) = 15 then 'PASS' else 'FAIL' end, count(*)::text || ' of 15 tables'
+select 10, 'State data, peer comparisons and check register tables (parts 15-17)',
+       case when count(*) = 16 then 'PASS' else 'FAIL' end, count(*)::text || ' of 16 tables'
   from t_all where relname like 'ia\_%' or relname like 'register\_%'
                 or relname in ('benchmark_rule','benchmark_flaggable','district_peer','vendor_note')
 order by n;
