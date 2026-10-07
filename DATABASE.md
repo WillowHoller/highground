@@ -54,6 +54,28 @@ Roles: **admin** (people, settings, publishing, unlocking), **business_manager**
 
 Applying a monthly GL upload replaces the earlier upload for the same month and refreshes fund balances from accounts mapped to "fund balance".
 
+## Peer comparisons (Iowa public data, parts 15–16)
+| Table | Holds |
+|---|---|
+| ia_district, ia_district_year | Every Iowa district by its Department of Education number; certified enrollment and size band by year |
+| ia_fin, ia_fin_line_def | Spending, revenue and fund balance by fund, function and object, from the state's Certified Annual Reports (FY2019 on) and the Iowa Data Hub (FY2017–2018) |
+| ia_measure | Per-pupil and percentage measures per district and year (refreshed by each load) |
+| ia_stage, ia_enroll_stage, ia_load_run | The loader's staging tables and its log. Only the loader writes them |
+| benchmark_flaggable, benchmark_rule | Which measures can get a callout, and the thresholds (a district can have its own) |
+| district_peer | Hand-picked peer districts (none = districts the same size) |
+
+`district.state_district_id` links a HighGround district to its Iowa district number. Signed-in users can read the state data; anonymous visitors can't.
+
+## Check registers (part 16)
+| Table | Holds |
+|---|---|
+| register_line | Each payment in an uploaded check register (an `import_batch` of kind `check_register`, one per month) |
+| register_flag | Questions the checks raise for the business office, with the answer and who gave it |
+| register_rule | Which checks run and their thresholds (defaults, or a district's own, e.g. its bid threshold) |
+| vendor_note | The vendor dictionary: plain-language labels, and vendors marked as expected |
+
+Business managers and admins upload registers and answer questions; every member, including board members, can read them.
+
 ## Reports and publishing
 | Table | Holds |
 |---|---|

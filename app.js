@@ -12,7 +12,7 @@
   const money = (n) => (n == null || n === '' ? '' : '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }));
   const day = (d) => (d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '');
   const ROLE = { admin: 'Admin', business_manager: 'Business manager', superintendent: 'Superintendent', editor: 'Editor', board: 'Board member', viewer: 'Viewer' };
-  const KIND = { gl_monthly: 'Monthly GL export', budget: 'Budget', balances: 'Fund balances', projects: 'Projects', goals: 'Goals', measure_values: 'Measure results', survey: 'Survey results' };
+  const KIND = { gl_monthly: 'Monthly GL export', budget: 'Budget', balances: 'Fund balances', projects: 'Projects', goals: 'Goals', measure_values: 'Measure results', survey: 'Survey results', check_register: 'Check register' };
   const STATUS = { live: ['b-live', 'Live'], partial: ['b-partial', 'Partly built'], wip: ['b-wip', 'Not built yet'] };
   const badge = (s) => `<span class="badge ${STATUS[s][0]}">${STATUS[s][1]}</span>`;
   const initials = (s) => (String(s || '?').replace(/[^A-Za-z ]/g, ' ').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?').toUpperCase();
@@ -77,14 +77,14 @@
     try { await HG.db.rpc('claim_my_access'); } catch (e) { /* older database without part 7: carry on */ }
     const [staff, mems, prof] = await Promise.all([
       HG.db.select('platform_admin', `select=user_id&user_id=eq.${enc(u.id)}`),
-      HG.db.select('district_member', `select=role,district:district_id(id,slug,name,short_name,state,county,brand_color,logo_path,is_demo,public_link_enabled)&user_id=eq.${enc(u.id)}`),
+      HG.db.select('district_member', `select=role,district:district_id(id,slug,name,short_name,state,county,brand_color,logo_path,is_demo,public_link_enabled,state_district_id)&user_id=eq.${enc(u.id)}`),
       HG.db.select('profile', `select=*&user_id=eq.${enc(u.id)}`),
     ]);
     S.isStaff = staff.length > 0;
     S.memberships = mems.filter((m) => m.district);
     S.profile = prof[0] || null;
     S.districts = S.isStaff
-      ? await HG.db.select('district', 'select=id,slug,name,short_name,state,county,brand_color,is_demo,public_link_enabled&order=name')
+      ? await HG.db.select('district', 'select=id,slug,name,short_name,state,county,brand_color,is_demo,public_link_enabled,state_district_id&order=name')
       : S.memberships.map((m) => m.district).sort((a, b) => a.name.localeCompare(b.name));
     S.loaded = true;
   }
@@ -153,6 +153,7 @@
       { id: 'initiatives', label: 'Initiatives', status: 'live', lede: 'Each initiative against the adopted plan: spending, phases and dates.', render: vProgInitiatives },
       { id: 'actuals', label: 'Budget vs. actual', status: 'live', lede: 'Each fund’s budget, actual and year-end forecast, from the monthly ledger.', render: vActuals },
       { id: 'uploads', label: 'Uploads', status: 'live', lede: 'Every file brought in, and what happened to it.', render: vUploads },
+      { id: 'registers', label: 'Check register', status: 'live', lede: 'Questions from the bills paid each month: new vendors, possible duplicates, changed names and more.', render: vRegisters },
     ] },
     { id: 'reports', label: 'Reports', tabs: [
       { id: 'board', label: 'Board reports', status: 'live', lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
@@ -187,9 +188,9 @@
 
   /* ---- what each role sees in the menu (permissions are unchanged; a direct link still opens) ---- */
   const BOARD_VIEW = { overview: ['today'], direction: ['priorities', 'measures'], resources: ['summary', 'general', 'capital'], reports: ['board', 'community'], settings: ['account'], help: ['guide'] };
-  const LEAD_VIEW = { overview: ['today'], direction: null, decisions: null, resources: ['summary', 'general', 'capital'], progress: ['initiatives', 'actuals', 'uploads'],
+  const LEAD_VIEW = { overview: ['today'], direction: null, decisions: null, resources: ['summary', 'general', 'capital'], progress: ['initiatives', 'actuals', 'uploads', 'registers'],
     reports: ['board', 'community'], settings: ['assumptions', 'account'], help: ['guide'] };
-  const FINANCE_VIEW = { overview: ['today'], direction: ['measures'], progress: ['uploads', 'actuals', 'initiatives'], resources: ['summary', 'general', 'capital'], reports: ['board'],
+  const FINANCE_VIEW = { overview: ['today'], direction: ['measures'], progress: ['uploads', 'registers', 'actuals', 'initiatives'], resources: ['summary', 'general', 'capital'], reports: ['board'],
     settings: ['setup', 'exports', 'account'], help: ['guide'] };
   const VIEWS = { board: BOARD_VIEW, viewer: BOARD_VIEW, superintendent: LEAD_VIEW, editor: LEAD_VIEW, business_manager: FINANCE_VIEW };
   const showAllKey = () => `highground-show-all-${(S.user && S.user.id) || ''}`;
@@ -271,12 +272,15 @@
   // ------------------------------------------------------------------ views: Overview
   async function vOverview(c) {
     const d = c.district, D = await loadDirection(d), rows = D.rows, f = HGReport.fmt;
-    const [batches, mem, acts, latestRep] = await Promise.all([
+    const [batches, mem, acts, latestRep, peers] = await Promise.all([
       HG.db.select('import_batch', `select=id,kind,status,uploaded_at,period_end&district_id=eq.${d.id}&order=uploaded_at.desc&limit=50`).catch(() => []),
       HG.db.select('district_member', `select=user_id&district_id=eq.${d.id}`).catch(() => []),
       c.admin ? HG.db.select('audit_log', `select=table_name,action,actor,at,new_row,old_row&district_id=eq.${d.id}&order=at.desc&limit=8`).catch(() => []) : Promise.resolve([]),
       HG.db.select('report_snapshot', `select=id,period_end,title&district_id=eq.${d.id}&kind=eq.board_monthly&order=period_end.desc&limit=1`).catch(() => []),
+      loadPeers(d),
     ]);
+    const regIds = batches.filter((b) => b.kind === 'check_register' && b.status === 'applied').map((b) => b.id);
+    const regOpen = regIds.length ? await HG.db.select('register_flag', `select=id&district_id=eq.${d.id}&status=eq.open&severity=in.(question,concern)&batch_id=in.(${regIds.join(',')})`).catch(() => []) : [];
     const board = rows.scenarios.find((x) => x.is_board_version);
     let gap = null;
     if (board && rows.settings) { const bi = HGCapital.buildInputs(rows, board.id); gap = HGEngine.compute(bi.projects, bi.levers, bi.cfg).gap; }
@@ -295,6 +299,8 @@
       ...approvedOut.map((i) => `${esc(i.name)} is approved but not in the board version (${link('decisions/initiatives', 'decisions')}).`),
       !board && rows.scenarios.length ? `No scenario is the board version yet (${link('resources/capital', 'capital plan')}).` : '',
       !rows.settings ? `Starting numbers aren’t set up yet (${link('settings/setup', 'starting numbers')}).` : '',
+      regOpen.length ? `${regOpen.length} check-register question${regOpen.length === 1 ? ' is' : 's are'} waiting for an answer (${link('progress/registers', 'check register')}).` : '',
+      peers && HGPeers.overviewLine(peers.rows) ? `${esc(HGPeers.overviewLine(peers.rows))} (${link('resources/summary', 'funds')}, ${link('resources/general', 'General Fund')}).` : '',
     ].filter(Boolean);
     const sb = lastBal('save'), pb = lastBal('ppel');
     setLead((gap == null ? '' : gap > 0.5 ? `The board version is <b>${f(gap)}</b> short. ` : 'The board version is fully paid for. ')
@@ -855,9 +861,33 @@
       ${ys.map((y, i) => (i % 2 === 0 || n <= 6 ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="11" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>` : '')).join('')}</svg></div>
       <p class="small">${funds.map((k) => `<span style="color:${COLORS[k]}">●</span> ${esc(FUND_NAMES[k])}`).join(' &nbsp; ')}</p>`;
   }
+  /* ---- peer comparisons from the state's annual reports (part 16): only unusual numbers are shown ---- */
+  const PEERS = { key: null, data: null };
+  async function loadPeers(d) {
+    const de = d && d.state_district_id;
+    if (!de) return null;
+    if (PEERS.key === de + '|' + d.id) return PEERS.data;
+    let data = null;
+    try {
+      const [yr, nm] = await Promise.all([
+        HG.db.select('ia_measure', `select=fiscal_year&de_district=eq.${enc(de)}&status=eq.Actual&measure_key=eq.${enc('exp|ALL|TOTAL')}&order=fiscal_year.desc&limit=1`),
+        HG.db.select('ia_district', `select=name&de_district=eq.${enc(de)}`)]);
+      if (yr[0]) {
+        const rows = await HG.db.rpc('ia_benchmark', { p_de: de, p_fy: yr[0].fiscal_year, p_status: 'Actual', p_peer: 'size', p_district: d.id });
+        data = { fy: yr[0].fiscal_year, name: nm[0] ? nm[0].name : null, rows: rows || [], peer_group: rows && rows[0] ? rows[0].peer_group : null };
+      }
+    } catch (e) { data = null; }   // a database without part 16, or no state data yet: no callouts
+    PEERS.key = de + '|' + d.id; PEERS.data = data;
+    return data;
+  }
+  async function peersCard(c, screen) {
+    const P = await loadPeers(c.district);
+    return P ? HGPeers.cardHtml(HGPeers.pick(P.rows, screen), P) : '';
+  }
+
   async function vResSummary(c) {
-    const b = await boardRun(c.district);
-    if (b.none) return notReady(c, b);
+    const [b, peers] = await Promise.all([boardRun(c.district), peersCard(c, 'funds')]);
+    if (b.none) return peers + notReady(c, b);
     const { sc, inp, r, paths } = b, cfg = inp.cfg, fmt = fmtK;
     b.rows = b.rows || (await loadCapitalRows(c.district));
     const byY = HGCapital.recurByYear(inp.levers, cfg), recY = byY.find((y) => y.total > 0.5), rec = recY ? recY.total : 0;
@@ -877,6 +907,7 @@
         <div class="card tile-card ${r.gap > 0.5 ? 'gap' : ''}"><div class="small muted">Gap to close</div><div class="stat">${fmtK(r.gap)}</div></div>
         <div class="card tile-card"><div class="small muted">Yearly costs committed</div><div class="stat">${rec ? fmtK(rec) : '$0'}</div><div class="small muted">${recY ? `programs and hires, FY${recY.fy}` : 'programs and hires, per year'}</div></div>
       </div>
+      ${peers}
       <div class="card"><h3>Capital fund balances</h3>${fundsChart(paths, funds)}</div>
       ${fold(c, 'Capital funds: the numbers', `<div class="card">${table([
         { label: 'Fund', get: (k) => FUND_NAMES[k] },
@@ -974,13 +1005,13 @@
       <p class="small muted" style="margin-top:6px">Planning estimates, not the state’s official calculation. FY2027 uses the enacted 2% state supplemental aid ($8,148 state cost per pupil, SF 2201). Solvency = unassigned and assigned balance ÷ revenue less AEA flowthrough. Spending authority = regular program and other formula funding + miscellaneous income + last year’s unspent balance. Figures checked ${esc(day(HGGF.RULES.checked))}.</p></div></details>`;
   }
   async function vGeneralFund(c) {
-    const rows = await loadCapitalRows(c.district);
+    const [rows, peers] = await Promise.all([loadCapitalRows(c.district), peersCard(c, 'general')]);
     if (GF.key !== c.district.id) { GF.key = c.district.id; GF.sid = null; GF.over = {}; }
     GF.rows = rows; GF.ctx = c;
     const caution = '<div class="notice">Planning estimates. Check the starting figures and results with the business manager before sharing them with the board.</div>';
-    if (!rows.settings) return caution + notReady(c, { rows });
+    if (!rows.settings) return caution + notReady(c, { rows }) + peers;
     const gfi = rows.settings.gf_inputs;
-    if (!gfi) return `${caution}<div class="card"><h3>Set up the General Fund</h3><p>The forecast needs a few starting figures: enrollment, cost per pupil, other revenue, staff by group, other spending, and the fund balance and unspent balance from the last audit.</p>
+    if (!gfi) return `${caution}${peers}<div class="card"><h3>Set up the General Fund</h3><p>The forecast needs a few starting figures: enrollment, cost per pupil, other revenue, staff by group, other spending, and the fund balance and unspent balance from the last audit.</p>
       ${c.finance ? '<button type="button" class="btn primary" data-action="gfEdit">Enter starting figures</button>' : '<p class="muted">The business office enters these.</p>'}</div>`;
     const run = gfRun(rows, GF.sid, GF.over); GF.run = run;
     const lv = (k, label, v, hint) => `<label class="field">${label}<input data-gf-lever="${k}" inputmode="decimal" value="${(v * 100).toFixed(2).replace(/\.?0+$/, '')}" style="width:90px"><span class="hint">${hint}</span></label>`;
@@ -993,7 +1024,8 @@
         ${lv('ssa', 'State aid growth, %', run.a.ssa, 'after FY2027’s enacted 2%')}${lv('enroll', 'Enrollment change, %', run.a.enroll, 'a year')}${lv('settle', 'Settlement, %', run.a.settle, 'salary increase a year')}
         ${lv('health', 'Health insurance growth, %', run.a.health, 'a year')}${lv('inflation', 'Other spending growth, %', run.a.inflation, 'a year')}${lv('turnover', 'Turnover savings, %', run.gfi.turnover_savings || 0, 'newer staff on lower pay')}
       </div><div class="row"><button type="button" class="btn small" data-action="gfReset">Reset to the scenario’s assumptions</button></div></div>`)}
-      <div id="gf-results">${gfResultsHtml(run)}</div>`;
+      <div id="gf-results">${gfResultsHtml(run)}</div>
+      ${peers}`;
   }
   function openGfEditor() {
     const st = GF.rows.settings, g = st.gf_inputs || { enrollment: st.enrollment || null, dcpp: HGGF.RULES.scpp[2027], misc_growth: 0.01, turnover_savings: 0.01,
@@ -1025,9 +1057,25 @@
       <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
     gfHint();
   }
+  /** the state's latest year-end figures for this district (part 16), or null */
+  async function statePrefill(d) {
+    if (!d || !d.state_district_id) return null;
+    try { const p = await HG.db.rpc('ia_prefill', { p_de: d.state_district_id }); return p && p.fiscal_year ? p : null; } catch (e) { return null; }
+  }
+  const schoolYear = (fy) => `${fy - 1}-${String(fy).slice(2)}`;
   async function gfHint() {
     // help: what the latest ledger or adopted budget says, so the business manager can split it into these fields
     const d = S.district, box = document.querySelector('[data-gf-hint]'); if (!box) return;
+    const st = await statePrefill(d);
+    if (st && document.querySelector('[data-gf-hint]') === box) {
+      const g = st.general || {}, le = st.latest_enrollment || {}, bal = g.unassigned != null || g.assigned != null ? Number(g.unassigned || 0) + Number(g.assigned || 0) : null;
+      GF.prefill = { enrollment: le.certified, aea_flowthrough: g.aea_flowthrough, fund_balance: bal };
+      const items = [le.certified != null ? `certified enrollment ${Number(le.certified).toLocaleString('en-US')} (${esc(schoolYear(le.fiscal_year))})` : '',
+        bal != null ? `unassigned and assigned balance ${HGReport.fmt(bal)} at June 30, ${esc(st.fiscal_year)}` : '',
+        g.aea_flowthrough != null ? `AEA flowthrough ${HGReport.fmt(g.aea_flowthrough)}` : ''].filter(Boolean);
+      if (items.length) box.insertAdjacentHTML('afterbegin', `<div class="notice ok small" data-gf-state>From the state’s annual report (FY${esc(st.fiscal_year)}): ${items.join('; ')}.
+        <button type="button" class="btn small" data-action="gfPrefill" style="margin-left:6px">Fill these in</button><br><span class="muted">Nothing is saved until you click Save. Use the plan’s first-year figures if you have newer ones.</span></div>`);
+    }
     try {
       const [acc, bl] = await Promise.all([HG.db.selectAll('gl_account', `select=id,fund_code,object_code,account_type&district_id=eq.${d.id}`), HG.db.selectAll('budget_line', `select=account_id,fiscal_year,amount&district_id=eq.${d.id}&version=eq.adopted`).catch(() => [])]);
       const A = new Map(acc.map((x) => [x.id, x])), fy = GF.rows.settings.plan_start_fy;
@@ -1037,7 +1085,7 @@
         if (bt[0]) { const am = await HG.db.selectAll('gl_amount', `select=account_id,budget_amount&batch_id=eq.${bt[0].id}`); lines = am.map((x) => Object.assign({}, A.get(x.account_id) || {}, { budget: x.budget_amount })); from = `the budget column of the ${day(bt[0].period_end)} ledger`; }
       }
       const b = HGGF.fromBudget(lines);
-      if (b.revenue || b.total) box.innerHTML = `<div class="notice ok small">From ${esc(from)}: General Fund revenue ${HGReport.fmt(b.revenue)}; staff spending (objects 1xx–2xx) ${HGReport.fmt(b.staff)}; other spending ${HGReport.fmt(b.nonstaff)}. Use these to check your figures add up.</div>`;
+      if (b.revenue || b.total) box.insertAdjacentHTML('beforeend', `<div class="notice ok small">From ${esc(from)}: General Fund revenue ${HGReport.fmt(b.revenue)}; staff spending (objects 1xx–2xx) ${HGReport.fmt(b.staff)}; other spending ${HGReport.fmt(b.nonstaff)}. Use these to check your figures add up.</div>`);
     } catch (e) { /* no ledger or budget yet */ }
   }
   async function saveGf(f, form) {
@@ -1140,7 +1188,7 @@
   function capCompute() { return HGEngine.compute(CAP.inputs.projects, CAP.levers, CAP.inputs.cfg); }
 
   async function vCapital(c) {
-    const rows = await loadCapitalRows(c.district);
+    const [rows, peers] = await Promise.all([loadCapitalRows(c.district), peersCard(c, 'capital')]);
     CAP.rows = rows; CAP.pub = false; CAP.ctx = c;
     if (!rows.settings) {
       return `<div class="card"><h3>Starting numbers aren’t set up yet</h3>
@@ -1178,6 +1226,7 @@
       <div id="cap-years">${capYearsHtml()}</div>
       ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add an initiative</button></div>' : ''}
       <div id="cap-yearly">${capYearlyHtml()}</div>`)}
+      ${peers}
       ${(() => { if (CAP.openEditor && CAP.editable) { const id = CAP.openEditor; setTimeout(() => openProjectEditor(id), 0); } CAP.openEditor = null; return ''; })()}
 `;
   }
@@ -1948,7 +1997,7 @@
     UP.startFY = set[0] ? set[0].plan_start_fy : null; UP.years = set[0] ? set[0].plan_years : null;
     UP.hasBoard = scs.some((x) => x.is_board_version); UP.scenarioCount = scs.length;
     UP.kind = null; UP.file = null; UP.rows = null; UP.parsed = null;
-    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.plan && ['projects', 'Projects'], c.finance && ['budget', 'Adopted budget (by account)'], c.finance && ['balances', 'Fund balances only (if you can’t export the ledger)']].filter(Boolean);
+    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.finance && ['check_register', 'Check register (bills paid)'], c.plan && ['projects', 'Projects'], c.finance && ['budget', 'Adopted budget (by account)'], c.finance && ['balances', 'Fund balances only (if you can’t export the ledger)']].filter(Boolean);
     const later = [
       c.plan && `<a class="btn" href="#/d/${enc(c.district.slug)}/direction/priorities">Goals (on Direction → Priorities)</a>`, (c.plan || c.finance) && `<a class="btn" href="#/d/${enc(c.district.slug)}/direction/measures">Measure results (on Direction → Measures)</a>`,
       c.plan && `<a class="btn" href="#/d/${enc(c.district.slug)}/direction/community">Survey results (on Direction → Community)</a>`,
@@ -1992,7 +2041,8 @@
       ]);
       UP.gl = { accounts, saved: (set[0] && set[0].gl_layout) || null, sel: {}, cols: null };
       glParse();
-    } else UP.parsed = HGUploads.parseBalances(UP.rows);
+    } else if (UP.kind === 'check_register') { UP.regCols = null; regParse(); }
+    else UP.parsed = HGUploads.parseBalances(UP.rows);
     box.innerHTML = reviewHtml();
   }
   /* ---- monthly GL export: columns, new accounts, balances preview ---- */
@@ -2079,8 +2129,60 @@
     const b = HGGF.fromBudget(lines), f = HGReport.fmt;
     return `<p>General Fund in this budget: revenue <b>${f(b.revenue)}</b>; staff spending (objects 1xx–2xx) <b>${f(b.staff)}</b>; other spending <b>${f(b.nonstaff)}</b>.</p><p class="small muted">Applying saves it as the adopted budget for that year. The General Fund’s starting figures show these totals as a check.</p>`;
   }
+  /* ---- check register: one upload per month of payments ---- */
+  function regParse() {
+    UP.reg = HGRegister.parse(UP.rows, UP.regCols || undefined);
+    UP.parsed = { issues: UP.reg.issues.map((i) => ({ l: i.l, m: i.m })) };
+  }
+  function regReviewHtml() {
+    const P = UP.reg, errs = UP.parsed.issues.filter((i) => i.l === 'e'), warns = UP.parsed.issues.filter((i) => i.l !== 'e');
+    const opt = (f) => `<option value="">Not in this file</option>${P.header.map((h, i) => `<option value="${i}" ${P.cols[f] === i ? 'selected' : ''}>${esc(h || 'Column ' + (i + 1))}</option>`).join('')}`;
+    const mon = (pe) => new Date(pe + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    return `<div class="card"><h3>Review: ${esc(UP.file.name)}</h3>
+      ${errs.length ? `<div class="notice error">${errs.map((e) => esc(e.m)).join('<br>')}</div>` : ''}
+      ${warns.length ? `<div class="notice warn">${warns.map((e) => esc(e.m)).join('<br>')}</div>` : ''}
+      ${P.months.length ? `<p>${P.lines.length} payment${P.lines.length === 1 ? '' : 's'}${P.skipped ? ` (${P.skipped} total or blank row${P.skipped === 1 ? '' : 's'} left out)` : ''}, in ${P.months.length} month${P.months.length === 1 ? '' : 's'}. Each month is saved as its own upload and replaces an earlier upload of the same month.</p>
+        ${table([{ label: 'Month', get: (m) => mon(m.period_end) }, { label: 'Payments', num: true, get: (m) => m.lines.length }, { label: 'Total', num: true, get: (m) => money(m.total) }], P.months, '')}` : ''}
+      <details ${errs.length ? 'open' : ''}><summary>Columns</summary>
+        <div class="fgrid" style="margin-top:8px">${HGRegister.FIELDS.map((f) => `<label class="field">${esc(HGRegister.LABEL[f])}<select data-reg-col="${f}">${opt(f)}</select></label>`).join('')}</div></details>
+      ${P.lines.length ? `<details><summary>The first payments, as read</summary>${table([{ label: 'Date', get: (l) => day(l.pay_date + 'T12:00:00') }, { label: 'Vendor', get: (l) => l.vendor_name }, { label: 'Invoice', get: (l) => l.invoice_no || '' },
+        { label: 'Fund', get: (l) => l.fund || '' }, { label: 'Function', get: (l) => l.func || '' }, { label: 'Object', get: (l) => l.obj || '' }, { label: 'Amount', num: true, get: (l) => money(l.amount) }], P.lines.slice(0, 8), '')}</details>` : ''}
+      <p class="small muted">After applying, HighGround compares each month with the months before it and lists questions for the business office on Progress → Check register.</p>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn primary" data-action="applyUpload" ${errs.length ? 'disabled' : ''}>Apply</button>
+        <button type="button" class="btn" data-action="cancelUpload">Cancel</button></div></div>`;
+  }
+  async function applyRegister() {
+    const d = S.district, P = UP.reg, months = P.months;
+    const existing = await HG.db.select('import_batch', `select=period_end&district_id=eq.${d.id}&kind=eq.check_register&status=eq.applied`).catch(() => []);
+    const lastNew = months[months.length - 1].period_end, rerunAll = existing.some((b) => b.period_end > lastNew);
+    const safe = UP.file.name.replace(/[^A-Za-z0-9._-]+/g, '-').slice(-80) || 'register.csv', folder = crypto.randomUUID();
+    const path = `${d.id}/imports/${folder}/${safe}`;
+    await HG.storage.upload('district-files', path, UP.file);
+    const ids = [];
+    for (const m of months) {
+      const batchId = crypto.randomUUID();
+      await HG.db.insert('import_batch', { id: batchId, district_id: d.id, kind: 'check_register', file_name: UP.file.name, storage_path: path, status: 'review',
+        row_count: m.lines.length, period_end: m.period_end, fiscal_year: HGEngine.fyOfDate(m.period_end) });
+      try {
+        const rows = HGRegister.toRows(m.lines, batchId, d.id);
+        for (let i = 0; i < rows.length; i += 500) await HG.db.insert('register_line', rows.slice(i, i + 500));
+        await HG.db.rpc('apply_import', { p_batch: batchId });
+      } catch (err) {
+        try { await HG.db.update('import_batch', `id=eq.${batchId}`, { status: 'discarded', notes: String(err.message || err).slice(0, 500) }); } catch (e) { /* keep the original error */ }
+        throw err;
+      }
+      ids.push(batchId);
+    }
+    let open = 0;
+    if (rerunAll) { const r = await HG.db.rpc('register_check_all', { p_district: d.id }); open = (r || []).filter((x) => ids.includes(x.batch_id)).reduce((a, x) => a + (x.open_flags || 0), 0); }
+    else for (const id of ids) { const r = await HG.db.rpc('register_check', { p_batch: id }); open += (r && r.open_flags) || 0; }
+    REG.batch = ids[ids.length - 1];
+    toast('Check register applied', `${P.lines.length} payments in ${months.length} month${months.length === 1 ? '' : 's'}. ${open ? `${open} question${open === 1 ? '' : 's'} to look at.` : 'Nothing stood out.'}`);
+    go(`#/d/${enc(d.slug)}/progress/registers`);
+  }
   function reviewHtml() {
     if (UP.kind === 'gl_monthly' || UP.kind === 'budget') return glReviewHtml();
+    if (UP.kind === 'check_register') return regReviewHtml();
     const P = UP.parsed, errs = P.issues.filter((i) => i.l === 'e'), warns = P.issues.filter((i) => i.l === 'w');
     const issues = `${errs.length ? `<div class="notice error"><b>${errs.length} problem${errs.length === 1 ? '' : 's'} to fix before this can be applied:</b><br>${errs.map((i) => esc(i.m)).join('<br>')}</div>` : ''}
       ${warns.length ? `<div class="notice warn"><b>${warns.length === 1 ? '1 thing HighGround assumed. Check it:' : warns.length + ' things HighGround assumed. Check them:'}</b><br>${warns.map((i) => esc(i.m)).join('<br>')}</div>` : ''}`;
@@ -2118,6 +2220,7 @@
   }
   async function applyUpload() {
     if (!UP.parsed || UP.parsed.issues.some((i) => i.l === 'e')) return;
+    if (UP.kind === 'check_register') return applyRegister();
     const d = S.district, batchId = crypto.randomUUID();
     const kind = UP.kind === 'projects' ? 'projects' : UP.kind === 'gl_monthly' ? 'gl_monthly' : UP.kind === 'budget' ? 'budget' : 'balances';
     const budgetFY = kind === 'budget' ? Number((document.querySelector('[data-upload-fy]') || {}).value) : null;
@@ -2202,6 +2305,67 @@
       : kind === 'gl_monthly' ? `The ledger for ${day(asOf)} is in.${UP.glUpdated.length ? ` Balances updated: ${UP.glUpdated.join(', ')}.` : ' No fund balances changed.'}` : `Balances as of ${day(asOf)} saved.`);
     if (kind === 'projects') { CAP.key = d.id; CAP.scenarioId = createdScenario; go(`#/d/${enc(d.slug)}/resources/capital`); }
     else here();
+  }
+  /* ---- Progress → Check register: the questions each month's bills raise ---- */
+  const REG = { key: null, batch: null };
+  const SEV_ORDER = { concern: 0, question: 1, info: 2 };
+  async function vRegisters(c) {
+    const d = c.district;
+    if (REG.key !== d.id) { REG.key = d.id; REG.batch = null; }
+    const batches = await HG.db.select('import_batch', `select=id,period_end,row_count,file_name,applied_at&district_id=eq.${d.id}&kind=eq.check_register&status=eq.applied&order=period_end.desc`);
+    if (!batches.length) {
+      setLead('No check registers yet.');
+      return `<div class="card"><h3>No check registers yet</h3><p>Each month’s check register (the list of bills paid that goes to the board) can be uploaded here. HighGround compares it with earlier months and lists anything worth a question: a first payment to a vendor, a vendor whose name changed, a possible duplicate, a payment much larger than usual.</p>
+        ${c.finance ? `<p>Upload a month, or a whole year at once (it is split by month), on <a href="#/d/${enc(d.slug)}/progress/uploads">Uploads</a>: choose “Check register”.</p>` : '<p class="muted">The business office uploads these.</p>'}</div>`;
+    }
+    if (!batches.some((b) => b.id === REG.batch)) REG.batch = batches[0].id;
+    const cur = batches.find((b) => b.id === REG.batch);
+    const [flags, sum, allOpen, rules, notes] = await Promise.all([
+      HG.db.select('register_flag', `select=id,rule,severity,question,detail,status,response,resolved_at,vendor_key&batch_id=eq.${cur.id}&order=id`),
+      HG.db.rpc('register_summary', { p_batch: cur.id }).catch(() => null),
+      HG.db.select('register_flag', `select=batch_id&district_id=eq.${d.id}&status=eq.open&severity=in.(question,concern)&batch_id=in.(${batches.map((b) => b.id).join(',')})`).catch(() => []),
+      c.finance ? HG.db.select('register_rule', `select=id,district_id,rule,enabled,params&rule=in.(near_threshold,split_purchase)`).catch(() => []) : Promise.resolve([]),
+      HG.db.select('vendor_note', `select=vendor_key,expected,plain_label&district_id=eq.${d.id}`).catch(() => []),
+    ]);
+    REG.rules = rules; REG.flags = flags;
+    const expected = new Set(notes.filter((n) => n.expected).map((n) => n.vendor_key));
+    const openBy = {}; allOpen.forEach((f) => { openBy[f.batch_id] = (openBy[f.batch_id] || 0) + 1; });
+    const mon = (pe) => new Date(pe + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const sorted = flags.slice().sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity] || a.id - b.id);
+    const open = sorted.filter((f) => f.status === 'open'), done = sorted.filter((f) => f.status !== 'open');
+    const asks = open.filter((f) => f.severity !== 'info'), fyi = open.filter((f) => f.severity === 'info');
+    setLead(`<b>${esc(mon(cur.period_end))}</b>: ${Number(sum && sum.lines || cur.row_count || 0).toLocaleString('en-US')} payments${sum && sum.total != null ? `, ${esc(HGReport.fmt(Number(sum.total)))}` : ''}. `
+      + (asks.length ? `<b>${asks.length}</b> question${asks.length === 1 ? '' : 's'} for the business office.` : 'No questions this month.'));
+    const qCard = (f) => {
+      const canVendor = c.finance && ['new_vendor', 'lookalike_vendor'].includes(f.rule) && f.vendor_key && !expected.has(f.vendor_key);
+      return `<div class="regq sev-${esc(f.severity)}" data-reg-flag="${f.id}">
+        <div class="row" style="gap:8px"><span class="peer-tag sev-${esc(f.severity)}">${esc(HGRegister.SEVERITY[f.severity] || f.severity)}</span><b>${esc(HGRegister.RULE_NAME[f.rule] || f.rule)}</b></div>
+        <p>${esc(f.question)}</p>
+        ${f.status !== 'open' ? `<p class="small"><b>${f.status === 'explained' ? 'Answer' : 'Not a concern'}</b>${f.resolved_at ? ` <span class="muted">(${esc(day(f.resolved_at))})</span>` : ''}${f.response ? `: ${esc(f.response)}` : ''}</p>`
+          : c.finance ? `<label class="field">Answer<textarea name="response" rows="2" maxlength="2000" placeholder="What it was for, and who approved it"></textarea></label>
+            <div class="row"><button type="button" class="btn small primary" data-action="regAnswer" data-id="${f.id}" data-status="explained">Save answer</button>
+              <button type="button" class="btn small" data-action="regAnswer" data-id="${f.id}" data-status="dismissed">Not a concern</button>
+              ${canVendor ? `<button type="button" class="btn small" data-action="regVendorOk" data-key="${esc(f.vendor_key)}">This vendor is expected</button>` : ''}</div>`
+          : '<p class="small muted">Waiting for the business office.</p>'}</div>`;
+    };
+    const thr = (rules.find((r) => r.district_id === d.id && r.rule === 'near_threshold') || rules.find((r) => r.district_id == null && r.rule === 'near_threshold') || { params: {} }).params.threshold;
+    return `
+      <div class="row">
+        <label class="chip"><span class="small muted">Month</span><select data-reg-month aria-label="Month">${batches.map((b) => `<option value="${esc(b.id)}" ${b.id === cur.id ? 'selected' : ''}>${esc(mon(b.period_end))}${openBy[b.id] ? ` (${openBy[b.id]} open)` : ''}</option>`).join('')}</select></label>
+        ${c.finance ? `<a class="btn" href="#/d/${enc(d.slug)}/progress/uploads">Upload a month</a>` : ''}</div>
+      <div class="card"><h3>${asks.length ? 'Questions' : 'No questions this month'}</h3>
+        ${asks.length ? `<div class="stack">${asks.map(qCard).join('')}</div>` : '<p class="ok">Nothing in this month’s payments stood out against earlier months.</p>'}</div>
+      ${fold(c, `For information (${fyi.length})`, fyi.length ? `<div class="card"><div class="stack">${fyi.map(qCard).join('')}</div></div>` : '', false)}
+      ${fold(c, `Answered (${done.length})`, done.length ? `<div class="card"><div class="stack">${done.map(qCard).join('')}</div></div>` : '', false)}
+      ${sum ? fold(c, 'This month’s payments: largest vendors and funds', `<div class="cap-grid">
+        <div class="card"><h3>Largest vendors</h3>${table([{ label: 'Vendor', html: (v) => `${esc(v.vendor)}${v.label ? ` <span class="small muted">${esc(v.label)}</span>` : ''}` }, { label: 'Paid', num: true, get: (v) => money(v.total) }], sum.top_vendors || [], 'None.')}</div>
+        <div class="card"><h3>By fund</h3>${table([{ label: 'Fund', get: (x) => x[0] === '?' ? 'Not given' : x[0] }, { label: 'Paid', num: true, get: (x) => money(x[1]) }], Object.entries(sum.by_fund || {}).sort((a, b) => b[1] - a[1]), 'None.')}</div></div>`, false) : ''}
+      ${c.finance ? fold(c, 'Settings for these checks', `<div class="card">
+        <div class="inline-form"><label class="field">Bid threshold, $<input data-reg-threshold inputmode="decimal" value="${thr ? esc(moneyIn(thr)) : ''}" placeholder="from board policy" style="max-width:160px">
+          <span class="hint">From the district’s purchasing policy. With it, HighGround asks about payments just under it and purchases that look split to stay under it. Blank turns those two checks off.</span></label>
+          <button type="button" class="btn" data-action="regThreshold">Save and re-check every month</button></div>
+        <p class="small muted">Questions already answered are kept. Fund, function and object come from the export’s account number when it has no separate columns.</p></div>`, false) : ''}
+      <p class="small muted">These checks look for patterns worth a question; they don’t find fraud or prove anything is wrong. The board still reviews and approves the bills.</p>`;
   }
   function saveText(name, text) {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
@@ -2585,6 +2749,8 @@
     let dom = null;
     try { dom = (await HG.db.select('district', `select=allowed_domains,domain_role&id=eq.${d.id}`))[0] || null; } catch (e) { dom = null; }
     const dis = c.admin ? '' : 'disabled';
+    let linked = null;
+    if (d.state_district_id) { try { linked = (await HG.db.select('ia_district', `select=de_district,name,aea&de_district=eq.${enc(d.state_district_id)}`))[0] || null; } catch (e) { linked = null; } }
     return `
       <div class="card"><h3>District</h3>
         <form class="stack" data-form="saveDistrict">
@@ -2597,6 +2763,9 @@
           ${dom ? `<label class="field">Automatic access for these email domains<input name="allowed_domains" value="${esc((dom.allowed_domains || []).join(', '))}" placeholder="ironwoodvalley.k12.ia.us" ${dis}>
             <span class="hint">Anyone who confirms an address at one of these domains gets access without an invitation. Use only the district’s own domains; public services like Gmail are refused. Separate several with commas.</span></label>
           <label class="field">They get<select name="domain_role" ${dis}><option value="viewer" ${dom.domain_role !== 'board' ? 'selected' : ''}>Viewer access</option><option value="board" ${dom.domain_role === 'board' ? 'selected' : ''}>Board-member access</option></select></label>` : ''}
+          <label class="field">Iowa district number<input name="state_district_id" inputmode="numeric" maxlength="4" value="${esc(d.state_district_id || '')}" placeholder="0000" style="max-width:120px" ${dis}>
+            <span class="hint" data-ia-linked>${linked ? `${esc(linked.name)}${linked.aea ? `, AEA ${esc(linked.aea)}` : ''}. ` : d.state_district_id ? 'Not found in the state data yet. ' : ''}The Iowa Department of Education’s 4-digit number. Used to compare with similar districts and to fill starting numbers from the state’s annual report.</span></label>
+          ${c.admin ? `<div class="inline-form"><label class="field">Find the number by name<input data-ia-q placeholder="for example, Ames" autocomplete="off"></label><button type="button" class="btn" data-action="iaSearch">Find</button></div><div data-ia-results></div>` : ''}
           <p class="small muted">Link id: <b>${esc(d.slug)}</b> (set when the district is created)</p>
           ${c.admin ? '<div><button class="btn primary" type="submit">Save changes</button></div>' : '<p class="small muted">Only a district admin can change these.</p>'}
         </form></div>
@@ -2740,7 +2909,8 @@
     const tasks = [
       ['See where the money runs out', 'Decisions → Ranking & funding line'], ['Compare two versions of the plan', 'Decisions → Scenarios'],
       ['Test a different future (inflation, settlements, enrollment)', 'the what-if levers on the capital plan and the General Fund'], ['See what a bond would cost a homeowner', 'the capital plan’s “What it means for taxpayers”'],
-      ['Record a measure’s result', 'Direction → Measures'], ['Share the plan with the public', 'Reports → Community page'], ['Find anything', 'Search, at the top of every page'],
+      ['Record a measure’s result', 'Direction → Measures'], ['Share the plan with the public', 'Reports → Community page'],
+      ['Check the month’s bills for anything unusual', 'Progress → Uploads (Check register), then Progress → Check register'], ['Compare with similar Iowa districts', 'add the Iowa district number in Settings → District; unusual numbers then show on Resources'], ['Find anything', 'Search, at the top of every page'],
     ];
     return `
       <div class="card"><h3>Where to start</h3><ol>${start.map((x) => `<li>${x}</li>`).join('')}</ol>
@@ -2835,6 +3005,18 @@
       ${tip.length ? `<ul class="tip">${tip.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
       <p class="small muted">These are checks, not errors: you can still save.</p>`;
   }
+  const SETUP_PREFILL = { data: null };
+  function setupPrefill() {
+    const st = SETUP_PREFILL.data, form = document.querySelector('form[data-form=saveSetup]'); if (!st || !form) return;
+    const set = (n, v) => { const el = form.querySelector(`[name=${n}]`); if (el && v != null && v !== '') el.value = v; };
+    const B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {};
+    set('enrollment', le.certified); if (le.fiscal_year) set('enrollment_year', schoolYear(le.fiscal_year));
+    if (B2.save != null || B2.ppel != null) { set('as_of', `${st.fiscal_year}-06-30`); set('bal_save', moneyIn(B2.save)); set('bal_ppel', moneyIn(B2.ppel)); }
+    if (R2.save != null) { set('save_receipts', moneyIn(Math.round(R2.save))); set('save_receipts_fy', st.fiscal_year); }
+    if (R2.ppel != null) set('ppel_receipts', moneyIn(Math.round(R2.ppel)));
+    renderSetupChecks(form);
+    toast('Filled in', 'Check the numbers, then click Save starting numbers.');
+  }
   async function vSetup(c) {
     const d = c.district.id;
     const [set, bal, debts] = await Promise.all([
@@ -2843,6 +3025,8 @@
       HG.db.select('debt_obligation', `select=*&district_id=eq.${d}&order=final_fy`),
     ]);
     const s = set[0] || {};
+    const st = c.finance ? await statePrefill(c.district) : null;
+    SETUP_PREFILL.data = st;
     const asOf = bal.length ? bal[0].as_of : '';
     const B = {}; bal.filter((b) => b.as_of === asOf).forEach((b) => { B[b.fund] = b.amount; });
     const dis = c.finance ? '' : 'disabled';
@@ -2857,6 +3041,14 @@
     return `
       ${c.finance ? '' : '<div class="notice">Only a business manager or admin can change these numbers.</div>'}
       ${(() => { setTimeout(() => { const sf = document.querySelector('form[data-form=saveSetup]'); if (sf) renderSetupChecks(sf); }, 0); return ''; })()}
+      ${st ? (() => { const B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {};
+        const li = [[`Certified enrollment (${le.fiscal_year ? schoolYear(le.fiscal_year) : ''})`, le.certified != null ? Number(le.certified).toLocaleString('en-US') : null],
+          [`SAVE balance, June 30, ${st.fiscal_year}`, B2.save], [`PPEL balance, June 30, ${st.fiscal_year}`, B2.ppel], [`SAVE revenue, FY${st.fiscal_year}`, R2.save], [`PPEL revenue, FY${st.fiscal_year}`, R2.ppel]]
+          .filter(([, v]) => v != null).map(([l, v]) => `<li>${esc(l)}: <b>${typeof v === 'number' ? esc(money(v)) : esc(v)}</b></li>`).join('');
+        return li ? `<div class="card" data-setup-state><h3>From the state’s annual report</h3><ul>${li}</ul>
+          <div class="row"><button type="button" class="btn" data-action="setupPrefill">Fill in the form with these</button><span class="small muted">Nothing is saved until you click Save. Check them against the audit; the state figures include interest and are a year behind.</span></div>
+          <p class="small muted">${esc(st.source)}</p></div>` : ''; })()
+      : c.finance && !c.district.state_district_id ? `<p class="small muted">${c.admin ? `Add the district’s Iowa district number in <a href="#/d/${enc(c.district.slug)}/settings/district">Settings → District</a> to fill these from the state’s annual report.` : 'Once an admin adds the district’s Iowa district number, these can be filled from the state’s annual report.'}</p>` : ''}
       <form class="stack setup" data-form="saveSetup" novalidate>
         <div class="card checks" data-setup-checks hidden></div>
         <div class="card"><h3>Plan</h3><div class="fgrid">
@@ -3249,6 +3441,47 @@
     async gfStaffAdd() { const t = document.querySelector('[data-gf-staff-template]'); document.querySelector('[data-gf-staff-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
     async gfStaffRemove(el) { el.closest('[data-gf-staff]').remove(); },
     async gfReset() { GF.over = {}; here(); },
+    async gfPrefill() {
+      const P = GF.prefill || {}, form = document.querySelector('form[data-form=saveGf]'); if (!form) return;
+      const set = (n, v) => { const el = form.querySelector(`[name=${n}]`); if (el && v != null) el.value = n === 'enrollment' ? v : Number(Math.round(v)).toLocaleString('en-US'); };
+      set('enrollment', P.enrollment); set('aea_flowthrough', P.aea_flowthrough); set('fund_balance', P.fund_balance);
+      toast('Filled in', 'Enrollment, AEA flowthrough and fund balance. Check them, then Save.');
+    },
+    async setupPrefill() { setupPrefill(); },
+    async regAnswer(el) {
+      const box = el.closest('[data-reg-flag]'), resp = (box.querySelector('[name=response]') || {}).value || '';
+      if (el.dataset.status === 'explained' && !resp.trim()) throw new UserError('Write the answer first, or choose “Not a concern”.');
+      await HG.db.update('register_flag', `id=eq.${enc(el.dataset.id)}`, { status: el.dataset.status, response: resp.trim() || null, resolved_by: S.user.id, resolved_at: new Date().toISOString() });
+      toast(el.dataset.status === 'explained' ? 'Answer saved' : 'Marked as not a concern'); here();
+    },
+    async regVendorOk(el) {
+      await HG.db.upsert('vendor_note', [{ district_id: S.district.id, vendor_key: el.dataset.key, expected: true }], 'district_id,vendor_key');
+      toast('Vendor marked as expected', 'It won’t be asked about as new again.');
+    },
+    async regThreshold() {
+      const raw = (document.querySelector('[data-reg-threshold]') || {}).value, v = toNum(raw), d = S.district.id;
+      if (v !== null && (isNaN(v) || v <= 0)) throw new UserError('Enter the threshold in dollars, or leave it blank.');
+      for (const rule of ['near_threshold', 'split_purchase']) {
+        const mine = (REG.rules || []).find((r) => r.district_id === d && r.rule === rule), base = (REG.rules || []).find((r) => r.district_id == null && r.rule === rule) || { params: {} };
+        const params = Object.assign({}, base.params, mine ? mine.params : {}, { threshold: v });
+        if (mine) await HG.db.update('register_rule', `id=eq.${mine.id}`, { params });
+        else await HG.db.insert('register_rule', { district_id: d, rule, enabled: true, params });
+      }
+      await HG.db.rpc('register_check_all', { p_district: d });
+      toast('Saved', v ? `Bid threshold ${money(v)}. Every month re-checked.` : 'Threshold checks off. Every month re-checked.'); here();
+    },
+    async iaSearch() {
+      const q = (document.querySelector('[data-ia-q]') || {}).value || '', box = document.querySelector('[data-ia-results]');
+      if (q.trim().length < 2) throw new UserError('Type at least two letters of the district’s name.');
+      const hits = await HG.db.rpc('ia_district_search', { q: q.trim() });
+      box.innerHTML = hits && hits.length ? `<div class="stack" style="gap:6px">${hits.slice(0, 8).map((h) => `<div class="row"><button type="button" class="btn small" data-action="iaPick" data-de="${esc(h.de_district)}" data-name="${esc(h.name)}">Use ${esc(h.de_district)}</button> ${esc(h.name)}${h.aea ? ` <span class="small muted">AEA ${esc(h.aea)}</span>` : ''}${h.last_fy ? ` <span class="small muted">· state data to FY${esc(h.last_fy)}</span>` : ''}</div>`).join('')}</div>`
+        : '<p class="small muted">No Iowa district found by that name. Try part of the name, without “Community School District”.</p>';
+    },
+    async iaPick(el) {
+      const form = el.closest('form'); form.querySelector('[name=state_district_id]').value = el.dataset.de;
+      form.querySelector('[data-ia-linked]').textContent = `${el.dataset.name}. Click Save changes to link it.`;
+      form.querySelector('[data-ia-results]').innerHTML = '';
+    },
     async openSearch() { await openSearch(); },
     async define(el) { const t = TERMS[el.dataset.term]; if (t) toast(t[0], t[1]); },
     async searchGo(el) {
@@ -3433,7 +3666,21 @@
       await loadContext(true); toast('Saved'); here();
     },
     async saveDistrict(f) {
+      let de;
+      if (f.state_district_id !== undefined) {
+        const t = String(f.state_district_id).trim();
+        if (!t) de = null;
+        else {
+          if (!/^\d{1,4}$/.test(t)) throw new UserError('The Iowa district number is up to 4 digits, like 0009.');
+          de = t.padStart(4, '0');
+          if (de !== S.district.state_district_id) {
+            const hit = await HG.db.select('ia_district', `select=de_district&de_district=eq.${de}`).catch(() => []);
+            if (!hit.length) throw new UserError(`No Iowa district numbered ${de} in the state data. Use “Find” to look it up by name.`);
+          }
+        }
+      }
       await HG.db.update('district', `id=eq.${S.district.id}`, {
+        ...(de !== undefined ? { state_district_id: de } : {}),
         name: f.name.trim(), short_name: f.short_name.trim() || null, county: f.county.trim() || null,
         brand_color: f.brand_color || null, public_link_enabled: !!f.public_link_enabled,
         ...(f.allowed_domains !== undefined ? { allowed_domains: String(f.allowed_domains).split(/[\s,;]+/).map((x) => x.trim().replace(/^@/, '')).filter(Boolean), domain_role: f.domain_role || 'viewer' } : {}),
@@ -3528,6 +3775,10 @@
     if (rt) { run(async () => { await HG.db.update('initiative', `id=eq.${enc(rt.dataset.rankTier)}`, { tier: rt.value || null, engine_priority: ({ must: 'High', strategic: 'Med', nice: 'Low' })[rt.value] || null }); here(); }, rt); return; }
     const es = e.target.closest('[data-ed-scenario]');
     if (es) { ED.sid = es.value || null; const f = es.closest('form'); f.querySelector('[data-cost-section]').innerHTML = costSectionHtml(f.dataset.id || null); return; }
+    const rc = e.target.closest('[data-reg-col]');
+    if (rc) { const cols = Object.assign({}, UP.reg.cols); if (rc.value === '') delete cols[rc.dataset.regCol]; else cols[rc.dataset.regCol] = Number(rc.value); UP.regCols = cols; regParse(); document.getElementById('upload-review').innerHTML = reviewHtml(); return; }
+    const rm = e.target.closest('[data-reg-month]');
+    if (rm) { REG.batch = rm.value; return here(); }
     const gc = e.target.closest('[data-gl-col]');
     if (gc) { UP.gl.cols = Object.assign({}, UP.gl.layout.cols, { [gc.dataset.glCol]: gc.value === '' ? undefined : Number(gc.value) }); glParse(); document.getElementById('upload-review').innerHTML = reviewHtml(); return; }
     const gm = e.target.closest('[data-gl-map], [data-gl-fund], [data-gl-sign]');

@@ -1,5 +1,12 @@
--- HighGround — structure check. Run after 01–04. Changes nothing. Every row should say PASS.
+-- HighGround — structure check. Run after setting up (01–16). Changes nothing. Every row should say PASS.
 with t as (
+  select c.relname, c.relrowsecurity
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public' and c.relkind = 'r'
+  -- HighGround's own 36 tables; state peer data and check registers (parts 15-16) are counted in test 10
+    and c.relname not like 'ia\_%' and c.relname not like 'register\_%'
+    and c.relname not in ('benchmark_rule','benchmark_flaggable','district_peer','vendor_note')
+), t_all as (
   select c.relname, c.relrowsecurity
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public' and c.relkind = 'r'
@@ -18,11 +25,11 @@ union all
 select 2, 'Every table has row level security on',
        case when count(*) filter (where not relrowsecurity) = 0 then 'PASS' else 'FAIL' end,
        coalesce(string_agg(relname, ', ') filter (where not relrowsecurity), '')
-  from t
+  from t_all
 union all
 select 3, 'Every table has at least one access rule',
        case when count(*) = 0 then 'PASS' else 'FAIL' end, coalesce(string_agg(t.relname, ', '), '')
-  from t left join p on p.tablename = t.relname where p.c is null
+  from t_all t left join p on p.tablename = t.relname where p.c is null
 union all
 select 4, 'Anonymous visitors have no table access',
        case when count(*) = 0 then 'PASS' else 'FAIL' end,
@@ -46,6 +53,11 @@ select 8, 'Storage buckets exist',
   from storage.buckets where id in ('district-files', 'district-public')
 union all
 select 9, 'Iowa rule values loaded',
-       case when count(*) = 18 then 'PASS' else 'FAIL' end, count(*)::text || ' values'
+       case when count(*) >= 18 then 'PASS' else 'FAIL' end, count(*)::text || ' values'
   from public.rule_value where state = 'IA'
+union all
+select 10, 'State peer data and check register tables (parts 15-16)',
+       case when count(*) = 15 then 'PASS' else 'FAIL' end, count(*)::text || ' of 15 tables'
+  from t_all where relname like 'ia\_%' or relname like 'register\_%'
+                or relname in ('benchmark_rule','benchmark_flaggable','district_peer','vendor_note')
 order by n;

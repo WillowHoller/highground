@@ -2,7 +2,7 @@
 import asyncio, json, re, urllib.parse, subprocess, time, os
 from playwright.async_api import async_playwright
 ROOT=os.path.dirname(os.path.abspath(__file__)); SB="https://test.supabase.co"; SHOTS=os.path.join(os.path.dirname(os.path.abspath(__file__)),"shots"); os.makedirs(SHOTS,exist_ok=True)
-D1={"id":"d1","slug":"ironwood-valley","name":"Ironwood Valley Community School District","short_name":"Ironwood Valley","state":"IA","county":"Fictional","brand_color":"#1F4E8C","is_demo":True,"public_link_enabled":True}
+D1={"id":"d1","slug":"ironwood-valley","name":"Ironwood Valley Community School District","short_name":"Ironwood Valley","state":"IA","county":"Fictional","brand_color":"#1F4E8C","is_demo":True,"public_link_enabled":True,"state_district_id":"7777"}
 D2={"id":"d2","slug":"cottonwood-ridge","name":"Cottonwood Ridge Community School District","short_name":"Cottonwood Ridge","state":"IA","county":None,"brand_color":"#7A4E2D","is_demo":True,"public_link_enabled":True}
 USERS={"admin@example.test":("u-admin","Pat Admin",[("d1","admin"),("d2","viewer")],False),
        "viewer@example.test":("u-viewer","Val Viewer",[("d1","viewer")],False),
@@ -53,6 +53,21 @@ TABLES["audit_log"]=[{"id":2,"district_id":"d1","table_name":"initiative","row_p
    "old_row":{"name":"Gym floor","focus_area":"Facilities","updated_at":"a"},"new_row":{"name":"Gym floor","focus_area":"Activities","updated_at":"b"}},
   {"id":1,"district_id":"d1","table_name":"scenario","row_pk":"y","action":"insert","actor":"u-someone-else","at":"2026-09-30T14:00:00Z","old_row":None,"new_row":{"name":"Plan B"}}]
 TABLES["access_request"]=[{"id":"req1","district_id":"d1","email":"asker@example.test","message":"New principal at the middle school","created_at":"2026-09-29T15:00:00Z","status":"pending"}]
+# state annual-report data (part 16): fictional figures for the fictional demo district
+IA_BENCH=[{"measure_key":"exp|General|Student Transportation","grp":"exp","fund":"General","line":"Student Transportation","unit":"per_pupil","flag":"high","peer_group":"districts your size",
+           "callout":"$1,210/pupil — 1.8× the average of 41 districts your size (higher than 95% of them)"},
+          {"measure_key":"bal|SAVE|ENDING","grp":"bal","fund":"SAVE","line":"ENDING","unit":"per_pupil","flag":"low","peer_group":"districts your size","callout":"$310/pupil — 62% below the average of 41 districts your size (lower than 93% of them)"},
+          {"measure_key":"rev|ALL|TOTAL","grp":"rev","fund":"ALL","line":"TOTAL","unit":"per_pupil","flag":"jump","peer_group":"districts your size","callout":"Up 31% from last year; districts your size moved 4% (median)"},
+          {"measure_key":"exp|ALL|Instruction","grp":"exp","fund":"ALL","line":"Instruction","unit":"per_pupil","flag":None,"peer_group":"districts your size","callout":None}]
+IA_PREFILL={"de_district":"7777","fiscal_year":2025,"source":"Iowa Department of Education, Certified Annual Report, FY2025 (year end June 30)","latest_enrollment":{"fiscal_year":2026,"certified":1188.4},
+  "general":{"unassigned":2100000,"assigned":150000,"aea_flowthrough":410000},"balances":{"general":2400000,"save":1900000,"ppel":640000},"receipts":{"save":1450000,"ppel":520000}}
+TABLES["import_batch"].append({"district_id":"d1","id":"b-reg1","kind":"check_register","period_end":"2026-08-31","file_name":"august_register.csv","status":"applied","uploaded_at":"2026-09-03T12:00:00Z","row_count":3})
+TABLES["register_flag"]=[{"id":1,"district_id":"d1","batch_id":"b-reg1","rule":"vendor_name_change","severity":"concern","question":"Vendor V0012 was paid as Midwest Bus Parts before and is now Midwest Bus Parts & Supply. Was the change requested in writing?","status":"open","vendor_key":"midwest bus parts supply","detail":{}},
+  {"id":2,"district_id":"d1","batch_id":"b-reg1","rule":"new_vendor","severity":"question","question":"First payment to Hawkeye Roofing LLC ($12,400.00). What was it for, and who approved adding this vendor?","status":"open","vendor_key":"hawkeye roofing","detail":{}},
+  {"id":3,"district_id":"d1","batch_id":"b-reg1","rule":"weekend_date","severity":"info","question":"Check 10422 is dated Saturday, Aug 15.","status":"open","vendor_key":None,"detail":{}},
+  {"id":4,"district_id":"d1","batch_id":"b-reg1","rule":"duplicate_payment","severity":"concern","question":"Invoice 88231 to Alliant Energy appears twice.","status":"explained","response":"Second check voided; see September.","resolved_at":"2026-09-05T12:00:00Z","vendor_key":"alliant energy","detail":{}}]
+TABLES["register_rule"]=[{"id":1,"district_id":None,"rule":"near_threshold","enabled":True,"params":{"threshold":None,"within_pct":10}},{"id":2,"district_id":None,"rule":"split_purchase","enabled":True,"params":{"threshold":None,"days":14}}]
+TABLES["vendor_note"]=[]; TABLES["register_line"]=[]
 calls=[]
 import base64
 def tok(uid,aal="aal1"):
@@ -111,6 +126,15 @@ async def handler(route):
   if path.startswith("/storage/v1/object/district-files/") and req.method=="POST":
     return await ok({"Key":path.split("/object/")[1]})
   if path=="/rest/v1/rpc/copy_scenario": return await ok("copied-scenario-id")
+  if path=="/rest/v1/rpc/ia_benchmark": return await ok(IA_BENCH)
+  if path=="/rest/v1/rpc/ia_prefill": return await ok(IA_PREFILL)
+  if path=="/rest/v1/rpc/ia_district_search": return await ok([{"de_district":"7777","name":"Ironwood Valley","aea":"267","last_fy":2025,"score":0.9}])
+  if path=="/rest/v1/rpc/register_summary": return await ok({"total":21851.5,"lines":3,"by_fund":{"10":9451.5,"33":12400},"top_vendors":[{"vendor":"Hawkeye Roofing LLC","label":None,"total":12400}],"flags":{"question":1,"concern":1}})
+  if path=="/rest/v1/rpc/register_check": return await ok({"batch_id":json.loads(body)["p_batch"],"open_flags":2,"by_rule":{}})
+  if path=="/rest/v1/rpc/register_check_all": return await ok([])
+  if path=="/rest/v1/ia_measure": return await ok([{"fiscal_year":2025}])
+  if path=="/rest/v1/ia_district": return await ok([{"de_district":"7777","name":"Ironwood Valley","aea":"267"}])
+  if path=="/rest/v1/register_rule" and req.method=="GET": return await ok(TABLES["register_rule"])
   if path=="/rest/v1/rpc/apply_import": return await ok({"status":"applied"})
   if path=="/rest/v1/rpc/public_publication":
     b=json.loads(body)
@@ -1194,6 +1218,71 @@ async def main():
     check("password saved", any(c[0]=="PUT" and "/auth/v1/user" in c[1] for c in calls) and "Password changed" in await pg.inner_text("body"))
     await pg.goto("http://localhost:8765/#error=access_denied&error_description=Email+link+is+invalid+or+has+expired"); await pg.wait_for_timeout(500)
     check("expired link explained", "expired" in await pg.inner_text("body"))
+    # peer comparisons from the state's annual reports, and the state prefill
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/general"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view")
+    check("peers: General Fund shows its own callout only", "Compared with districts your size" in t and "General Fund · Student Transportation spending" in t and "1.8× the average of 41" in t and "SAVE · ending" not in t and "FY2025" in t, t[-600:])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/summary"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view"); check("peers: Funds shows the all-funds callout", "All funds · total revenue" in t and "Student Transportation" not in t)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/capital"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view"); check("peers: Capital plan shows SAVE and PPEL callouts", "SAVE · ending balance" in t and "Low vs. peers" in t)
+    bench=[c for c in calls if "/rpc/ia_benchmark" in c[1]]
+    check("peers: asks for the latest year, districts its size, this district's rules", bench and json.loads(bench[-1][2])=={"p_de":"7777","p_fy":2025,"p_status":"Actual","p_peer":"size","p_district":"d1"}, str(bench[-1:]))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("#view")
+    check("overview: peer numbers and open register questions need attention", "3 numbers stand out against similar Iowa districts" in t and "check-register questions are waiting" in t, t[:900])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/district"); await pg.wait_for_timeout(600)
+    check("district settings: the Iowa district number and its name", await pg.input_value("input[name=state_district_id]")=="7777" and "Ironwood Valley, AEA 267" in await pg.inner_text("[data-ia-linked]"))
+    await pg.fill("input[name=state_district_id]",""); await pg.fill("input[data-ia-q]","iron"); await pg.click("button[data-action=iaSearch]"); await pg.wait_for_timeout(300)
+    check("district settings: find the number by name", "Use 7777" in await pg.inner_text("[data-ia-results]"))
+    await pg.click("button[data-action=iaPick]"); n0=len(calls); await pg.click("form[data-form=saveDistrict] button[type=submit]"); await pg.wait_for_timeout(600)
+    pt=[c for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/district?" in c[1]]
+    check("district settings: picking a match saves the number", pt and json.loads(pt[0][2]).get("state_district_id")=="7777", str(pt[:1]))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(700)
+    check("starting numbers: the state's figures offered", "From the state’s annual report" in await pg.inner_text("[data-setup-state]"))
+    n1=len(calls); await pg.click("button[data-action=setupPrefill]"); await pg.wait_for_timeout(200)
+    vals=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["as_of","bal_save","bal_ppel","enrollment","enrollment_year","save_receipts","save_receipts_fy"]]
+    check("starting numbers: Fill in sets the form, nothing saved", vals==["2025-06-30","1,900,000","640,000","1188.4","2025-26","1,450,000","2025"] and not [c for c in calls[n1:] if c[0] in("POST","PATCH")], str(vals))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/general"); await pg.wait_for_timeout(600)
+    await pg.click("button[data-action=gfEdit]"); await pg.wait_for_timeout(700)
+    check("General Fund setup: the state's figures offered", "From the state’s annual report (FY2025)" in await pg.inner_text("[data-gf-state]"))
+    await pg.click("button[data-action=gfPrefill]"); await pg.wait_for_timeout(200)
+    check("General Fund setup: Fill these in", await pg.input_value("form[data-form=saveGf] [name=fund_balance]")=="2,250,000" and await pg.input_value("form[data-form=saveGf] [name=aea_flowthrough]")=="410,000")
+    await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(200)
+    # check registers: upload two months, review, apply, then the questions
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(600)
+    await pg.select_option("select[data-upload-kind]","check_register")
+    reg=("Ironwood Valley CSD - Check Register\n\nCheck Date,Check #,Vendor #,Vendor Name,Invoice #,Description,Account Number,Amount\n"
+         "09/03/2026,10421,V0012,Midwest Bus Parts,INV-5531,Brake pads,10-2700-000-000-1100-000-618,\"1,240.50\"\n"
+         "09/15/2026,10422,V0044,Alliant Energy,88231,Electric,10-2600-000-000-1100-000-622,8411.00\n"
+         "10/01/2026,10424,V0012,Midwest Bus Parts,INV-5602,Filters,10-2700-000-000-1100-000-618,99\n,,,Total,,,,9750.50\n")
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"register.csv","mimeType":"text/csv","buffer":reg.encode()}]); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#upload-review")
+    check("register upload: reviewed by month before anything is saved", "3 payments (1 total or blank row left out), in 2 months" in t and "September 2026" in t and "October 2026" in t and "first two digits = fund" in t, t[:400])
+    n0=len(calls); await pg.click("#upload-review button[data-action=applyUpload]"); await pg.wait_for_timeout(1200)
+    new=calls[n0:]
+    bt=[json.loads(c[2]) for c in new if c[0]=="POST" and c[1].startswith("/rest/v1/import_batch")]
+    rl=[json.loads(c[2]) for c in new if c[0]=="POST" and c[1].startswith("/rest/v1/register_line")]
+    check("register upload: one upload per month, its payments, applied and checked", [b["period_end"] for b in bt]==["2026-09-30","2026-10-31"] and all(b["kind"]=="check_register" for b in bt)
+          and sum(len(x) for x in rl)==3 and rl[0][0]["batch_id"]==bt[0]["id"] and rl[0][0]["fund"]=="10" and len([c for c in new if "/rpc/apply_import" in c[1]])==2 and len([c for c in new if "/rpc/register_check" in c[1]])==2, str(bt)[:300])
+    check("register upload: opens the check register afterwards", "/progress/registers" in pg.url, pg.url)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/registers"); await pg.wait_for_timeout(700)
+    folds=await pg.evaluate("[...document.querySelectorAll('details.fold')].map(d=>d.open)")
+    await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)"); t=await pg.inner_text("#view")
+    await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=false)")
+    check("check register: questions first, most serious first; information and answers folded", t.index("Vendor name changed")<t.index("New vendor") and "For information (1)" in t and "Answered (1)" in t and "Second check voided" in t and folds and not any(folds), t[:600])
+    await pg.screenshot(path=SHOTS+"/registers.png",full_page=True)
+    n0=len(calls); await pg.click("[data-reg-flag='1'] button[data-status=explained]"); await pg.wait_for_timeout(300)
+    check("check register: an answer is required to explain", "Write the answer first" in await pg.inner_text("#toasts") and not [c for c in calls[n0:] if c[0]=="PATCH"])
+    await pg.fill("[data-reg-flag='1'] textarea[name=response]","W-9 on file; the vendor merged with its parent."); await pg.click("[data-reg-flag='1'] button[data-status=explained]"); await pg.wait_for_timeout(500)
+    pt=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and "register_flag" in c[1]]
+    check("check register: the answer is saved with who and when", pt and pt[0]["status"]=="explained" and pt[0]["response"].startswith("W-9") and pt[0]["resolved_by"]=="u-admin", str(pt))
+    n0=len(calls); await pg.click("[data-reg-flag='2'] button[data-action=regVendorOk]"); await pg.wait_for_timeout(400)
+    vn=[c for c in calls[n0:] if c[0]=="POST" and "vendor_note" in c[1]]
+    check("check register: a new vendor can be marked as expected", vn and json.loads(vn[0][2])[0]["vendor_key"]=="hawkeye roofing" and "on_conflict=district_id,vendor_key" in urllib.parse.unquote(vn[0][1]), str(vn))
+    await pg.click("summary:has-text(\"Settings for these checks\")"); await pg.fill("input[data-reg-threshold]","25000"); n0=len(calls); await pg.click("button[data-action=regThreshold]"); await pg.wait_for_timeout(500)
+    rr=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "register_rule" in c[1]]
+    check("check register: the bid threshold turns on two checks and re-checks every month", len(rr)==2 and all(x["params"]["threshold"]==25000 and x["district_id"]=="d1" for x in rr) and any("/rpc/register_check_all" in c[1] for c in calls[n0:]), str(rr))
     # public page, opened by someone with no account (fresh browser, no session)
     # step A: menus by role, landing on the board report, the guide, definitions
     TABLES["report_snapshot"]=[{"id":"rep-sep","district_id":"d1","kind":"board_monthly","title":"Board report, September 2026","period_end":"2026-09-30","created_at":"2026-10-01T15:00:00Z",
@@ -1233,10 +1322,18 @@ async def main():
     m=[x.strip() for x in await menu(pp)]
     check("business manager: lands on Overview; menu for the monthly close", "/overview/today" in pp.url and m==["Overview","Direction","Resources","Progress","Reports"], str(m)+pp.url)
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pp.wait_for_timeout(500)
+    check("business manager: Check register in Progress, and as an upload", "Check register" in await pp.inner_text("nav.tabs") and "Check register (bills paid)" in await pp.inner_text("select[data-upload-kind]"))
     check("business manager: Uploads first in Progress", [x.strip() for x in await pp.locator("nav.tabs a").all_inner_texts()][0]=="Uploads")
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(600)
     await pp.click("button.defn[data-term=gap]"); await pp.wait_for_timeout(200)
     check("definitions: tapping “?” explains the term", "Capital costs in the plan that SAVE, PPEL, V-PPEL and grants can’t cover" in await pp.inner_text("#toasts"))
+    await cx.close()
+    cx,pp=await session("viewer@example.test")
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/progress/registers"); await pp.wait_for_timeout(700)
+    t=await pp.inner_text("#view")
+    check("viewer: reads register questions, cannot answer or change settings", "Waiting for the business office" in t and await pp.locator("[data-action=regAnswer], [data-reg-threshold]").count()==0, t[:300])
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/district"); await pp.wait_for_timeout(500)
+    check("viewer: cannot change the Iowa district number", await pp.locator("input[name=state_district_id][disabled]").count()==1 and await pp.locator("[data-ia-q]").count()==0)
     await cx.close()
     cx,pp=await session("sup@example.test")
     m=[x.strip() for x in await menu(pp)]

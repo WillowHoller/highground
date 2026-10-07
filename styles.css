@@ -337,3 +337,14 @@ details.fold[open] > summary{border-bottom:1px solid var(--border);margin-bottom
 details.fold > .stack{padding-bottom:14px}
 details.fold .card{box-shadow:none}
 td.nowrap{white-space:nowrap}
+/* peer comparisons (state annual reports) and check-register questions */
+.card.peers ul{margin:6px 0 8px;padding-left:18px}
+.card.peers li{margin:4px 0}
+.peer-tag{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;background:#EEF1EF;color:var(--muted);white-space:nowrap}
+.peer-tag.peer-high,.peer-tag.sev-concern{background:#FEF3F2;color:var(--gap)}
+.peer-tag.peer-low,.peer-tag.peer-jump,.peer-tag.sev-question{background:var(--caution-bg);color:var(--caution)}
+.regq{border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.regq.sev-concern{border-left:4px solid var(--gap)}
+.regq.sev-question{border-left:4px solid var(--caution)}
+.regq p{margin:6px 0}
+.regq textarea{height:auto;padding:8px 12px;font:inherit}

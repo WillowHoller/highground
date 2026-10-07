@@ -30,8 +30,11 @@ In the project: **SQL Editor → New query**. For each file below, copy everythi
 | 2 | `02_security.sql` | Who can see and change what; invitations; audit log |
 | 3 | `03_storage.sql` | File storage for uploads, attachments, logos |
 | 4 | `04_iowa_rules.sql` | SF 2472 and other Iowa values, each marked verified / recalled / assumed |
-| 5 | `05_verify_setup.sql` | Checks the structure. **All 9 rows should say PASS.** |
-| 6 | `06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 13 rows should say PASS.** |
+| 5 | `07_signin.sql` … `14_general_fund.sql` | Later parts, in number order. Each ends with its own PASS check |
+| 6 | `15_state_peer_data.sql` | Iowa school finance data for peer comparisons (filled monthly by the "Iowa public data" GitHub workflow; see `PUBLIC_DATA.md`) |
+| 7 | `16_registers_and_peer_settings.sql` | Linking a district to its Iowa district number, peer settings, and monthly check-register questions |
+| 8 | `05_verify_setup.sql` | Checks the structure. **All 10 rows should say PASS.** |
+| 9 | `06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 18 rows should say PASS.** |
 
 If step 1–4 shows an error, stop and send Claude the full message. If 5 or 6 shows a FAIL or an error, send a screenshot of the result.
 

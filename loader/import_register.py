@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Import a check register (CSV) for one district and run the board-question checks.
 
-    python3 import_register.py --tenant demo --file aug_2026.csv                      # one month
-    python3 import_register.py --tenant demo --file fy2026_all.csv --split-monthly    # a year at once
-    python3 import_register.py --tenant demo --file x.csv --dry-run                   # show the column match only
+    python3 import_register.py --district ironwood-valley --file fy2026_all.csv --split-monthly   # a year at once
+    python3 import_register.py --district ironwood-valley --file sept.csv --month 2026-09        # one month
+    python3 import_register.py --district ironwood-valley --file x.csv --dry-run                 # column match only
 
-For staff backfills of past months. Uses DATABASE_URL and psql like the Data Hub loader, so it
-bypasses row-level security: only Willow Holler staff should run it. Districts will upload
-through the app, which writes the same tables as the signed-in user.
+For Willow Holler staff backfilling past months (districts upload month by month in the app:
+Progress → Uploads → "Check register"). Each month becomes an applied upload of kind
+'check_register', exactly like an app upload, then every month is checked in date order.
+Uses DATABASE_URL and psql, so it runs as the database owner: staff only.
 
 Column matching is by header name (see GUESSES). Override with --map field="Header Name".
 If the export has one account string and no separate fund/function/object columns, the account
@@ -103,9 +104,9 @@ def psql(db, sql):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--tenant", required=True)
+    ap.add_argument("--district", required=True, help="the district's link id (slug), e.g. ironwood-valley")
     ap.add_argument("--file", required=True)
-    ap.add_argument("--period-start"); ap.add_argument("--period-end")
+    ap.add_argument("--month", help="YYYY-MM, when the file is one month (default: the month of its latest date)")
     ap.add_argument("--split-monthly", action="store_true", help="one import per calendar month of pay_date")
     ap.add_argument("--source", default="register export")
     ap.add_argument("--map", action="append", default=[], help='field="Header Name"')
@@ -143,48 +144,51 @@ def main():
             print(json.dumps(l, default=str))
         return
 
+    def month_end(d):
+        return ((d.replace(day=1) + dt.timedelta(days=32)).replace(day=1) - dt.timedelta(days=1))
     groups = collections.OrderedDict()
     if a.split_monthly:
         for l in sorted(lines, key=lambda l: l["pay_date"] or dt.date.min):
             if not l["pay_date"]:
                 raise SystemExit(f"--split-monthly needs a date on every line (line {l['line_no']})")
-            m = l["pay_date"].replace(day=1)
-            nxt = (m + dt.timedelta(days=32)).replace(day=1)
-            groups.setdefault((m, nxt - dt.timedelta(days=1)), []).append(l)
+            groups.setdefault(month_end(l["pay_date"]), []).append(l)
     else:
-        dates = [l["pay_date"] for l in lines if l["pay_date"]]
-        ps = dt.date.fromisoformat(a.period_start) if a.period_start else (min(dates) if dates else None)
-        pe = dt.date.fromisoformat(a.period_end) if a.period_end else (max(dates) if dates else None)
-        if not ps or not pe:
-            raise SystemExit("No dates in the file: pass --period-start and --period-end")
-        groups[(ps, pe)] = lines
+        if a.month:
+            pe = month_end(dt.date.fromisoformat(a.month + "-01"))
+        else:
+            dates = [l["pay_date"] for l in lines if l["pay_date"]]
+            if not dates:
+                raise SystemExit("No dates in the file: pass --month YYYY-MM")
+            pe = month_end(max(dates))
+        groups[pe] = lines
 
     db = os.environ.get("DATABASE_URL") or sys.exit("Set DATABASE_URL")
+    did = psql(db, f"select id from public.district where slug = {lit(a.district)};").splitlines()
+    if not did or not did[-1]:
+        raise SystemExit(f"No district with the link id {a.district!r}")
+    did = did[-1]
     work = tempfile.mkdtemp(prefix="reg_")
-    import_ids = []
-    for (ps, pe), ls in groups.items():
-        path = os.path.join(work, f"{ps}.csv")
+    for pe, ls in groups.items():
+        path = os.path.join(work, f"{pe}.csv")
+        # an earlier upload of the same month is replaced, as in the app
+        bid = psql(db, f"""update public.import_batch set status = 'superseded'
+  where district_id = {lit(did)} and kind = 'check_register' and period_end = {lit(pe)} and status in ('uploaded','review','applied');
+insert into public.import_batch (district_id, kind, period_end, file_name, status, row_count, notes, applied_at)
+values ({lit(did)}, 'check_register', {lit(pe)}, {lit(os.path.basename(a.file))}, 'applied', {len(ls)}, 'Loaded by import_register.py', now())
+returning id;""").splitlines()[-1]
         with open(path, "w", newline="") as o:
             w = csv.writer(o)
-            w.writerow(["import_id", "tenant_id", "line_no"] + FIELDS)
+            w.writerow(["batch_id", "district_id", "line_no"] + FIELDS)
             for l in ls:
-                w.writerow([":IMPORT", a.tenant, l["line_no"]] + ["" if l[f] is None else l[f] for f in FIELDS])
-        iid = psql(db, f"""insert into public.register_import (tenant_id, period_start, period_end, file_name, source, uploaded_by)
-values ({lit(a.tenant)}, {lit(ps)}, {lit(pe)}, {lit(os.path.basename(a.file))}, {lit(a.source)}, 'import_register.py')
-returning id;""").splitlines()[-1]
-        with open(path) as f:
-            data = f.read().replace(":IMPORT", iid)
-        with open(path, "w") as f:
-            f.write(data)
-        psql(db, f"\\copy public.register_line (import_id, tenant_id, line_no, {', '.join(FIELDS)}) "
+                w.writerow([bid, did, l["line_no"]] + ["" if l[f] is None else l[f] for f in FIELDS])
+        psql(db, f"\\copy public.register_line (batch_id, district_id, line_no, {', '.join(FIELDS)}) "
                  f"from '{path}' with (format csv, header true, null '')\n")
-        import_ids.append(iid)
-        print(f"Imported {ps} .. {pe}: {len(ls)} lines -> {iid}")
+        print(f"Loaded {pe:%B %Y}: {len(ls)} payments", flush=True)
 
     if not a.no_check:
-        res = psql(db, f"select public.register_check_all({lit(a.tenant)})::text;")
+        res = psql(db, f"select public.register_check_all({lit(did)})::text;")
         for r in json.loads(res.splitlines()[-1]):
-            print(f"  checked {r['period_start']}: {r['open_flags']} open flags {r['by_rule']}")
+            print(f"  checked {r['period_end']}: {r['open_flags']} open questions {r['by_rule']}")
 
 
 if __name__ == "__main__":

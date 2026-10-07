@@ -1,5 +1,5 @@
 -- =====================================================================================
--- HighGround — access test. Run after 01–04 in the SQL editor.
+-- HighGround — access test. Run after setting up (01–16) in the SQL editor.
 -- Creates two test districts and six test accounts (@example.test), acts as each one,
 -- records what was allowed or refused, then deletes everything it created.
 -- Every row of the result should say PASS. If the script stops with an error instead,
@@ -20,6 +20,7 @@ declare
   d1 uuid := gen_random_uuid();
   d2 uuid := gen_random_uuid();
   s_locked uuid; s_open uuid; b uuid; acct uuid; r text; cnt int; ok boolean; msg text; j jsonb; amt numeric;
+  b_aug uuid; b_sep uuid; fid bigint; cnt2 int;
   zero uuid := '00000000-0000-0000-0000-000000000000';
 begin
   -- ---------- setup (as the database owner) ----------
@@ -178,6 +179,110 @@ begin
   execute 'reset role';
   insert into hg_test_results values (12, 'Anonymous visitor sees only the published page',
     case when ok then 'PASS' else 'FAIL' end, msg || '; published page ' || case when j is null then 'missing' else 'returned' end);
+
+  -- ---------- 14–18 check registers and state peer data (part 16) ----------
+  -- 14 business manager uploads two register months; September's questions are raised and one is answered
+  perform set_config('request.jwt.claims', json_build_object('sub', ub, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.import_batch (district_id, kind, period_end, file_name, status)
+    values (d1, 'check_register', '2026-08-31', 'august.csv', 'review') returning id into b_aug;
+  insert into public.register_line (batch_id, district_id, pay_date, vendor_no, vendor_name, invoice_no, amount, fund, func, obj)
+    values (b_aug, d1, '2026-08-12', '1001', 'Hawkeye Builders Supply Inc', 'A-1', 2500, '10', '2600', '611'),
+           (b_aug, d1, '2026-08-12', '1002', 'Prairie Energy Coop', 'E-8', 9000, '10', '2600', '622');
+  insert into public.import_batch (district_id, kind, period_end, file_name, status)
+    values (d1, 'check_register', '2026-09-30', 'september.csv', 'review') returning id into b_sep;
+  insert into public.register_line (batch_id, district_id, pay_date, vendor_no, vendor_name, invoice_no, amount, fund, func, obj)
+    values (b_sep, d1, '2026-09-10', '1002', 'Prairie Energy Co-op Payments LLC', 'E-9', 9100, '10', '2600', '622'),
+           (b_sep, d1, '2026-09-11', '1001', 'Hawkeye Builders Supply Inc', 'A-1', 2500, '10', '2600', '611'),
+           (b_sep, d1, '2026-09-14', '1099', 'Quickfix Services', 'Q1', 3000, '10', '2600', '430');
+  j := public.register_check(b_sep);
+  select id into fid from public.register_flag where batch_id = b_sep and rule = 'duplicate_payment' limit 1;
+  update public.register_flag set status = 'explained', response = 'Paid twice; refund requested', resolved_by = ub, resolved_at = now()
+   where id = fid;
+  get diagnostics cnt = row_count;
+  select count(*) into cnt2 from public.register_flag where batch_id = b_sep;
+  ok := (j -> 'by_rule' ? 'vendor_name_change') and (j -> 'by_rule' ? 'duplicate_payment') and (j -> 'by_rule' ? 'new_vendor');
+  execute 'reset role';
+  insert into hg_test_results values (14, 'Business manager uploads registers; questions raised (name change, duplicate, new vendor) and answered',
+    case when ok and cnt = 1 and cnt2 >= 3 then 'PASS' else 'FAIL' end, cnt2 || ' questions; ' || coalesce(j ->> 'by_rule', 'none'));
+
+  -- 15 viewer reads the questions but cannot answer, upload, or run the check
+  perform set_config('request.jwt.claims', json_build_object('sub', uv, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into cnt from public.register_flag where batch_id = b_sep;
+  update public.register_flag set response = 'viewer edit' where batch_id = b_sep;
+  get diagnostics cnt2 = row_count;
+  ok := true; msg := '';
+  begin
+    insert into public.register_line (batch_id, district_id, vendor_name, amount) values (b_sep, d1, 'Viewer Co', 1);
+    ok := false; msg := 'viewer added a register line';
+  exception when insufficient_privilege then msg := 'upload refused';
+  end;
+  begin
+    perform public.register_check(b_sep);
+    ok := false; msg := msg || '; viewer ran the check';
+  exception when insufficient_privilege then msg := msg || '; check refused';
+  end;
+  execute 'reset role';
+  insert into hg_test_results values (15, 'Viewer reads register questions but cannot answer, upload or run checks',
+    case when ok and cnt >= 3 and cnt2 = 0 then 'PASS' else 'FAIL' end, cnt || ' visible; ' || cnt2 || ' answered; ' || msg);
+
+  -- 16 editor cannot start a register upload (financial uploads are business manager / admin)
+  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.import_batch (district_id, kind, period_end) values (d1, 'check_register', '2026-10-31');
+    ok := false; msg := 'editor started a register upload';
+  exception when insufficient_privilege then ok := true; msg := 'refused';
+  end;
+  execute 'reset role';
+  insert into hg_test_results values (16, 'Editor cannot upload a check register',
+    case when ok then 'PASS' else 'FAIL' end, msg);
+
+  -- 17 stranger and anonymous visitor see no registers and no state data
+  perform set_config('request.jwt.claims', json_build_object('sub', ux, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into cnt from public.register_line where district_id = d1;
+  select cnt + count(*) into cnt from public.register_flag where district_id = d1;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
+  execute 'set local role anon';
+  ok := true;
+  begin
+    select count(*) into cnt2 from public.ia_district; ok := false;
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.ia_benchmark('0009', 2025); ok := false;
+  exception when insufficient_privilege then null;
+  end;
+  execute 'reset role';
+  insert into hg_test_results values (17, 'Other districts see no registers; anonymous visitors get no state data',
+    case when cnt = 0 and ok then 'PASS' else 'FAIL' end, cnt || ' register rows visible to a stranger; anonymous ' || case when ok then 'refused' else 'allowed' end);
+
+  -- 18 admin links the district to a state district number and picks a peer; members get peer comparisons
+  insert into public.ia_district (de_district, name) values ('zz01', 'Access Test State District One'), ('zz02', 'Access Test Peer')
+    on conflict do nothing;
+  perform set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  update public.district set state_district_id = 'zz01' where id = d1;
+  get diagnostics cnt = row_count;
+  insert into public.district_peer (district_id, de_district) values (d1, 'zz02');
+  perform * from public.ia_benchmark('zz01', 2025, 'Actual', 'custom', d1);
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.district_peer (district_id, de_district) values (d1, 'zz01');
+    ok := false; msg := 'editor changed peers';
+  exception when insufficient_privilege then ok := true; msg := 'editor refused';
+  end;
+  execute 'reset role';
+  insert into hg_test_results values (18, 'Admin links the state district and picks peers; editors cannot change peers',
+    case when cnt = 1 and ok then 'PASS' else 'FAIL' end, cnt || ' district linked; ' || msg);
+  update public.district set state_district_id = null where id = d1;
+  delete from public.district_peer where district_id = d1;
+  delete from public.ia_district where de_district in ('zz01', 'zz02');
 
   -- ---------- clean up ----------
   perform set_config('request.jwt.claims', '', true);
