@@ -73,9 +73,11 @@ def check_connections():
         rows = json.loads(body or b"null")
     except ValueError:
         rows = None
+    # a signed-out visitor must get nothing: either an empty list, or "permission denied" (no access to the table at all)
+    denied = st in (401, 403) and isinstance(rows, dict) and rows.get("code") == "42501"
     add("connections", "Supabase data API answers, and a signed-out visitor gets no districts",
-        "ok" if st == 200 and rows == [] else "fail",
-        "HTTP 200, nothing returned" if st == 200 and rows == [] else f"HTTP {st}: {str(rows)[:120]}")
+        "ok" if (st == 200 and rows == []) or denied else "fail",
+        "nothing returned" if st == 200 and rows == [] else "refused (no access without signing in)" if denied else f"HTTP {st}: {str(rows)[:120]}")
     st, body, _ = fetch(url + "/functions/v1/send-invitation", {"apikey": key, "Origin": SITE.rstrip("/")}, method="OPTIONS")
     add("connections", "The invitation email function is deployed", "ok" if st == 200 else "fail", f"HTTP {st}")
 
