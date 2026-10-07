@@ -35,6 +35,8 @@ In the project: **SQL Editor → New query**. For each file below, copy everythi
 | 7 | `16_registers_and_peer_settings.sql` | Linking a district to its Iowa district number, peer settings, and monthly check-register questions |
 | 8 | `17_levy_rates.sql` | Property tax levy rates by district (Department of Management), including voter-approved PPEL |
 | 8b | `18_need_by.sql` | The year each initiative is needed by (used by the ranking and its suggestions) |
+| 8c | `19_dom_school_data.sql` | Valuations, Aid and Levy worksheet lines and unspent balances (Department of Management), median home values (Census Bureau), construction prices (BLS), and `ia_prefill_more` for setup |
+| 8d | `20_health_checks.sql` | The daily health check (`hg_health_check`) and its run log; see `MONITORING.md` |
 | 9 | `05_verify_setup.sql` | Checks the structure. **All 10 rows should say PASS.** |
 | 10 | `06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 18 rows should say PASS.** |
 

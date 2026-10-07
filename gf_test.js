@@ -32,4 +32,11 @@ check('enacted figures are recorded with their source date', F.RULES.scpp[2027] 
 const b = F.fromBudget([{ fund_code: '10', account_type: 'revenue', budget: 12300000 }, { fund_code: '10', account_type: 'expenditure', object_code: '111', budget: 4820000 },
   { fund_code: '10', account_type: 'expenditure', object_code: '211', budget: 455000 }, { fund_code: '10', account_type: 'expenditure', object_code: '622', budget: 310000 }, { fund_code: '33', account_type: 'expenditure', object_code: '450', budget: 1 }]);
 check('starting figures from a budget: General Fund only, staff (objects 1xx–2xx) vs other', b.revenue === 12300000 && b.staff === 5275000 && b.nonstaff === 310000, b);
+// a staff list from payroll → groups, averaged per FTE
+const ro = F.roster(F.ROSTER_TEMPLATE.concat([['', 'teachers', '', '$50,000', ''], ['x', '', 1, 1, 1], ['y', 'Support staff', 1, '', 0], [], ['z', 'Support staff', 9, 1, 1]]));
+const tg = ro.groups.find((g) => g.name === '3rd grade teacher' || g.name === 'Teachers');
+check('roster: groups by name, case-insensitive; FTE defaults to 1', ro.groups.map((g) => g.name).join('|') === 'Teachers|Paraeducators|Support staff|Administrators' && tg.fte === 2.5 && tg.people === 3, ro.groups);
+check('roster: averages are per FTE (a half-time teacher on half pay doesn’t lower the average)', tg.salary === Math.round((52000 + 26000 + 50000) / 2.5) && tg.health === Math.round(13200 / 2.5), tg);
+check('roster: rows without a group, without a salary or with an odd FTE are left out and listed', ro.people === 6 && ro.issues.length === 3 && /no group/.test(ro.issues[0]) && /no salary/.test(ro.issues[1]) && /FTE 9/.test(ro.issues[2]), ro.issues);
+check('roster: needs the headings', F.roster([['a', 'b'], [1, 2]]).issues.length === 1);
 console.log(`gf tests: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

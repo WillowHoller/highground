@@ -36,14 +36,27 @@
        <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td class="${c.num ? 'num' : ''}">${c.html ? c.html(r) : esc(c.get(r))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
     : `<div class="empty">${esc(emptyText)}</div>`;
 
-  function toast(title, body, kind) {
-    const box = document.getElementById('toasts');
+  /**
+   * A message in the corner. It stays long enough to read (about a second for every 15 characters, at least 8 seconds),
+   * waits while the pointer is over it, and has a close button. opts.sticky: stays until closed (definitions).
+   */
+  function toast(title, body, kind, opts) {
+    const box = document.getElementById('toasts'), o = opts || {};
     const t = document.createElement('div');
-    t.className = 'toast ' + (kind || '');
+    t.className = 'toast ' + (kind || '') + (o.sticky ? ' sticky' : '');
     t.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-    t.innerHTML = `<b>${esc(title)}</b>${esc(body || '')}`;
+    t.innerHTML = `<button type="button" class="toast-x" aria-label="Close">×</button><b>${esc(title)}</b>${esc(body || '')}`;
+    t.querySelector('.toast-x').addEventListener('click', () => t.remove());
+    if (o.key) box.querySelectorAll(`[data-toast-key="${o.key}"]`).forEach((x) => x.remove());
+    if (o.key) t.dataset.toastKey = o.key;
     box.appendChild(t);
-    setTimeout(() => t.remove(), kind === 'error' ? 9000 : 6000);
+    if (o.sticky) return t;
+    let left = Math.max(kind === 'error' ? 12000 : 8000, String(title + (body || '')).length * 65), started = Date.now(), timer;
+    const go = () => { started = Date.now(); timer = setTimeout(() => t.remove(), left); };
+    t.addEventListener('mouseenter', () => { clearTimeout(timer); left -= Date.now() - started; });
+    t.addEventListener('mouseleave', go);
+    go();
+    return t;
   }
   class UserError extends Error {}
   function showError(err) {
@@ -199,7 +212,21 @@
     settings: ['setup', 'exports', 'account'], help: ['guide'] };
   const VIEWS = { board: BOARD_VIEW, viewer: BOARD_VIEW, superintendent: LEAD_VIEW, editor: LEAD_VIEW, business_manager: FINANCE_VIEW };
   const showAllKey = () => `highground-show-all-${(S.user && S.user.id) || ''}`;
-  function showAll() { try { return localStorage.getItem(showAllKey()) === '1'; } catch (e) { return false; } }
+  /* board members and viewers see only their own screens: no "show every screen", no way in by link or address */
+  const lockedRole = (role) => ['board', 'viewer'].includes(role) && !S.isStaff;
+  function showAll() { if (lockedRole(S.role)) return false; try { return localStorage.getItem(showAllKey()) === '1'; } catch (e) { return false; } }
+  function tabAllowed(sectionId, tabId) {
+    const sec = ALL.find((x) => x.id === sectionId); if (!sec) return true;
+    return visibleTabs(sec).some((t) => t.id === (tabId || sec.tabs[0].id));
+  }
+  /** for board members and viewers: links to screens they can't open become plain text */
+  function stripHidden(root) {
+    if (!root || !lockedRole(S.role)) return;
+    root.querySelectorAll('a[href^="#/d/"]').forEach((a) => {
+      const [, , , sec, tab] = a.getAttribute('href').split('?')[0].split('/');
+      if (sec && sec !== 'welcome' && !tabAllowed(sec, tab)) a.replaceWith(document.createTextNode(a.textContent));
+    });
+  }
   function visibleTabs(section) {
     const tabs = section.tabs.filter((t) => t.id !== 'built' || S.isStaff);   // “What’s built” is for Willow Holler staff
     const v = VIEWS[S.role];
@@ -253,13 +280,18 @@
     try { localStorage.setItem('highground-last-district', d.slug); } catch (e) {}
     const section = ALL.find((s) => s.id === sectionId) || SECTIONS[0];
     const tab = section.tabs.find((t) => t.id === tabId) || section.tabs[0];
+    if (lockedRole(S.role) && !tabAllowed(section.id, tab.id)) {
+      frame({ slug, sectionId: section.id, body: `<div class="card"><h3>Not part of your view</h3><p>This screen is for the district’s staff. ${S.role === 'board' ? 'Board members' : 'Viewers'} see the Overview, Direction, Resources and Board reports.</p>
+        <p><a class="btn primary" href="#/d/${enc(slug)}/${homePath(S.role)}">Go to board reports</a></p></div>` });
+      return;
+    }
     const shown = visibleTabs(section), barTabs = shown.some((t) => t.id === tab.id) ? shown : shown.concat([tab]);
     const tabs = barTabs.length > 1
       ? `<nav class="tabs" aria-label="${esc(section.label)}">${barTabs.map((t) => `<a href="#/d/${enc(slug)}/${section.id}/${t.id}" ${t.id === tab.id ? 'aria-current="page"' : ''}>${esc(t.label)}</a>`).join('')}</nav>` : '';
     frame({ slug, sectionId: section.id, body: `
       <div class="page-head"><div><h1>${esc(section.label)}</h1>
         <div class="lede">${esc(tab.lede)}</div></div>
-        <div class="right">${S.isStaff || tab.status !== 'live' ? badge(tab.status) : ''}${tab.status !== 'live' && tab.phase ? `<span class="small muted">${tab.status === 'wip' ? 'Planned for' : 'Rest in'} Phase ${tab.phase}</span>` : ''}</div></div>
+        <div class="right">${tab.status !== 'live' ? badge(tab.status) : ''}${tab.status !== 'live' && tab.phase ? `<span class="small muted">${tab.status === 'wip' ? 'Planned for' : 'Rest in'} Phase ${tab.phase}</span>` : ''}</div></div>
       ${tabs}
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
       ${setupBanner(section.id, tab.id)}
@@ -268,7 +300,7 @@
     const view = document.getElementById('view');
     ACT.before = null;
     PAGE.lead = null;
-    try { const html = await tab.render(ctx()); view.innerHTML = (PAGE.lead ? `<p class="lead">${PAGE.lead}</p>` : '') + html; }
+    try { const html = await tab.render(ctx()); view.innerHTML = (PAGE.lead ? `<p class="lead">${PAGE.lead}</p>` : '') + html; stripHidden(view); }
     catch (err) {
       view.innerHTML = `<div class="notice error">${esc(err instanceof HG.NotBuiltError ? err.message : 'This screen couldn’t load: ' + (err.message || err))}</div>`;
       if (!(err instanceof HG.NotBuiltError)) console.error(err);
@@ -320,7 +352,14 @@
       // what's already saved wins; otherwise the state's figures
       const val = (mine, state) => (mine != null && mine !== '' ? mine : state);
       const m = (v) => (v == null || v === '' ? '' : moneyIn(Math.round(Number(v))));
-      const voted = lv && Number(lv.voted_ppel) > 0;
+      const voted = lv && Number(lv.voted_ppel) > 0, SF = st ? stateFill(st, 5) : { values: {}, list: [], debts: [] }, sv = SF.values;
+      const pctOf = (v) => (v == null || v === '' ? null : pctIn(v));
+      /* filled from the state's data without a field of their own here; all are on Settings → Starting numbers */
+      const hiddenState = [['save_trend', pctOf(s0.save_trend)], ['ppel_growth', pctOf(s0.ppel_growth)], ['taxable_valuation', s0.taxable_valuation == null ? null : moneyIn(s0.taxable_valuation)],
+        ['actual_valuation', s0.actual_valuation == null ? null : moneyIn(s0.actual_valuation)], ['save_ongoing', s0.save_ongoing ? moneyIn(s0.save_ongoing) : null],
+        ['ppel_ongoing', s0.ppel_ongoing ? moneyIn(s0.ppel_ongoing) : null], ['grants_avg', s0.grants_avg ? moneyIn(s0.grants_avg) : null],
+        ['tax_home_value', s0.tax_home_value ? moneyIn(s0.tax_home_value) : null], ['construction_inflation', pctOf(s0.construction_inflation)]]
+        .map(([n, mine]) => [n, mine != null && mine !== '' ? mine : sv[n]]).filter(([, v]) => v != null && v !== '');
       const f = (n, l, v, h) => `<label class="field">${esc(l)}<input name="${n}" inputmode="decimal" value="${esc(v == null ? '' : v)}">${h ? `<span class="hint">${esc(h)}</span>` : ''}</label>`;
       return `<h1>Confirm the starting numbers</h1>
         <p>${st ? `Filled from the state’s annual report (FY${esc(st.fiscal_year)})${lv ? ` and levy rates (FY${esc(lv.fiscal_year)})` : ''}. Change anything you have newer figures for, like this year’s audit.` : 'Enter the district’s figures from the general ledger or the audit.'}</p>
@@ -328,18 +367,21 @@
           <input type="hidden" name="plan_years" value="${esc(s0.plan_years || 10)}"><input type="checkbox" name="sf2472" ${s0.sf2472 === false ? '' : 'checked'} hidden>
           <h3>Balances</h3><div class="fgrid">
             <label class="field">Balances as of<input name="as_of" type="date" value="${esc(val(asOf0, st ? `${st.fiscal_year}-06-30` : ''))}"></label>
-            ${f('bal_save', 'SAVE balance, $', m(val(B.save, B2.save)))}${f('bal_ppel', 'PPEL balance, $', m(val(B.ppel, B2.ppel)), voted ? 'The state reports PPEL and V-PPEL as one fund; split it if you track them apart.' : '')}
-            ${f('bal_vppel', 'V-PPEL balance, $', m(B.vppel || 0))}${f('bal_grants', 'Grants and donations on hand, $', m(B.grants || 0))}</div>
+            ${f('bal_save', 'SAVE balance, $', m(val(B.save, B2.save)))}${f('bal_ppel', 'PPEL balance, $', B.ppel != null ? m(B.ppel) : sv.bal_ppel || '', voted ? 'The state reports PPEL and V-PPEL as one fund; this splits it by the two levy rates.' : '')}
+            ${f('bal_vppel', 'V-PPEL balance, $', B.vppel != null ? m(B.vppel) : sv.bal_vppel || m(0))}${f('bal_grants', 'Grants and donations on hand, $', m(B.grants || 0))}</div>
           <h3>Receipts each year</h3><div class="fgrid">
             ${f('save_receipts', 'SAVE receipts, $', m(val(s0.save_receipts, R2.save)))}${f('save_receipts_fy', 'For fiscal year', val(s0.save_receipts_fy, st ? st.fiscal_year : ''))}
             ${f('ppel_receipts', 'PPEL receipts, $', m(val(s0.ppel_receipts, sp.regular)))}${f('ppel_rate', 'PPEL rate, $ per $1,000', val(s0.ppel_rate, lv ? Number(lv.regular_ppel) : ''))}</div>
           <h3>Voter-approved PPEL</h3><div class="fgrid">
             <label class="field">Status<select name="vppel_status">${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s0.vppel_status || (voted ? 'active' : 'none')) === k ? 'selected' : ''}>${v}</option>`).join('')}</select>${voted ? '<span class="hint">The state lists a voter-approved PPEL for this district.</span>' : ''}</label>
-            ${f('vppel_annual', 'V-PPEL receipts, $', m(val(s0.vppel_annual, sp.voted)))}${f('vppel_first_fy', 'First fiscal year', s0.vppel_first_fy || '')}${f('vppel_last_fy', 'Last fiscal year', s0.vppel_last_fy || '', 'From the ballot measure')}</div>
+            ${f('vppel_annual', 'V-PPEL receipts, $', m(val(s0.vppel_annual, sp.voted)))}${f('vppel_first_fy', 'First fiscal year', s0.vppel_first_fy || sv.vppel_first_fy || '', sv.vppel_first_fy && !s0.vppel_first_fy ? 'The first year the state’s levy files show it' : '')}${f('vppel_last_fy', 'Last fiscal year', s0.vppel_last_fy || sv.vppel_last_fy || '', sv.vppel_last_fy && !s0.vppel_last_fy ? 'Assumed: 10 years, the most a vote allows. Check the ballot measure.' : 'From the ballot measure')}</div>
           <h3>Enrollment</h3><div class="fgrid">${f('enrollment', 'Certified enrollment', val(s0.enrollment, le.certified == null ? '' : Math.round(Number(le.certified))))}${f('enrollment_year', 'Enrollment year', val(s0.enrollment_year, le.fiscal_year ? schoolYear(le.fiscal_year) : ''))}</div>
+          ${hiddenState.map(([n, v]) => `<input type="hidden" name="${n}" value="${esc(v)}">`).join('')}
+          ${SF.list.length ? `<div class="notice ok small"><b>Also filled in from the state’s data</b> ${def('sources')} (change them later in Settings → Starting numbers):<ul>${SF.list.filter(([l]) => !/payments|paid in/i.test(l)).map(([l, v]) => `<li>${esc(l)}: ${esc(v)}</li>`).join('')}</ul></div>` : ''}
           <h3>Existing debt paid from SAVE or PPEL</h3>
           <p class="small muted">Revenue bonds and leases already committed. You can add more later in Settings → Starting numbers.</p>
           <div class="scroll"><table class="data debt"><thead><tr><th>Obligation</th><th>Paid from</th><th>Payment per year, $</th><th>Final fiscal year</th><th></th></tr></thead><tbody data-debt-body>${wizDebtRow()}</tbody></table></div>
+          ${SF.debts.length ? `<p class="small">The state’s annual report shows ${SF.debts.map((x) => `${esc(x.name)} of $${moneyIn(x.annual)}`).join(', ')} paid last year. Add ${SF.debts.length === 1 ? 'it' : 'each'} above with its final year from the bond or lease schedule.</p>` : ''}
           <template data-debt-template>${wizDebtRow()}</template>
           <div><button type="button" class="btn small" data-action="addDebtRow">Add another</button></div>
           <div class="notice error" data-setup-errors hidden></div>
@@ -354,9 +396,9 @@
       <p>Next, bring in the district’s projects: download the template on the Uploads screen, fill it in, and upload it. The “Getting set up” list on the Overview shows what’s left: the board version, the strategic plan, inviting people and the first board report.</p>
       <div class="row"><a class="btn primary" href="#/d/${enc(slug)}/progress/uploads">Upload projects</a><a class="btn" href="#/d/${enc(slug)}/overview/today">Go to the Overview</a></div>`;
   }
-  const wizDebtRow = () => `<tr data-debt-row data-id=""><td><input name="debt_name" aria-label="Obligation" placeholder="SAVE revenue bonds, Series 2021"></td>
-    <td><select name="debt_fund" aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></td>
-    <td><input name="debt_annual" inputmode="decimal" aria-label="Payment per year"></td><td><input name="debt_final" inputmode="numeric" aria-label="Final fiscal year" placeholder="2033"></td>
+  const wizDebtRow = (x) => `<tr data-debt-row data-id=""><td><input name="debt_name" aria-label="Obligation" placeholder="SAVE revenue bonds, Series 2021" value="${esc((x && x.name) || '')}"></td>
+    <td><select name="debt_fund" aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}" ${x && x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+    <td><input name="debt_annual" inputmode="decimal" aria-label="Payment per year" value="${esc(x ? moneyIn(x.annual) : '')}"></td><td><input name="debt_final" inputmode="numeric" aria-label="Final fiscal year" placeholder="2033"></td>
     <td><button type="button" class="btn small danger" data-action="removeDebtRow">Remove</button></td></tr>`;
   // ------------------------------------------------------------------ views: Overview
   async function vOverview(c) {
@@ -418,7 +460,7 @@
     'decisions/ranking': ['Your force rank: #1 is funded first, whatever its priority. Use ▲ ▼ or type a number to move one; “Start from priorities” is a starting point.', '“Year by year” shows when each initiative can be paid for: when a year is short, what can wait moves to the next year, never past its needed-by year.', '“Ways to fit more” lists single moves that fund more; “What would it take?” finds how to fund one initiative by a year you pick. Each can become a new scenario without touching the original.'],
     'decisions/scenarios': ['Tick up to three scenarios to compare them side by side.', '“Why the gap differs” shows what each change between two scenarios does to the gap.'],
     'resources/summary': ['Every fund from the board version: capital fund balances, what’s available against what’s committed, and the General Fund.', 'Open the folds for the year-by-year numbers.'],
-    'resources/general': ['A five-year General Fund forecast: solvency, spending authority and what a settlement costs.', 'Try the what-if levers; nothing is saved. The business office keeps the starting figures current.'],
+    'resources/general': ['A five-year General Fund forecast: solvency, spending authority and what a settlement costs.', 'Try the what-if levers; nothing is saved. The business office keeps the starting figures current; “Fill these in” uses the public sources listed below.'],
     'resources/capital': ['Projects by year, split across the capital funds, and the gap left to close.', '“What-if and financing” tries changes without saving; “Leave projects out” shows the plan without them.', '“What it means for taxpayers” shows the added levy for a typical home and an acre.'],
     'progress/initiatives': ['Each initiative this fiscal year: planned, spent and encumbered, from the monthly ledger.', 'Link new spending accounts to initiatives so their spending counts.'],
     'progress/actuals': ['Each fund’s budget, actual and year-end forecast from the month-end export.'],
@@ -427,7 +469,7 @@
     'reports/board': ['Create the month’s board report: it’s saved exactly as made, and the next one compares itself with it.', 'Decision packets put one initiative on one page for a vote.'],
     'reports/community': ['Publish the board version to the public link, with unapproved initiatives held back.', 'Preview first; every publish is logged.'],
     'settings/district': ['The district’s name, look and public link, and its Iowa district number (for peer comparisons and pre-filled numbers).'],
-    'settings/setup': ['What the capital plan starts from: receipts, balances and existing debt.', 'If the Iowa district number is set, the state’s figures can fill or check these.'],
+    'settings/setup': ['What the capital plan starts from: receipts, balances and existing debt.', 'If the Iowa district number is set, “Fill in” uses public figures from the state and federal agencies listed below; you can change any of them before saving.'],
     'settings/people': ['Invite people with a role: admin, business manager, superintendent, editor, board member or viewer.'],
     'settings/activity': ['Every change: who, when, and what it was before.'],
     'settings/assumptions': ['Base, Conservative and Growth outlooks a scenario can plan for.'],
@@ -441,7 +483,8 @@
     modal(`<div class="stack"><div class="row" style="justify-content:space-between"><h2 id="modal-title">${esc(sec.label)}: ${esc(tab.label)}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
       <p>${esc(tab.lede)}</p>
       ${tips.length ? `<ul>${tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
-      ${terms.length ? `<h3>Terms on this screen</h3><dl class="terms">${terms.map((k) => `<dt>${esc(TERMS[k][0])}</dt><dd>${esc(TERMS[k][1])}</dd>`).join('')}</dl>` : ''}
+      ${['settings/setup', 'resources/general', 'settings/district'].includes(`${sec.id}/${tab.id}`) ? sourcesHtml() : ''}
+      ${terms.filter((k) => k !== 'sources').length ? `<h3>Terms on this screen</h3><dl class="terms">${terms.filter((k) => k !== 'sources').map((k) => `<dt>${esc(TERMS[k][0])}</dt><dd>${esc(TERMS[k][1])}</dd>`).join('')}</dl>` : ''}
       <p class="small"><a href="#/d/${enc(S.district.slug)}/help/guide">The full guide</a> · Questions: <a href="mailto:hello@willowholler.com">hello@willowholler.com</a></p></div>`);
   }
   /* ---- guided setup: the district's first steps, each checked against its own data; each step opens the real screen ---- */
@@ -569,7 +612,7 @@
     const STATUS = Object.fromEntries(INIT_STATUS), f = HGReport.fmt;
     const unlinked = rows.initiatives.filter((i) => !i.priority_id && !['declined', 'deferred'].includes(i.status)).length;
     if (D.priorities.length) { const linked = rows.initiatives.filter((i) => i.priority_id).length;
-      setLead(`${D.priorities.length} priorit${D.priorities.length === 1 ? 'y' : 'ies'}, served by <b>${linked}</b> initiative${linked === 1 ? '' : 's'}${unlinked ? `; ${unlinked} not linked to a priority yet` : ''}.`); }
+      setLead(`${D.priorities.length} priorit${D.priorities.length === 1 ? 'y' : 'ies'}, served by <b>${linked}</b> initiative${linked === 1 ? '' : 's'}${unlinked && c.plan ? `; ${unlinked} not linked to a priority yet` : ''}.`); }
     if (!D.priorities.length && !c.plan) return '<div class="card"><h3>No strategic plan yet</h3><p>The district hasn’t entered its strategic plan in HighGround yet. Its priorities, outcomes and measures will show here.</p></div>';
     if (!D.priorities.length) return `<div class="card"><h3>No priorities yet</h3><p>Start with the strategic plan’s priorities: the few things the district most wants to achieve. Each gets outcomes and measures, and initiatives link to the priority they serve.</p>
       ${c.plan ? '<div class="row"><button type="button" class="btn primary" data-action="editPriority" data-id="">Add a priority</button><label class="btn">Upload goals<input type="file" data-dir-upload="goals" accept=".csv,.xlsx" hidden></label> <a href="#" class="small" data-action="dirTemplate" data-k="goals">template</a></div>' : ''}<div id="dir-upload"></div></div>`;
@@ -577,7 +620,7 @@
       <div class="row">${c.plan ? '<button type="button" class="btn primary" data-action="editPriority" data-id="">Add a priority</button>' : ''}
         <a class="btn" href="#/d/${enc(c.district.slug)}/direction/measures">Measures</a>
         ${c.plan ? '<label class="btn">Upload goals<input type="file" data-dir-upload="goals" accept=".csv,.xlsx" hidden></label> <a href="#" class="small" data-action="dirTemplate" data-k="goals">template</a>' : ''}
-        ${unlinked ? `<span class="small muted">${unlinked} initiative${unlinked === 1 ? ' isn’t' : 's aren’t'} linked to a priority yet. <a href="#/d/${enc(c.district.slug)}/decisions/initiatives">Link them on Decisions</a>.</span>` : ''}</div>
+        ${unlinked && c.plan ? `<span class="small muted">${unlinked} initiative${unlinked === 1 ? ' isn’t' : 's aren’t'} linked to a priority yet. <a href="#/d/${enc(c.district.slug)}/decisions/initiatives">Link them on Decisions</a>.</span>` : ''}</div>
       ${D.priorities.map((pr, k) => {
         const outs = D.outcomes.filter((o) => o.priority_id === pr.id), ms = D.measures.filter((m) => m.priority_id === pr.id), inits = rows.initiatives.filter((i) => i.priority_id === pr.id);
         return `<div class="card prio"><div class="row" style="justify-content:space-between;align-items:flex-start">
@@ -1331,22 +1374,26 @@
       <td><input name="s_salary" inputmode="decimal" value="${money2(x.salary)}" style="width:100px"></td><td><input name="s_benefits" inputmode="decimal" value="${pc(x.benefits)}" style="width:70px"></td>
       <td><input name="s_health" inputmode="decimal" value="${money2(x.health)}" style="width:90px"></td><td><button type="button" class="btn small" data-action="gfStaffRemove" aria-label="Remove">×</button></td></tr>`;
     const A = Object.assign({}, HGGF.DEFAULTS, g.assume || {});
+    GF.staffRow = staffRow;
     const html = `<form class="stack" data-form="${wiz ? 'wizGf' : 'saveGf'}" novalidate>
       ${wiz ? '' : '<div class="row" style="justify-content:space-between"><h2 id="modal-title">General Fund starting figures</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>'}
       <p class="small muted">For the first year of the plan. The certified budget, the Certified Annual Report and the Department of Management’s unspent balance report have most of these.</p>
       <div data-gf-hint></div>
       <h3>Revenue</h3><div class="fgrid">
-        ${f('enrollment', 'Certified enrollment (budget enrollment)', g.enrollment == null ? '' : g.enrollment)}${f('dcpp', 'District cost per pupil, $', money2(g.dcpp), 'FY2027 state cost per pupil: $8,148')}
+        ${f('enrollment', 'Certified enrollment (budget enrollment)', g.enrollment == null ? '' : g.enrollment, 'Tenths are fine here (e.g. 1188.4): state aid is figured on the certified number')}${f('dcpp', 'District cost per pupil, $', money2(g.dcpp), 'FY2027 state cost per pupil: $8,148')}
         ${f('other_formula', 'Other state formula funding, $', money2(g.other_formula), 'Categorical supplements, special education and similar')}${f('misc_income', 'Miscellaneous income, $', money2(g.misc_income), 'Local, federal and other income')}
         ${f('misc_growth', 'Miscellaneous income growth, % a year', pc(g.misc_growth))}${f('aea_flowthrough', 'AEA flowthrough, $', money2(g.aea_flowthrough), 'Left out of revenue for the solvency ratio')}</div>
-      <h3>Spending</h3><div class="scroll"><table class="data"><thead><tr><th>Staff group</th><th>FTE</th><th>Average salary, $</th><th>Benefits, % of salary</th><th>Health insurance per FTE, $</th><th></th></tr></thead>
+      <h3>Spending</h3><p class="small muted">One row per group that settles or is paid differently: teachers, support staff (paras, custodial, food service, transportation, office), administrators. Split a group out when its raise or insurance differs (paraeducators, say). Health insurance is the district’s share per FTE.</p><div class="scroll"><table class="data"><thead><tr><th>Staff group</th><th>FTE</th><th>Average salary, $</th><th>Benefits, % of salary</th><th>Health insurance per FTE, $</th><th></th></tr></thead>
         <tbody data-gf-staff-body>${(g.staff || []).map(staffRow).join('')}</tbody></table></div>
       <template data-gf-staff-template>${staffRow({ benefits: 0.1709 })}</template>
-      <div class="row"><button type="button" class="btn small" data-action="gfStaffAdd">Add a staff group</button><label class="row small"><input type="checkbox" name="fte_follow_enrollment" ${g.fte_follow_enrollment ? 'checked' : ''}> Staff numbers follow enrollment</label></div>
+      <div class="row"><button type="button" class="btn small" data-action="gfStaffAdd">Add a staff group</button>
+        <label class="btn small">Fill from a staff list<input type="file" data-gf-roster accept=".xlsx,.csv" hidden></label><a href="#" class="small" data-action="gfRosterTemplate">template</a>
+        <label class="row small"><input type="checkbox" name="fte_follow_enrollment" ${g.fte_follow_enrollment ? 'checked' : ''}> Staff numbers follow enrollment</label></div>
+      <div data-gf-roster-note></div>
       <div class="fgrid">${f('nonstaff', 'Other spending, $ a year', money2(g.nonstaff), 'Supplies, services, utilities, transportation and the rest')}${f('turnover_savings', 'Turnover savings, % a year', pc(g.turnover_savings), 'Experienced staff replaced by newer staff on lower pay')}</div>
       <h3>Balances</h3><div class="fgrid">${f('fund_balance', 'Unassigned and assigned fund balance, $', money2(g.fund_balance), 'At the start of the plan')}${f('unspent', 'Unspent balance (spending authority), $', money2(g.unspent), 'From the Department of Management’s report')}</div>
       <h3>Default assumptions</h3><p class="small muted">Used when a scenario’s assumption set leaves them blank.</p><div class="fgrid">
-        ${f('a_ssa', 'State aid growth, %', pc(A.ssa))}${f('a_enroll', 'Enrollment change, %', pc(A.enroll))}${f('a_settle', 'Settlement, %', pc(A.settle))}${f('a_health', 'Health insurance growth, %', pc(A.health))}${f('a_inflation', 'Other spending growth, %', pc(A.inflation))}</div>
+        ${f('a_ssa', 'State aid growth, %', pc(A.ssa))}${f('a_enroll', 'Enrollment change, %', pc(A.enroll))}${f('a_settle', 'Settlement, %', pc(A.settle))}${f('a_health', 'Health insurance growth, %', pc(A.health), 'Your carrier’s renewal is the best guide; school renewals have run 7–10% lately')}${f('a_inflation', 'Other spending growth, %', pc(A.inflation))}</div>
       <div class="notice error" data-form-errors hidden></div>
       <div class="row">${wiz ? '<button type="submit" class="btn primary">Save and finish</button><button type="button" class="btn" data-action="wizSkip">Skip for now</button>' : '<button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>'}</div></form>`;
     if (wiz) return html;
@@ -1356,9 +1403,12 @@
   /** the state's latest year-end figures for this district (part 16), or null */
   async function statePrefill(d) {
     if (!d || !d.state_district_id) return null;
-    const [p, lv] = await Promise.all([HG.db.rpc('ia_prefill', { p_de: d.state_district_id }).catch(() => null), HG.db.rpc('ia_levy', { p_de: d.state_district_id }).catch(() => null)]);
-    const out = p && p.fiscal_year ? p : lv && lv.fiscal_year ? {} : null;
+    const [p, lv, more] = await Promise.all([HG.db.rpc('ia_prefill', { p_de: d.state_district_id }).catch(() => null), HG.db.rpc('ia_levy', { p_de: d.state_district_id }).catch(() => null),
+      HG.db.rpc('ia_prefill_more', { p_de: d.state_district_id }).catch(() => null)]);   // part 19; missing until it's installed
+    const hasMore = more && Object.keys(more).some((k) => k !== 'de_district');
+    const out = p && p.fiscal_year ? p : (lv && lv.fiscal_year) || hasMore ? {} : null;
     if (out && lv && lv.fiscal_year) out.levy = lv;
+    if (out && hasMore) out.more = more;
     return out;
   }
   /** the annual report has one PPEL fund for regular and voted PPEL together: split its revenue by the two rates */
@@ -1369,19 +1419,102 @@
     return { regular: total * reg / (reg + vot), voted: total * vot / (reg + vot) };
   }
   const schoolYear = (fy) => `${fy - 1}-${String(fy).slice(2)}`;
+  /** grants and gifts to the capital funds: the average of the last n years of the annual reports (years with none count as $0) */
+  function grantsAvg(M, n) {
+    const car = M && M.car; if (!car || !car.fiscal_year) return null;
+    const by = new Map((car.grants || []).map((g) => [Number(g.fy), Number(g.amount) || 0]));
+    const ys = []; for (let y = car.fiscal_year; y > car.fiscal_year - n && y >= 2017; y--) ys.push(y);
+    return ys.length ? { avg: ys.reduce((t, y) => t + (by.get(y) || 0), 0) / ys.length, years: ys.length, from: ys[ys.length - 1], to: ys[0] } : null;
+  }
+  /** SAVE receipts trend: yearly change from the oldest to the newest of the last few annual reports, kept between −10% and +10% */
+  function saveTrend(M) {
+    const h = ((M && M.car && M.car.save_receipts) || []).filter((x) => Number(x.amount) > 0).sort((a, b) => a.fy - b.fy);
+    if (h.length < 3) return null;
+    const a = h[0], b = h[h.length - 1], g = Math.pow(Number(b.amount) / Number(a.amount), 1 / (b.fy - a.fy)) - 1;
+    return { pct: Math.max(-0.1, Math.min(0.1, g)), from: a.fy, to: b.fy };
+  }
+  /**
+   * The state's figures as Starting numbers form values: { values: {field: form text}, debts: [{fund, name, annual}], list: [[label, shown]] }.
+   * Regular and voted PPEL share one fund in the annual report: receipts and the balance are split by the two levy rates.
+   */
+  function stateFill(st, grantYears) {
+    const o = {}, debts = [], list = [], M = st.more || {}, B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {}, lv = st.levy, sp = ppelSplit(st);
+    const voted = lv && Number(lv.voted_ppel) > 0, share = voted && Number(lv.regular_ppel) + Number(lv.voted_ppel) > 0 ? Number(lv.voted_ppel) / (Number(lv.regular_ppel) + Number(lv.voted_ppel)) : 0;
+    const mi = (v) => moneyIn(Math.round(Number(v)));
+    if (le.certified != null) { o.enrollment = Math.round(Number(le.certified)); if (le.fiscal_year) o.enrollment_year = schoolYear(le.fiscal_year); }
+    if (B2.save != null || B2.ppel != null) {
+      o.as_of = `${st.fiscal_year}-06-30`;
+      if (B2.save != null) o.bal_save = mi(B2.save);
+      if (B2.ppel != null) { o.bal_ppel = mi(Number(B2.ppel) * (1 - share)); if (share) o.bal_vppel = mi(Number(B2.ppel) * share); }
+    }
+    if (R2.save != null) { o.save_receipts = mi(R2.save); o.save_receipts_fy = st.fiscal_year; }
+    if (sp.regular != null) o.ppel_receipts = mi(sp.regular);
+    if (lv) o.ppel_rate = Number(lv.regular_ppel).toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
+    if (voted) {
+      o.vppel_status = 'active';
+      if (sp.voted != null) o.vppel_annual = mi(sp.voted);
+      if (M.vppel && M.vppel.first_fy && !M.vppel.from_start_of_data) { o.vppel_first_fy = M.vppel.first_fy; o.vppel_last_fy = M.vppel.first_fy + 9; }
+    }
+    const tr = saveTrend(M);
+    if (tr) { o.save_trend = pctIn(tr.pct); list.push([`SAVE receipts trend, FY${tr.from}–FY${tr.to}`, `${pctIn(tr.pct)}% a year`]); }
+    const V = M.valuation;
+    if (V) {
+      if (V.taxable) { o.taxable_valuation = mi(V.taxable); list.push([`Taxable valuation, FY${V.fiscal_year} (with TIF and utilities)`, '$' + mi(V.taxable)]); }
+      if (V.actual) { o.actual_valuation = mi(V.actual); list.push([`Actual (100%) valuation, FY${V.fiscal_year}`, '$' + mi(V.actual)]); }
+      if (V.growth != null) { o.ppel_growth = pctIn(V.growth); list.push([`Taxable valuation growth, FY${V.fiscal_year - V.growth_years}–FY${V.fiscal_year}`, `${pctIn(V.growth)}% a year`]); }
+    }
+    const HV = M.home_value, CI = M.construction_inflation;
+    if (HV && Number(HV.median_value) > 0) { o.tax_home_value = mi(Math.round(Number(HV.median_value) / 1000) * 1000);
+      list.push([`Example home: the district’s median home value (Census Bureau, ${HV.acs_year - 4}–${HV.acs_year})`, '$' + o.tax_home_value]); }
+    if (CI && CI.value != null) { const v = Math.max(0, Math.min(0.15, Number(CI.value))); o.construction_inflation = pctIn(v);
+      list.push(['Construction inflation (school construction prices, last three years)', `${pctIn(v)}% a year`]); }
+    const on = (M.car && M.car.ongoing) || {};
+    ['save', 'ppel'].forEach((k) => { const x = on[k]; if (x && x.recurring != null) { o[k + '_ongoing'] = mi(Math.max(0, x.recurring));
+      list.push([`Ongoing ${k === 'save' ? 'SAVE' : 'PPEL'} spending (average FY${x.from_fy}–FY${x.to_fy}, leaving out construction and debt)`, '$' + mi(Math.max(0, x.recurring)) + ' a year']); } });
+    const ga = grantsAvg(M, grantYears || 5);
+    if (ga) { o.grants_avg = mi(ga.avg); list.push([`Gifts and grants to the capital funds (average FY${ga.from}–FY${ga.to})`, '$' + mi(ga.avg) + ' a year']); }
+    const dp = (M.car && M.car.debt_payments) || {}, DN = { save: ['save', 'SAVE revenue bonds'], ppel: ['ppel', 'PPEL leases or bonds'], debt: ['debt_levy', 'General-obligation bonds'] };
+    Object.entries(dp).forEach(([k, amt]) => { if (DN[k] && Number(amt) > 0) { debts.push({ fund: DN[k][0], name: DN[k][1], annual: Math.round(Number(amt)) });
+      list.push([`${DN[k][1]}: paid in FY${M.car.fiscal_year}`, '$' + mi(amt)]); } });
+    if (o.vppel_first_fy) list.push(['V-PPEL in place since', `FY${o.vppel_first_fy} (last year assumed FY${o.vppel_last_fy}, the 10 years a vote allows: check the ballot)`]);
+    return { values: o, debts, list };
+  }
+  /** the state's figures for the General Fund setup form (budget-year formula figures first, then the latest annual report) */
+  function gfStateFill(st) {
+    const g = st.general || {}, le = st.latest_enrollment || {}, M = st.more || {}, al = M.aid_levy, un = M.unspent, cg = (M.car && M.car.general) || {};
+    const bal = g.unassigned != null || g.assigned != null ? Number(g.unassigned || 0) + Number(g.assigned || 0) : null;
+    return { al, un, carFY: M.car && M.car.fiscal_year,
+      enrollment: al && al.budget_enrollment != null ? Number(al.budget_enrollment) : le.certified,
+      dcpp: al && al.dcpp != null ? Number(al.dcpp) : null,
+      other_formula: al && al.other_formula != null ? Math.max(0, Number(al.other_formula)) : null,
+      misc_income: un && un.misc_income != null ? Number(un.misc_income) : null,
+      misc_growth: un && un.misc_growth != null ? Math.max(-0.05, Math.min(0.1, Number(un.misc_growth))) : null,
+      unspent: un && un.unspent != null ? Number(un.unspent) : null,
+      fund_balance: bal, aea_flowthrough: g.aea_flowthrough,
+      nonstaff: cg.nonstaff != null ? Number(cg.nonstaff) : null,   /* includes AEA flowthrough, as revenue does */
+      benefits: cg.benefits_pct != null ? Number(cg.benefits_pct) : null,
+      salaries: cg.salaries ? { total: Number(cg.salaries), instruction: Number(cg.sal_instruction || 0), admin: Number(cg.sal_admin || 0), support: Number(cg.sal_support || 0) } : null };
+  }
   async function gfHint() {
     // help: what the latest ledger or adopted budget says, so the business manager can split it into these fields
     const d = S.district, box = document.querySelector('[data-gf-hint]'); if (!box) return;
     GF.prefill = null;
     const st = await statePrefill(d);
     if (st && document.querySelector('[data-gf-hint]') === box) {
-      const g = st.general || {}, le = st.latest_enrollment || {}, bal = g.unassigned != null || g.assigned != null ? Number(g.unassigned || 0) + Number(g.assigned || 0) : null;
-      GF.prefill = { enrollment: le.certified, aea_flowthrough: g.aea_flowthrough, fund_balance: bal };
-      const items = [le.certified != null ? `certified enrollment ${Number(le.certified).toLocaleString('en-US')} (${esc(schoolYear(le.fiscal_year))})` : '',
-        bal != null ? `unassigned and assigned balance ${HGReport.fmt(bal)} at June 30, ${esc(st.fiscal_year)}` : '',
-        g.aea_flowthrough != null ? `AEA flowthrough ${HGReport.fmt(g.aea_flowthrough)}` : ''].filter(Boolean);
-      if (items.length) box.insertAdjacentHTML('afterbegin', `<div class="notice ok small" data-gf-state>From the state’s annual report (FY${esc(st.fiscal_year)}): ${items.join('; ')}.
-        <button type="button" class="btn small" data-action="gfPrefill" style="margin-left:6px">Fill these in</button><br><span class="muted">Nothing is saved until you click Save. Use the plan’s first-year figures if you have newer ones.</span></div>`);
+      GF.prefill = gfStateFill(st);
+      const P = GF.prefill, fm = HGReport.fmt;
+      const items = [P.enrollment != null ? `${P.al ? `budget enrollment ${Number(P.enrollment).toLocaleString('en-US')} for FY${esc(P.al.fiscal_year)}` : `certified enrollment ${Number(P.enrollment).toLocaleString('en-US')}`}` : '',
+        P.dcpp != null ? `district cost per pupil $${Number(P.dcpp).toLocaleString('en-US')}` : '',
+        P.other_formula != null ? `other formula funding ${fm(P.other_formula)}` : '',
+        P.misc_income != null ? `miscellaneous income ${fm(P.misc_income)}${P.misc_growth != null ? ` (growing ${pctIn(P.misc_growth)}% a year)` : ''}` : '',
+        P.unspent != null ? `unspent balance ${fm(P.unspent)} (FY${esc(P.un.fiscal_year)})` : '',
+        P.fund_balance != null ? `unassigned and assigned balance ${fm(P.fund_balance)} at June 30, ${esc(st.fiscal_year)}` : '',
+        P.aea_flowthrough != null ? `AEA flowthrough ${fm(P.aea_flowthrough)}` : '',
+        P.nonstaff != null ? `other spending ${fm(P.nonstaff)} (FY${esc(P.carFY)})` : '',
+        P.benefits != null ? `benefits ${pctIn(P.benefits)}% of salaries` : ''].filter(Boolean);
+      const sal = P.salaries ? `<br><span class="muted">FY${esc(P.carFY)} General Fund salaries: instruction ${fm(P.salaries.instruction)}, administration ${fm(P.salaries.admin)}, everything else ${fm(P.salaries.support)}. Your staff groups’ FTE × average salary should add up to about ${fm(P.salaries.total)}.</span>` : '';
+      if (items.length) box.insertAdjacentHTML('afterbegin', `<div class="notice ok small" data-gf-state>From the state’s data ${def('sources')}: ${items.join('; ')}.
+        <button type="button" class="btn small" data-action="gfPrefill" style="margin-left:6px">Fill these in</button>${sal}<br><span class="muted">Nothing is saved until you click Save. Use the plan’s first-year figures if you have newer ones.</span></div>`);
     }
     try {
       const [acc, bl] = await Promise.all([HG.db.selectAll('gl_account', `select=id,fund_code,object_code,account_type&district_id=eq.${d.id}`), HG.db.selectAll('budget_line', `select=account_id,fiscal_year,amount&district_id=eq.${d.id}&version=eq.adopted`).catch(() => [])]);
@@ -1394,6 +1527,16 @@
       const b = HGGF.fromBudget(lines);
       if (b.revenue || b.total) box.insertAdjacentHTML('beforeend', `<div class="notice ok small">From ${esc(from)}: General Fund revenue ${HGReport.fmt(b.revenue)}; staff spending (objects 1xx–2xx) ${HGReport.fmt(b.staff)}; other spending ${HGReport.fmt(b.nonstaff)}. Use these to check your figures add up.</div>`);
     } catch (e) { /* no ledger or budget yet */ }
+  }
+  /** a payroll staff list → the staff groups table (replaces its rows; nothing saved until Save) */
+  async function gfRoster(input) {
+    const file = input.files[0], form = input.closest('form'), note = form.querySelector('[data-gf-roster-note]'); if (!file) return;
+    const R = HGGF.roster(await HGUploads.readTable(file)); input.value = '';
+    if (!R.groups.length) { note.innerHTML = `<div class="notice error small">${esc(R.issues[0] || 'No staff found in that file.')}</div>`; return; }
+    const keepBen = (form.querySelector('[name=s_benefits]') || {}).value, ben = keepBen ? Number(keepBen) / 100 : 0.1709;
+    form.querySelector('[data-gf-staff-body]').innerHTML = R.groups.map((x) => GF.staffRow({ name: x.name, fte: x.fte, salary: x.salary, health: x.health, benefits: ben })).join('');
+    note.innerHTML = `<div class="notice ok small">Read ${R.people} ${R.people === 1 ? 'person' : 'people'} in ${R.groups.length} group${R.groups.length === 1 ? '' : 's'}: ${R.groups.map((x) => `${esc(x.name)} ${x.fte} FTE`).join(', ')}. Averages are per FTE. Check them, then Save.
+      ${R.issues.length ? `<br><span class="muted">${R.issues.slice(0, 5).map(esc).join(' ')}${R.issues.length > 5 ? ` and ${R.issues.length - 5} more.` : ''}</span>` : ''}</div>`;
   }
   async function saveGf(f, form) {
     const box = form.querySelector('[data-form-errors]'), errs = [], n = (v) => { const x = toNum(v); return x === null ? null : x; }, p = (v) => { const x = toNum(v); return x === null ? null : x / 100; };
@@ -1671,7 +1814,7 @@
           ${list.map((x) => `<tr><td>FY${x.fy}</td><td>${nameLink(x.p)}</td><td>${esc(x.ph.label || (x.p.phases.length > 1 ? `${x.k + 1} of ${x.p.phases.length}` : ''))}</td><td>${TN[x.tier] || ''}</td><td>${esc(x.area)}</td><td>${chips(x.ph)}</td>
             <td>${x.ph.status === 'done' ? '<b class="ok">Done</b>' : x.ph.status === 'underway' ? 'Underway' : 'Planned'}</td><td class="num">${fmtK(x.today)}</td><td class="num">${fmtK(x.cost)}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">Nothing matches these filters.</td></tr>'}
           </tbody>${list.length ? `<tfoot><tr><th colspan="7">${list.length} phase${list.length === 1 ? '' : 's'}</th><th class="num">${fmtK(list.reduce((a, x) => a + x.today, 0))}</th><th class="num">${fmtK(list.reduce((a, x) => a + x.cost, 0))}</th></tr></tfoot>` : ''}</table></div>
-          <div style="margin-top:10px"><button type="button" class="btn small" data-action="capDownload">Download this table (.csv)</button></div></div>`;
+          <div style="margin-top:10px"><button type="button" class="btn small" data-action="capDownload">Download this table (Excel)</button></div></div>`;
     }
     const cards = yrs.map((y, i) => {
       const items = shown.filter((x) => x.ph.year === i).map((x) => `<li class="${x.left ? 'leftout' : ''}" ${x.left ? 'title="Left out in this what-if"' : ''}><span>${nameLink(x.p)}${x.ph.label ? ` <span class="muted">· ${esc(x.ph.label)}</span>` : x.p.phases.length > 1 ? ` <span class="muted">${x.k + 1}/${x.p.phases.length}</span>` : ''}
@@ -1696,7 +1839,7 @@
     list.forEach((x) => out.push([x.fy, x.p.name, x.ph.label || '', TN[x.tier] || '', x.area, x.ph.funding.map((f) => FUND_LABEL[f.b] + (f.p !== 100 ? ' ' + f.p + '%' : '')).join(' + '),
       x.ph.status || 'planned', Math.round(x.today), Math.round(x.cost)]));
     const name = ((CAP.sc && CAP.sc.name) || 'plan').replace(/[^A-Za-z0-9]+/g, '-').toLowerCase();
-    saveFile(`${(S.district && S.district.slug) || 'district'}-${name}-projects.csv`, HGUploads.toCSV(out));
+    saveXlsx(`${(S.district && S.district.slug) || 'district'}-${name}-projects.xlsx`, out, 'Projects');
   }
 
   function capLeadHtml() {
@@ -1716,10 +1859,10 @@
     const sources = [imp.hasGO ? 'the debt service levy for a general-obligation bond' : '', imp.newVppel ? 'a new V-PPEL' : ''].filter(Boolean).join(' and ');
     if (!imp.hasValuation) return head + `<p>Adds about <b>${fmtK(imp.taxed[0].added)} a year</b> in property tax from FY${first} (${sources}).</p>
       <p class="small muted">Enter the district’s taxable valuation in Settings, Starting numbers to see the levy rate and what it costs a homeowner and a farmer.</p>`;
-    const pk = imp.peak, farmCol = imp.agPerAcre ? 'Farmland, per acre' : 'Farmland, per $100,000 assessed';
-    return head + `<p>Adds ${sources}, FY${first}–FY${last}. At its highest (FY${pk.fy}), about <b>${dollars(pk.home)} a year</b> (${dollars(pk.home / 12)} a month) for a ${homeTxt}${imp.agPerAcre ? `, and <b>${dollars(pk.acre)} an acre</b> of farmland` : `, and <b>${dollars(pk.farm100k)}</b> per $100,000 of assessed farmland`}.</p>
+    const pk = imp.peak, farmCol = 'Farmland, per $100,000 assessed';
+    return head + `<p>Adds ${sources}, FY${first}–FY${last}. At its highest (FY${pk.fy}), about <b>${dollars(pk.home)} a year</b> (${dollars(pk.home / 12)} a month) for a ${homeTxt}, and <b>${dollars(pk.farm100k)}</b> per $100,000 of assessed farmland.</p>
       <div class="scroll"><table class="data"><thead><tr><th>Year</th><th class="num">Added levy</th><th class="num">Rate per $1,000</th><th class="num">${esc(homeTxt)}</th><th class="num">Same home, owner 65+</th><th class="num">${farmCol}</th></tr></thead><tbody>
-        ${imp.taxed.map((x) => `<tr><td>FY${x.fy}${x.held ? ' <span class="small muted">*</span>' : ''}</td><td class="num">${fmtK(x.added)}</td><td class="num">$${x.rate.toFixed(4)}</td><td class="num">${dollars(x.home)}</td><td class="num">${dollars(x.home65)}</td><td class="num">${dollars(imp.agPerAcre ? x.acre : x.farm100k)}</td></tr>`).join('')}
+        ${imp.taxed.map((x) => `<tr><td>FY${x.fy}${x.held ? ' <span class="small muted">*</span>' : ''}</td><td class="num">${fmtK(x.added)}</td><td class="num">$${x.rate.toFixed(4)}</td><td class="num">${dollars(x.home)}</td><td class="num">${dollars(x.home65)}</td><td class="num">${dollars(x.farm100k)}</td></tr>`).join('')}
       </tbody></table></div>
       ${(() => { const endFY = Math.max(0, ...(CAP.levers.fin || []).filter((f) => f.repay === 'levy').map((f) => f.fy + f.years)); const planEnd = cfg.start + cfg.n - 1;
         return endFY > planEnd ? `<p class="small" style="margin-top:8px">The bond’s levy continues past the plan’s last year, through FY${endFY}.</p>` : ''; })()}
@@ -2027,6 +2170,7 @@
   function modal(inner) {
     closeModal();
     document.body.insertAdjacentHTML('beforeend', `<div class="modal-back" data-modal><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">${inner}</div></div>`);
+    stripHidden(document.querySelector('[data-modal]'));
     const first = document.querySelector('[data-modal] input, [data-modal] select'); if (first) first.focus();
   }
   function closeModal() { document.querySelectorAll('[data-modal]').forEach((m) => m.remove()); }
@@ -2699,6 +2843,9 @@
         <p class="small muted">Questions already answered are kept. Fund, function and object come from the export’s account number when it has no separate columns.</p></div>`, false) : ''}
       <p class="small muted">These checks look for patterns worth a question; they don’t find fraud or prove anything is wrong. The board still reviews and approves the bills.</p>`;
   }
+  /* rows (headings first) → an Excel file the browser downloads */
+  const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  function saveXlsx(name, rows, sheet) { saveFile(name, HGUploads.toXlsx(rows, sheet), XLSX_TYPE); }
   function saveText(name, text) {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
     const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -2922,10 +3069,10 @@
       <div class="card"><h3>Projects, as a spreadsheet</h3>
         <p>One scenario’s projects in the same layout as the upload template, so you can edit them in Excel and upload them back as a new scenario.</p>
         ${rows.scenarios.length && rows.settings ? `<div class="inline-form"><label class="field">Scenario<select data-export-scenario>${opts}</select></label>
-          <button type="button" class="btn primary" data-action="exportProjects">Download .csv</button></div>` : '<p class="muted">No scenarios yet.</p>'}</div>
+          <button type="button" class="btn primary" data-action="exportProjects">Download (Excel)</button></div>` : '<p class="muted">No scenarios yet.</p>'}</div>
       <div class="card"><h3>Every scenario’s phases</h3>
         <p>All scenarios in one spreadsheet, one row per phase, with each fund’s share in dollars. Useful for comparing scenarios in Excel.</p>
-        ${rows.scenarios.length ? '<button type="button" class="btn" data-action="exportPhases">Download .csv</button>' : '<p class="muted">No scenarios yet.</p>'}</div>
+        ${rows.scenarios.length ? '<button type="button" class="btn" data-action="exportPhases">Download (Excel)</button>' : '<p class="muted">No scenarios yet.</p>'}</div>
       <div class="card"><h3>Full backup of the district’s plan</h3>
         <p>Everything about the plan in one file: starting numbers, balances, debt, projects, scenarios, phases, funding, financing, goals, measures, surveys, uploads and publishing history. Keep it somewhere safe.</p>
         <p class="small muted">Leaves out people and access (members, invitations, requests) and the activity log.</p>
@@ -2949,7 +3096,7 @@
     const inp = HGCapital.buildInputs(rows, sid);
     const TIERS = new Map(rows.initiatives.map((i) => [i.id, HGRanking.tierOf(i).tier]));
     inp.projects.forEach((p) => { p.tier = TIERS.get(String(p.id)) || ''; });
-    saveFile(`${fileStem()}-${sc.name.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}.csv`, HGUploads.projectsToCSV(inp.projects, inp.cfg.start));
+    saveXlsx(`${fileStem()}-${sc.name.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}.xlsx`, HGUploads.parseCSV(HGUploads.projectsToCSV(inp.projects, inp.cfg.start)), 'Projects');
   }
   async function exportPhases() {
     const rows = await loadCapitalRows(S.district);
@@ -2963,7 +3110,7 @@
       out.push([sc.name, sc.is_board_version ? 'Yes' : '', sc.is_locked ? 'Yes' : '', i.name, HGUploads.TIER_WORD[HGRanking.tierOf(i).tier] || '', i.focus_area || '', ph.fy, Number(ph.cost),
         ph.status, ph.actual_cost == null ? '' : Number(ph.actual_cost), ...funds.map((k) => (f[k] ? Math.round(Number(ph.cost) * f[k] / 100) : ''))]);
     });
-    saveFile(`${fileStem()}-all-phases.csv`, HGUploads.toCSV(out));
+    saveXlsx(`${fileStem()}-all-phases.xlsx`, out, 'All phases');
   }
   async function exportBackup() {
     const d = S.district, data = {};
@@ -3174,7 +3321,7 @@
     }
   }
   function showAllHtml(c) {
-    if (S.isStaff || c.role === 'admin' || !VIEWS[c.role]) return '';
+    if (S.isStaff || c.role === 'admin' || !VIEWS[c.role] || lockedRole(c.role)) return '';
     return `<div class="card"><h3>Your menu</h3><p class="small muted">HighGround shows the screens most useful to your role. You can see every screen instead; what you’re allowed to change stays the same.</p>
       <label class="row"><input type="checkbox" data-show-all ${showAll() ? 'checked' : ''}> Show every screen</label></div>`;
   }
@@ -3225,9 +3372,20 @@
     measure_status: ['Measure status', 'On track: at or ahead of a straight path from the starting point to the target. Off track: behind it. Met: the target is reached. Update owed: no result within the measure’s schedule.'],
     fiscal_year: ['Fiscal year', 'July 1 to June 30, named for the year it ends: FY2027 runs from July 2026 to June 2027.'],
     turnover: ['Turnover savings', 'When experienced staff leave and newer staff join on lower pay, total salaries grow a little slower than the settlement.'],
+    sources: ['Where these figures come from', 'Public reports only: the district’s own Certified Annual Report and certified enrollment (Iowa Department of Education); tax rates, valuations, the Aid and Levy worksheet and the unspent balance report (Iowa Department of Management); median home values (U.S. Census Bureau); and school construction prices (U.S. Bureau of Labor Statistics). They’re refreshed monthly. They’re starting points: change any of them, and nothing is used until you save.'],
   };
+  /** the public sources behind every pre-filled figure, for the Help panel on setup screens */
+  const SOURCES = [
+    ['Iowa Department of Education', 'Certified Annual Report: the year-end report each district files (fund balances, SAVE and PPEL receipts and spending, General Fund salaries and benefits, debt payments, gifts and grants). Certified enrollment.'],
+    ['Iowa Department of Management', 'School tax rates (regular and voter-approved PPEL); the Aid and Levy worksheet (budget enrollment, district cost per pupil, formula funding); property valuations by class (taxable and 100%, farmland and homes); the Unspent Authorized Budget report (miscellaneous income, unspent balance).'],
+    ['U.S. Census Bureau', 'American Community Survey 5-year estimates: the median value of owner-occupied homes in the district, for the tax example.'],
+    ['U.S. Bureau of Labor Statistics', 'Producer Price Index for new school building construction: the default for construction inflation.'],
+  ];
+  const sourcesHtml = () => `<h3>Where the starting figures come from</h3><p class="small">Every figure HighGround fills in comes from a public report the district already files or a public agency publishes. They’re refreshed monthly and are starting points: change any of them, and nothing is used until you save.</p>
+    <dl class="terms">${SOURCES.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl>
+    <p class="small muted">Planning assumptions with no public source (health insurance growth, settlements, turnover) start from typical recent Iowa figures and are yours to set.</p>`;
   /** a small “?” beside a term; tapping it shows the definition */
-  const def = (key) => (TERMS[key] ? `<button type="button" class="defn" data-action="define" data-term="${key}" aria-label="What is ${esc(TERMS[key][0])}?">?</button>` : '');
+  const def = (key) => (TERMS[key] ? `<button type="button" class="defn" data-action="define" data-term="${key}" aria-label="${key === 'sources' ? esc(TERMS[key][0]) : `What is ${esc(TERMS[key][0])}?`}">?</button>` : '');
   async function vGuide(c) {
     const r = c.role, link = (path, text) => `<a href="#/d/${enc(c.district.slug)}/${path}">${text}</a>`;
     const start = ['board', 'viewer'].includes(r) && !c.staff ? [
@@ -3272,13 +3430,32 @@
   }
 
   // ------------------------------------------------------------------ Willow Holler staff
+  /** the daily health check's latest result (part 20; filled by the "Daily health check" GitHub workflow) */
+  function healthCard(runs) {
+    if (runs == null) return '';
+    if (!runs.length) return '<div class="card"><h3>System health</h3><p class="muted">No daily check has run yet. It runs every morning from GitHub (Actions → Daily health check), and you can start it there with “Run workflow”.</p></div>';
+    const r = runs[0], W = { ok: 'All clear', warn: 'Working, with warnings', fail: 'Something is broken' }, cls = { ok: 'ok', warn: 'warn', fail: 'error' };
+    const list = (k) => (r.checks || []).filter((x) => x.status === k);
+    const li = (x) => `<li><b>${esc(x.check)}</b> <span class="muted">(${esc(x.area)})</span>${x.detail ? `: ${esc(x.detail)}` : ''}</li>`;
+    const stale = Date.now() - new Date(r.ran_at).getTime() > 36 * 3600 * 1000;
+    return `<div class="card" data-health><h3>System health</h3>
+      <div class="notice ${stale ? 'error' : cls[r.status]}"><b>${stale ? 'The daily check hasn’t run since ' + esc(day(r.ran_at.slice(0, 10))) : W[r.status]}</b>
+        ${stale ? ' Check GitHub → Actions → Daily health check.' : ` · checked ${esc(new Date(r.ran_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }))}: ${r.n_ok} ok, ${r.n_warn} warnings, ${r.n_fail} failed${r.emailed ? ' · emailed' : ''}`}</div>
+      ${list('fail').length ? `<h4>Failed</h4><ul>${list('fail').map(li).join('')}</ul>` : ''}
+      ${list('warn').length ? fold(null, `${list('warn').length} warning${list('warn').length === 1 ? '' : 's'}`, `<ul>${list('warn').map(li).join('')}</ul>`, false) : ''}
+      ${fold(null, `Everything it checks (${(r.checks || []).length})`, `<ul class="small">${(r.checks || []).map((x) => `<li>${esc(x.status.toUpperCase())} · ${esc(x.area)} · ${esc(x.check)}</li>`).join('')}</ul>`, false)}
+      <p class="small muted">Last ${runs.length} days: ${runs.slice().reverse().map((x) => `<span class="hdot ${x.status}" title="${esc(x.ran_at.slice(0, 10))}: ${esc(x.status)}"></span>`).join('')}
+        · It runs every morning; any failure is emailed to admin@willowholler.com, and a summary goes out every Monday.</p></div>`;
+  }
   async function renderStaff() {
     S.district = null; S.role = null;
-    const rows = await HG.db.select('district', 'select=id,slug,name,state,is_demo,public_link_enabled,logo_path,created_at&order=name');
+    const [rows, health] = await Promise.all([HG.db.select('district', 'select=id,slug,name,state,is_demo,public_link_enabled,logo_path,created_at&order=name'),
+      HG.db.select('hg_health_run', 'select=ran_at,status,n_ok,n_warn,n_fail,checks,emailed&order=ran_at.desc&limit=14').catch(() => null)]);
     S.staffDistricts = rows;
     frame({ slug: null, sectionId: 'staff', body: `
-      <div class="page-head"><div><h1>Willow Holler</h1><div class="lede">Every district, and new ones.</div></div><div class="right">${badge('live')}</div></div>
+      <div class="page-head"><div><h1>Willow Holler</h1><div class="lede">Every district, and new ones.</div></div></div>
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
+      ${healthCard(health)}
       <div class="card"><h3>Districts</h3>${table([
         { label: 'District', html: (r) => `<a href="#/d/${enc(r.slug)}/overview/today">${esc(r.name)}</a>` },
         { label: 'Link id', get: (r) => r.slug }, { label: 'State', get: (r) => r.state },
@@ -3348,20 +3525,38 @@
   const SETUP_PREFILL = { data: null };
   function setupPrefill() {
     const st = SETUP_PREFILL.data, form = document.querySelector('form[data-form=saveSetup]'); if (!st || !form) return;
-    const set = (n, v) => { const el = form.querySelector(`[name=${n}]`); if (el && v != null && v !== '') el.value = v; };
-    const B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {};
-    set('enrollment', le.certified == null ? null : Math.round(Number(le.certified))); /* the state certifies tenths; this field takes whole pupils */ if (le.fiscal_year) set('enrollment_year', schoolYear(le.fiscal_year));
-    if (B2.save != null || B2.ppel != null) { set('as_of', `${st.fiscal_year}-06-30`); set('bal_save', moneyIn(B2.save)); set('bal_ppel', moneyIn(B2.ppel)); }
-    if (R2.save != null) { set('save_receipts', moneyIn(Math.round(R2.save))); set('save_receipts_fy', st.fiscal_year); }
-    const sp = ppelSplit(st), lv = st.levy;
-    if (sp.regular != null) set('ppel_receipts', moneyIn(Math.round(sp.regular)));
-    if (lv) {
-      set('ppel_rate', Number(lv.regular_ppel).toFixed(5).replace(/0+$/, '').replace(/\.$/, ''));
-      const vs = form.querySelector('[name=vppel_status]');
-      if (Number(lv.voted_ppel) > 0) { if (vs && vs.value === 'none') vs.value = 'active'; if (sp.voted != null) set('vppel_annual', moneyIn(Math.round(sp.voted))); }
-    }
+    const gy = document.querySelector('[data-grant-years]'), F = stateFill(st, gy ? Number(gy.value) : 5);
+    Object.entries(F.values).forEach(([n, v]) => { const el = form.querySelector(`[name=${n}]`); if (!el || v == null || v === '') return;
+      if (n === 'vppel_status') { if (el.value === 'none') el.value = v; return; }
+      el.value = v; });
+    // debt payments the annual report shows, for funds that don't have a row yet (the final year has to come from the schedule)
+    let added = 0;
+    F.debts.forEach((x) => {
+      const rows = [...form.querySelectorAll('[data-debt-body] [data-debt-row]')];
+      if (rows.some((tr) => tr.querySelector('[name=debt_fund]').value === x.fund && (tr.querySelector('[name=debt_name]').value || tr.querySelector('[name=debt_annual]').value))) return;
+      let tr = rows.find((t) => !t.querySelector('[name=debt_name]').value && !t.querySelector('[name=debt_annual]').value);
+      if (!tr) { const t = document.querySelector('[data-debt-template]'); if (!t) return; form.querySelector('[data-debt-body]').insertAdjacentHTML('beforeend', t.innerHTML); tr = [...form.querySelectorAll('[data-debt-body] [data-debt-row]')].pop(); }
+      tr.querySelector('[name=debt_name]').value = x.name; tr.querySelector('[name=debt_fund]').value = x.fund; tr.querySelector('[name=debt_annual]').value = moneyIn(x.annual); added++;
+    });
     renderSetupChecks(form);
-    toast('Filled in', 'Check the numbers, then click Save starting numbers.');
+    toast('Filled in', `Check the numbers, then click Save starting numbers.${added ? ` Add the final year for the debt ${added === 1 ? 'row' : 'rows'} filled in from the annual report.` : ''}`);
+  }
+  /** the part-19 figures as compare rows: [label, the state's figure, yours, formatter] */
+  function stateMoreRows(st, s, grantYears) {
+    const M = st.more || {}, V = M.valuation, on = (M.car && M.car.ongoing) || {}, pf = (v) => `${pctIn(v)}%`, rows = [], tr = saveTrend(M), ga = grantsAvg(M, grantYears);
+    if (V && V.taxable) rows.push([`Taxable valuation, FY${V.fiscal_year} (with TIF and utilities)`, Number(V.taxable), s.taxable_valuation]);
+    if (V && V.actual) rows.push([`Actual (100%) valuation, FY${V.fiscal_year}`, Number(V.actual), s.actual_valuation]);
+    if (V && V.growth != null) rows.push([`Taxable valuation growth a year, FY${V.fiscal_year - V.growth_years}–FY${V.fiscal_year}`, Number(V.growth), s.ppel_growth, pf]);
+    if (tr) rows.push([`SAVE receipts trend a year, FY${tr.from}–FY${tr.to}`, tr.pct, s.save_trend, pf]);
+    if (on.save) rows.push([`Ongoing SAVE spending a year (average FY${on.save.from_fy}–FY${on.save.to_fy}, estimated)`, Math.max(0, Number(on.save.recurring)), s.save_ongoing]);
+    if (on.ppel) rows.push([`Ongoing PPEL spending a year (average FY${on.ppel.from_fy}–FY${on.ppel.to_fy}, estimated)`, Math.max(0, Number(on.ppel.recurring)), s.ppel_ongoing]);
+    if (ga) rows.push([`Gifts and grants to the capital funds a year (average FY${ga.from}–FY${ga.to})`, ga.avg, s.grants_avg]);
+    if (M.home_value && Number(M.home_value.median_value) > 0) rows.push([`Median home value (Census Bureau, ${M.home_value.acs_year - 4}–${M.home_value.acs_year})`, Number(M.home_value.median_value), s.tax_home_value]);
+    if (M.construction_inflation && M.construction_inflation.value != null) rows.push(['School construction prices, yearly rise (last three years)', Number(M.construction_inflation.value), s.construction_inflation, pf]);
+    if (M.vppel && M.vppel.first_fy) rows.push(['Voter-approved PPEL levied since', M.vppel.from_start_of_data ? `FY${M.vppel.first_fy} or earlier` : `FY${M.vppel.first_fy}`, s.vppel_first_fy ? `FY${s.vppel_first_fy}` : null]);
+    const dp = (M.car && M.car.debt_payments) || {}, DN = { save: 'SAVE debt payments', ppel: 'PPEL debt payments', debt: 'Debt service fund payments' };
+    Object.entries(dp).forEach(([k, v]) => { if (DN[k] && Number(v) > 0) rows.push([`${DN[k]}, FY${M.car.fiscal_year}`, Number(v), null]); });
+    return rows;
   }
   async function vSetup(c) {
     const d = c.district.id;
@@ -3391,23 +3586,31 @@
         const G2 = st.general || {}, gfb = G2.unassigned != null || G2.assigned != null ? Number(G2.unassigned || 0) + Number(G2.assigned || 0) : null, gi = s.gf_inputs || {};
         /* [label, the state's figure, yours (once set up), formatter] */
         const rowsS = [[`Certified enrollment (${le.fiscal_year ? schoolYear(le.fiscal_year) : ''})`, le.certified, s.enrollment, (v) => Number(v).toLocaleString('en-US')],
-          [`SAVE balance, June 30, ${st.fiscal_year}`, B2.save, B.save], [`PPEL balance, June 30, ${st.fiscal_year}`, B2.ppel, B.ppel], [`SAVE revenue, FY${st.fiscal_year}`, R2.save, s.save_receipts],
+          [`SAVE balance, June 30, ${st.fiscal_year}`, B2.save, B.save],
+          ...(sp.voted != null && B2.ppel != null ? (() => { const sh = Number(lv.voted_ppel) / (Number(lv.regular_ppel) + Number(lv.voted_ppel));
+            return [[`PPEL balance, June 30, ${st.fiscal_year}, regular share (estimated)`, Number(B2.ppel) * (1 - sh), B.ppel], [`V-PPEL balance, June 30, ${st.fiscal_year}, voted share (estimated)`, Number(B2.ppel) * sh, B.vppel]]; })()
+            : [[`PPEL balance, June 30, ${st.fiscal_year}`, B2.ppel, B.ppel]]), [`SAVE revenue, FY${st.fiscal_year}`, R2.save, s.save_receipts],
           ...(sp.voted != null ? [[`PPEL revenue, FY${st.fiscal_year}, regular share (estimated)`, sp.regular, s.ppel_receipts], [`V-PPEL revenue, FY${st.fiscal_year}, voted share (estimated)`, sp.voted, s.vppel_annual]] : [[`PPEL revenue, FY${st.fiscal_year}`, R2.ppel, s.ppel_receipts]]),
           ...(lv ? [[`PPEL rates, FY${lv.fiscal_year}, per $1,000 of taxable valuation`, `regular $${Number(lv.regular_ppel).toFixed(3)}; ${Number(lv.voted_ppel) > 0 ? `voter-approved $${Number(lv.voted_ppel).toFixed(3)}` : 'no voter-approved PPEL'}`, s.ppel_rate == null ? null : `regular $${Number(s.ppel_rate).toFixed(3)}; V-PPEL ${s.vppel_status || 'none'}`]] : []),
-          ...(gfb != null ? [[`General Fund unassigned and assigned balance, June 30, ${st.fiscal_year}`, gfb, gi.fund_balance], ...(G2.aea_flowthrough != null ? [['AEA flowthrough', G2.aea_flowthrough, gi.aea_flowthrough]] : [])] : [])]
+          ...(gfb != null ? [[`General Fund unassigned and assigned balance, June 30, ${st.fiscal_year}`, gfb, gi.fund_balance], ...(G2.aea_flowthrough != null ? [['AEA flowthrough', G2.aea_flowthrough, gi.aea_flowthrough]] : [])] : []),
+          ...stateMoreRows(st, s, SETUP_PREFILL.grantYears || 5)]
           .filter(([, v]) => v != null);
         if (!rowsS.length) return '';
         const fmtv = (r, v) => (v == null || v === '' ? '' : typeof v === 'string' ? esc(v) : esc(r[3] ? r[3](v) : money(v)));
         const differs = (r) => typeof r[1] === 'number' && r[2] != null && r[2] !== '' && Math.abs(Number(r[2]) - r[1]) > 0.1 * Math.max(Math.abs(r[1]), 1);
         const nDiff = setUp ? rowsS.filter(differs).length : 0;
         const hasForm = rowsS.some((r) => !/General Fund|AEA/.test(r[0]));
-        const body = `<div class="card" data-setup-state><h3>From the state’s annual report</h3>
+        const M = st.more || {}, gOpts = [3, 5, 10].map((n) => [n, grantsAvg(M, n)]).filter(([, g]) => g);
+        const grantPick = gOpts.length && c.finance ? `<label class="row small">Average gifts and grants over <select data-grant-years>${gOpts.map(([n, g]) => `<option value="${n}" ${n === (SETUP_PREFILL.grantYears || 5) ? 'selected' : ''}>${n === 10 && g.years < 10 ? `${g.years} years (all the state has)` : `${n} years`}: $${moneyIn(Math.round(g.avg))}</option>`).join('')}</select></label>` : '';
+        const body = `<div class="card" data-setup-state><h3>From the state’s data ${def('sources')}</h3>
           ${setUp ? `<div class="scroll"><table class="data"><thead><tr><th></th><th class="num">State</th><th class="num">Yours</th></tr></thead><tbody>${rowsS.map((r) => `<tr><td>${esc(r[0])}</td><td class="num">${fmtv(r, r[1])}</td><td class="num ${differs(r) ? 'gaptext' : ''}">${fmtv(r, r[2])}</td></tr>`).join('')}</tbody></table></div>
             <p class="small muted">Highlighted: more than 10% from the state’s figure. The state’s figures are a year behind and include interest, so some difference is normal.</p>`
           : `<ul>${rowsS.map((r) => `<li>${esc(r[0])}: <b>${fmtv(r, r[1])}</b></li>`).join('')}</ul>`}
+          ${grantPick}
           <div class="row">${hasForm ? `<button type="button" class="btn" data-action="setupPrefill">${setUp ? 'Replace the form’s figures with the state’s' : 'Fill in the form with these'}</button>` : ''}${gfb != null && setUp ? '<button type="button" class="btn" data-action="gfFromState">Use in the General Fund setup</button>' : ''}<span class="small muted">Nothing is saved until you click Save.</span></div>
           ${lv && Number(lv.voted_ppel) > 0 ? `<p class="small">The state lists a <b>voter-approved PPEL</b> for FY${esc(lv.fiscal_year)}. Filling in sets V-PPEL to Active and splits the annual report’s PPEL revenue between PPEL and V-PPEL by the two rates. Add the vote’s first and last fiscal years from the ballot measure.</p>` : ''}
-          <p class="small muted">${esc([st.source, lv && lv.source].filter(Boolean).join('. '))}</p></div>`;
+          <p class="small muted">${esc([st.source, lv && lv.source, M.valuation && M.valuation.source, M.car && M.car.source].filter(Boolean).join('. '))}.
+            Ongoing spending is an estimate: the average of the last three years of SAVE or PPEL spending, leaving out construction, debt payments and transfers.</p></div>`;
         return setUp ? fold(c, `Compare with the state’s annual report${nDiff ? ` · ${nDiff} figure${nDiff === 1 ? '' : 's'} differ` : ''}`, body, false) : body; })()
       : c.finance && !c.district.state_district_id ? `<p class="small muted">${c.admin ? `Add the district’s Iowa district number in <a href="#/d/${enc(c.district.slug)}/settings/district">Settings → District</a> to fill these from the state’s annual report.` : 'Once an admin adds the district’s Iowa district number, these can be filled from the state’s annual report.'}</p>` : ''}
       <form class="stack setup" data-form="saveSetup" novalidate>
@@ -3441,9 +3644,8 @@
           ${f('go_outstanding', 'General-obligation debt outstanding, $', moneyIn(s.go_outstanding), 'Optional')}</div></div>
 
         <div class="card"><h3>Tax estimates</h3>
-          <p class="small muted">Used for “what it means for taxpayers.” Farmland is taxed on its productivity value, which the county assessor sets; it is much lower than the market price.</p><div class="fgrid">
-          ${f('tax_home_value', 'Example home value, $', moneyIn(s.tax_home_value == null ? 150000 : s.tax_home_value), 'Assessed value of a typical home in the district')}
-          ${f('ag_value_per_acre', 'Assessed farmland value per acre, $', moneyIn(s.ag_value_per_acre), 'Optional; from the county assessor (productivity value)')}</div></div>
+          <p class="small muted">Used for “what it means for taxpayers.” Farmland is shown per $100,000 of assessed value (the county assessor’s productivity value, which is much lower than the market price).</p><div class="fgrid">
+          ${f('tax_home_value', 'Example home value, $', moneyIn(s.tax_home_value == null ? 150000 : s.tax_home_value), 'Assessed value of a typical home in the district')}</div></div>
 
         <div class="card"><h3>V-PPEL (voter-approved PPEL)</h3><div class="fgrid">
           <label class="field">Status<select name="vppel_status" ${dis}>${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s.vppel_status || 'none') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
@@ -3476,7 +3678,7 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) errs.push('Choose the date the balances are as of.');
     const settings = {
       plan_years: intv('plan_years', 'Years in the plan', 5, 15) || 10,
-      enrollment: intv('enrollment', 'Enrollment', 0, 100000),
+      enrollment: (() => { const x = toNum(v('enrollment')); if (x === null) return null; if (isNaN(x) || x < 0 || x > 100000) { errs.push('Enrollment must be a number from 0 to 100,000.'); return null; } return Math.round(x); })(),   /* the state certifies tenths (1188.4); store whole pupils */
       enrollment_year: v('enrollment_year').trim() || null,
       construction_inflation: pctv('construction_inflation', 'Construction inflation', 0, 25) || 0,
       save_receipts: money('save_receipts', 'SAVE receipts', true),
@@ -3490,7 +3692,6 @@
       ppel_rate: (() => { const x = toNum(v('ppel_rate')); if (x === null) return null; if (isNaN(x) || x < 0 || x > 5) { errs.push('PPEL rate must be dollars per $1,000, like 0.33.'); return null; } return x; })(),
       taxable_valuation: money('taxable_valuation', 'Taxable valuation'),
       tax_home_value: money('tax_home_value', 'Example home value') || 150000,
-      ag_value_per_acre: money('ag_value_per_acre', 'Assessed farmland value per acre'),
       actual_valuation: money('actual_valuation', 'Actual valuation'),
       go_outstanding: money('go_outstanding', 'General-obligation debt outstanding'),
       vppel_status: v('vppel_status') || 'none',
@@ -3533,7 +3734,9 @@
   /** save starting numbers; withDebts = the debt rows on the form are the whole list (the wizard leaves debt to the full screen) */
   async function persistSetup(r, withDebts) {
     const d = S.district.id;
-    await HG.db.upsert('district_settings', [Object.assign({ district_id: d }, r.settings)], 'district_id');
+    // the guided setup shows only some fields: leave the rest as they are rather than blanking them
+    const settings = withDebts ? r.settings : Object.fromEntries(Object.entries(r.settings).filter(([, v]) => v != null));
+    await HG.db.upsert('district_settings', [Object.assign({ district_id: d }, settings)], 'district_id');
     await HG.db.upsert('fund_balance', r.balances.map((b) => ({ district_id: d, fund: b.fund, as_of: r.asOf, amount: b.amount || 0, source: 'manual' })), 'district_id,fund,as_of');
     if (!withDebts) { for (const x of r.debts) await HG.db.insert('debt_obligation', Object.assign({ district_id: d }, { name: x.name, fund: x.fund, annual_payment: x.annual_payment, final_fy: x.final_fy })); return; }
     const existing = await HG.db.select('debt_obligation', `select=id&district_id=eq.${d}`);
@@ -3806,12 +4009,19 @@
     async gfEdit() { if (!GF.rows) GF.rows = await loadCapitalRows(S.district); openGfEditor(); },
     async gfStaffAdd() { const t = document.querySelector('[data-gf-staff-template]'); document.querySelector('[data-gf-staff-body]').insertAdjacentHTML('beforeend', t.innerHTML); },
     async gfStaffRemove(el) { el.closest('[data-gf-staff]').remove(); },
+    async gfRosterTemplate() { saveXlsx('highground-staff-list-template.xlsx', HGGF.ROSTER_TEMPLATE, 'Staff'); },
     async gfReset() { GF.over = {}; here(); },
     async gfPrefill() {
       const P = GF.prefill || {}, form = document.querySelector('form[data-form=saveGf], form[data-form=wizGf]'); if (!form) return;
-      const set = (n, v) => { const el = form.querySelector(`[name=${n}]`); if (el && v != null) el.value = n === 'enrollment' ? v : Number(Math.round(v)).toLocaleString('en-US'); };
-      set('enrollment', P.enrollment); set('aea_flowthrough', P.aea_flowthrough); set('fund_balance', P.fund_balance);
-      toast('Filled in', 'Enrollment, AEA flowthrough and fund balance. Check them, then Save.');
+      const done = [];
+      const set = (n, v, kind, label) => { const el = form.querySelector(`[name=${n}]`); if (!el || v == null || isNaN(Number(v))) return;
+        el.value = kind === 'pct' ? pctIn(v) : kind === 'raw' ? v : Number(Math.round(v)).toLocaleString('en-US'); if (label) done.push(label); };
+      set('enrollment', P.enrollment, 'raw', 'enrollment'); set('dcpp', P.dcpp, null, 'cost per pupil'); set('other_formula', P.other_formula, null, 'other formula funding');
+      set('misc_income', P.misc_income, null, 'miscellaneous income'); set('misc_growth', P.misc_growth, 'pct');
+      set('aea_flowthrough', P.aea_flowthrough, null, 'AEA flowthrough'); set('fund_balance', P.fund_balance, null, 'fund balance'); set('unspent', P.unspent, null, 'unspent balance');
+      set('nonstaff', P.nonstaff, null, 'other spending');
+      if (P.benefits != null) { form.querySelectorAll('[name=s_benefits]').forEach((el) => { el.value = pctIn(P.benefits); }); const t = form.querySelector('[data-gf-staff-template]'); if (t) t.innerHTML = t.innerHTML.replace(/name="s_benefits" inputmode="decimal" value="[^"]*"/, `name="s_benefits" inputmode="decimal" value="${pctIn(P.benefits)}"`); done.push('benefits %'); }
+      toast('Filled in', `${done.join(', ')}. Check them, then Save.`);
     },
     async setupPrefill() { setupPrefill(); },
     async setupGo(el) { const st = (SETUP.steps || []).find((x) => x.k === el.dataset.k); if (!st) return; SETUP.step = st.k; go(`#/d/${enc(S.district.slug)}/${st.path}`); },
@@ -3860,7 +4070,7 @@
     },
     async openSearch() { await openSearch(); },
     async openHelp() { openHelp(); },
-    async define(el) { const t = TERMS[el.dataset.term]; if (t) toast(t[0], t[1]); },
+    async define(el) { const t = TERMS[el.dataset.term]; if (t) toast(t[0], t[1], 'defn', { sticky: true, key: 'defn' }); },
     async searchGo(el) {
       const k = el.dataset.k, id = el.dataset.id, slug = S.district.slug; closeModal();
       if (k === 'initiative') { INI.key = S.district.id; go(`#/d/${enc(slug)}/decisions/initiatives`); setTimeout(() => openDecisionEditor(id), 600); }
@@ -3871,7 +4081,7 @@
     },
     async editSurvey(el) { if (!DIR.D) DIR.D = await loadDirection(S.district); openSurveyEditor(el.dataset.id || null); },
     async deleteSurvey(el) { if (!confirm('Delete this survey and its results?')) return; await HG.db.remove('survey', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Deleted'); here(); },
-    async dirTemplate(el) { saveText(`highground-${el.dataset.k}-template.csv`, HGUploads.toCSV(DIR_TEMPLATES[el.dataset.k])); },
+    async dirTemplate(el) { saveXlsx(`highground-${el.dataset.k}-template.xlsx`, DIR_TEMPLATES[el.dataset.k], el.dataset.k[0].toUpperCase() + el.dataset.k.slice(1)); },
     async dirUploadApply() { await dirUploadApply(); },
     async dirUploadCancel() { DIRUP.parsed = null; document.getElementById('dir-upload').innerHTML = ''; },
     async editPriority(el) { if (!DIR.D) DIR.D = await loadDirection(S.district); openPriorityEditor(el.dataset.id || null); },
@@ -4038,9 +4248,9 @@
     async applyUpload() { await applyUpload(); },
     async cancelUpload() { const f = document.querySelector('[data-upload-file]'); if (f) f.value = ''; document.getElementById('upload-review').innerHTML = ''; UP.parsed = null; },
     async downloadTemplate(el) {
-      if (el.dataset.kind === 'projects') saveText('highground-projects-template.csv', HGUploads.projectTemplate(UP.startFY || 2027));
+      if (el.dataset.kind === 'projects') saveXlsx('highground-projects-template.xlsx', HGUploads.parseCSV(HGUploads.projectTemplate(UP.startFY || 2027)), 'Projects');
       else if (el.dataset.kind === 'gl') saveText('highground-sample-gl-export-2026-09-30.csv', HGUploads.toCSV(HGGL.sampleExport()));
-      else saveText('highground-balances-template.csv', HGUploads.balanceTemplate());
+      else saveXlsx('highground-balances-template.xlsx', HGUploads.parseCSV(HGUploads.balanceTemplate()), 'Balances');
     },
     async downloadUpload(el) { const b = await HG.storage.download('district-files', el.dataset.path); const url = URL.createObjectURL(b); const a = document.createElement('a'); a.href = url; a.download = el.dataset.name || 'upload'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); },
     async publishBoard() { await publishBoard(); },
@@ -4120,6 +4330,8 @@
     async wizStart(f, form) {
       const box = form.querySelector('[data-setup-errors]'), r = readSetup(form);
       if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); box.scrollIntoView({ block: 'center' }); return; }
+      // save only what this step shows (or carries hidden): the rest of Starting numbers keeps its values
+      r.settings = Object.fromEntries(Object.entries(r.settings).filter(([k]) => k === 'plan_start_fy' || form.querySelector(`[name="${k}"]`)));
       await persistSetup(r, false);
       toast('Starting numbers saved'); go(WIZ.next);
     },
@@ -4213,6 +4425,8 @@
       if (!on.length) { cp.checked = true; return; }
       CMP.ids = on; document.getElementById('cmp-table').innerHTML = compareTableHtml(); return;
     }
+    const gr = e.target.closest('[data-gf-roster]');
+    if (gr) { run(() => gfRoster(gr), gr); return; }
     const du = e.target.closest('[data-dir-upload]');
     if (du) { run(() => dirUploadRead(du), du); return; }
     const srl = e.target.closest('[data-sr-link]');
@@ -4220,6 +4434,8 @@
     const ma = e.target.closest('[data-me-auto]');
     if (ma && ma.value) { const a = HGDirection.AUTO[ma.value], fm = ma.closest('form'), set = (n, v) => { const el = fm.querySelector(`[name=${n}]`); if (el && !el.value) el.value = v; };
       set('name', a.name); set('unit', a.unit); fm.querySelector('[name=better]').value = a.better; fm.querySelector('[name=cadence]').value = a.cadence; return; }
+    const gyr = e.target.closest('[data-grant-years]');
+    if (gyr) { SETUP_PREFILL.grantYears = Number(gyr.value); return; }
     const sa = e.target.closest('[data-show-all]');
     if (sa) { try { localStorage.setItem(showAllKey(), sa.checked ? '1' : '0'); } catch (x) {} toast(sa.checked ? 'Every screen shown' : 'Menu for your role', 'The menu has changed.'); return here(); }
     const gsc = e.target.closest('[data-gf-sc]');

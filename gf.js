@@ -84,6 +84,40 @@
   }
 
   /** the General Fund's own defaults, used when a scenario's assumption set leaves them blank */
-  const DEFAULTS = { ssa: 0.0225, enroll: -0.005, settle: 0.025, health: 0.05, inflation: 0.02 };
-  return { RULES, DEFAULTS, forecast, fromBudget };
+  const DEFAULTS = { ssa: 0.02, enroll: -0.005, settle: 0.025, health: 0.08, inflation: 0.025 };   /* checked Oct 2026: SSA for FY2027 is 2%; employer health costs +6.5% in 2026 (Mercer), school renewals often 7–10% */
+  /**
+   * A staff list (from payroll: one row per person or position) → staff groups for the General Fund setup.
+   * rows: spreadsheet rows, headings first. Needs a Group column and FTE / Annual salary; health insurance (the district's
+   * yearly contribution) is optional. Averages are per FTE: total salary ÷ total FTE, so part-time people count fairly.
+   * Returns { groups: [{ name, fte, salary, health, people }], people, issues: [text] }.
+   */
+  function roster(rows) {
+    const issues = [];
+    const norm = (h) => String(h == null ? '' : h).trim().toLowerCase();
+    const head = (rows[0] || []).map(norm);
+    const find = (re, not) => head.findIndex((h) => re.test(h) && !(not && not.test(h)));
+    const cG = find(/group|category|classification|type/), cF = find(/\bfte\b|full.?time/), cS = find(/salary|wage|pay/, /health|insurance/), cH = find(/health|insurance|medical/);
+    if (cG < 0 || cS < 0) return { groups: [], people: 0, issues: ['Use the template’s headings: it needs a Group column and an Annual salary column.'] };
+    const num = (v) => { const x = parseFloat(String(v == null ? '' : v).replace(/[$,\s]/g, '')); return isNaN(x) ? null : x; };
+    const by = new Map(); let people = 0;
+    rows.slice(1).forEach((r, i) => {
+      if (!r || !r.some((x) => String(x == null ? '' : x).trim() !== '')) return;
+      const g = String(r[cG] == null ? '' : r[cG]).trim().replace(/\s+/g, ' ');
+      if (!g) { issues.push(`Row ${i + 2}: no group, left out.`); return; }
+      const fte = cF < 0 || num(r[cF]) == null ? 1 : num(r[cF]), sal = num(r[cS]), hl = cH < 0 ? 0 : num(r[cH]) || 0;
+      if (sal == null) { issues.push(`Row ${i + 2}: no salary, left out.`); return; }
+      if (!(fte > 0) || fte > 2) { issues.push(`Row ${i + 2}: FTE ${r[cF]} looks wrong, left out.`); return; }
+      const k = g.toLowerCase(), x = by.get(k) || { name: g.charAt(0).toUpperCase() + g.slice(1), fte: 0, sal: 0, health: 0, people: 0 };
+      x.fte += fte; x.sal += sal; x.health += hl; x.people++; by.set(k, x); people++;
+    });
+    const groups = [...by.values()].map((x) => ({ name: x.name, people: x.people, fte: Math.round(x.fte * 100) / 100,
+      salary: Math.round(x.sal / x.fte), health: Math.round(x.health / x.fte) }));
+    return { groups, people, issues };
+  }
+  const ROSTER_TEMPLATE = [['Position or name (optional)', 'Group', 'FTE', 'Annual salary', 'District health insurance contribution (annual)'],
+    ['3rd grade teacher', 'Teachers', 1, 52000, 13200], ['Art teacher (half time)', 'Teachers', 0.5, 26000, 0],
+    ['Special education paraeducator', 'Paraeducators', 1, 27000, 9600], ['Head custodian', 'Support staff', 1, 41000, 13200],
+    ['High school principal', 'Administrators', 1, 112000, 13200]];
+
+  return { RULES, DEFAULTS, forecast, fromBudget, roster, ROSTER_TEMPLATE };
 });

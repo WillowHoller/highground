@@ -59,6 +59,19 @@ IA_BENCH=[{"measure_key":"exp|General|Student Transportation","grp":"exp","fund"
           {"measure_key":"bal|SAVE|ENDING","grp":"bal","fund":"SAVE","line":"ENDING","unit":"per_pupil","flag":"low","peer_group":"districts your size","callout":"$310/pupil — 62% below the average of 41 districts your size (lower than 93% of them)"},
           {"measure_key":"rev|ALL|TOTAL","grp":"rev","fund":"ALL","line":"TOTAL","unit":"per_pupil","flag":"jump","peer_group":"districts your size","callout":"Up 31% from last year; districts your size moved 4% (median)"},
           {"measure_key":"exp|ALL|Instruction","grp":"exp","fund":"ALL","line":"Instruction","unit":"per_pupil","flag":None,"peer_group":"districts your size","callout":None}]
+IA_MORE={"de_district":"7777",
+  "valuation":{"fiscal_year":2027,"taxable":727000000,"actual":1250000000,"growth":0.031,"growth_years":4,"ag_rollback":0.594401,"res_rollback":0.445345,"source":"Iowa Department of Management, School District Assessed & Taxable Valuations by Class, FY2027"},
+  "aid_levy":{"fiscal_year":2027,"budget_enrollment":1190.2,"dcpp":8148,"regular_cost":9697750,"combined_cost":13500000,"other_formula":3802250,"vppel_max":970000,"source":"Iowa Department of Management, Aid and Levy worksheet, FY2027"},
+  "unspent":{"fiscal_year":2025,"unspent":2100000,"max_authorized":16000000,"misc_income":1900000,"misc_growth":0.021,"source":"Iowa Department of Management, Unspent Authorized Budget report, FY2025"},
+  "car":{"fiscal_year":2025,"source":"Iowa Department of Education, Certified Annual Report (Actual), FY2017 on",
+    "ongoing":{"save":{"recurring":180000,"construction":400000,"years":3,"from_fy":2023,"to_fy":2025},"ppel":{"recurring":95000,"construction":0,"years":3,"from_fy":2023,"to_fy":2025}},
+    "debt_payments":{"save":480000,"debt":295000},
+    "grants":[{"fy":2019,"amount":10000},{"fy":2021,"amount":50000},{"fy":2023,"amount":30000},{"fy":2024,"amount":90000},{"fy":2025,"amount":60000}],
+    "save_receipts":[{"fy":2021,"amount":1300000},{"fy":2023,"amount":1390000},{"fy":2025,"amount":1450000}],
+    "general":{"salaries":7000000,"benefits":2100000,"benefits_pct":0.3,"sal_instruction":4800000,"sal_admin":700000,"sal_support":1500000,"nonstaff":3300000}},
+  "vppel":{"first_fy":2022,"last_fy":2027,"from_start_of_data":False},
+  "home_value":{"median_value":187400,"margin":9100,"acs_year":2024,"source":"U.S. Census Bureau, American Community Survey 2020-2024 5-year estimates, median value of owner-occupied homes (B25077)"},
+  "construction_inflation":{"value":0.0494,"detail":{"years":3},"source":"U.S. Bureau of Labor Statistics, Producer Price Index: new school building construction (PCU236222236222), Aug 2023 to Aug 2026"}}
 IA_PREFILL={"de_district":"7777","fiscal_year":2025,"source":"Iowa Department of Education, Certified Annual Report, FY2025 (year end June 30)","latest_enrollment":{"fiscal_year":2026,"certified":1188.4},
   "general":{"unassigned":2100000,"assigned":150000,"aea_flowthrough":410000},"balances":{"general":2400000,"save":1900000,"ppel":640000},"receipts":{"save":1450000,"ppel":520000}}
 TABLES["import_batch"].append({"district_id":"d1","id":"b-reg1","kind":"check_register","period_end":"2026-08-31","file_name":"august_register.csv","status":"applied","uploaded_at":"2026-09-03T12:00:00Z","row_count":3})
@@ -128,6 +141,7 @@ async def handler(route):
   if path=="/rest/v1/rpc/copy_scenario": return await ok("copied-scenario-id")
   if path=="/rest/v1/rpc/ia_benchmark": return await ok(IA_BENCH)
   if path=="/rest/v1/rpc/ia_prefill": return await ok(IA_PREFILL)
+  if path=="/rest/v1/rpc/ia_prefill_more": return await ok(IA_MORE)
   if path=="/rest/v1/rpc/ia_levy": return await ok({"de_district":"7777","fiscal_year":2027,"voted_ppel":1.34,"regular_ppel":0.33,"debt_service":2.1,"management":0.9,"total_rate":13.2,"source":"Iowa Department of Management, School Tax Rates, FY2027"})
   if path=="/rest/v1/rpc/ia_district_search": return await ok([{"de_district":"7777","name":"Ironwood Valley","aea":"267","last_fy":2025,"score":0.9}])
   if path=="/rest/v1/rpc/register_summary": return await ok({"total":21851.5,"lines":3,"by_fund":{"10":9451.5,"33":12400},"top_vendors":[{"vendor":"Hawkeye Roofing LLC","label":None,"total":12400}],"flags":{"question":1,"concern":1}})
@@ -173,6 +187,7 @@ async def handler(route):
     return await ok([{"deleted":True}])
   if t in TABLES and req.method=="PATCH":
     return await ok([json.loads(body)])
+  if t=="hg_health_run" and t in TABLES: return await ok(TABLES[t])
   if t in TABLES:
     did=q.get("district_id",["eq.d1"])[0][3:]
     out=[r for r in TABLES[t] if r.get("district_id")==did]
@@ -257,9 +272,10 @@ async def main():
       const R=C.demoRows(D['ironwood-valley'],'d1',()=>'00000000-0000-4000-8000-'+String(++i).padStart(12,'0'));
       const rows={district:{name:'x'},settings:R.district_settings[0],balances:R.fund_balance,debts:R.debt_obligation,scenarios:R.scenario,initiatives:R.initiative,phases:R.phase,funding:R.phase_funding,financing:R.financing,recurring:[]};
       const sc=R.scenario.find(s=>!s.is_board_version);const inp=C.buildInputs(rows,sc.id);const m=T.impact(inp.cfg,inp.levers,inp.tax);
-      process.stdout.write(JSON.stringify({home:m.peak.home,fy:m.peak.fy,acre:m.peak.acre,rate:m.peak.rate}));"""],cwd=os.path.dirname(os.path.abspath(__file__))))
+      process.stdout.write(JSON.stringify({home:m.peak.home,fy:m.peak.fy,farm:m.peak.farm100k,rate:m.peak.rate}));"""],cwd=os.path.dirname(os.path.abspath(__file__))))
     tx=await pg.inner_text("#cap-tax")
-    check("taxpayers: the phased-bond scenario's added cost for a $150,000 home and an acre", ("$%.2f a year"%TAXEXP["home"]) in tx and ("$%.2f an acre"%TAXEXP["acre"]) in tx and ("FY%d"%TAXEXP["fy"]) in tx and ("$%.4f"%TAXEXP["rate"]) in tx, tx[:300])
+    _fd=lambda v: ("$%.2f"%v) if v<100 else "$"+format(round(v),",")
+    check("taxpayers: the phased-bond scenario's added cost for a $150,000 home and per $100,000 of farmland", ("$%.2f a year"%TAXEXP["home"]) in tx and (_fd(TAXEXP["farm"])+" per $100,000 of assessed farmland") in tx and "an acre" not in tx and ("FY%d"%TAXEXP["fy"]) in tx and ("$%.4f"%TAXEXP["rate"]) in tx, tx[:300])
     await pg.locator("#cap-tax").screenshot(path=SHOTS+"/tax.png")
     # Phase 2E: table view and filters (phased scenario on screen)
     total_phases=sum(1 for p in TABLES["phase"] if p["scenario_id"]==_ph_sid)
@@ -276,8 +292,8 @@ async def main():
     names=await pg.locator("table.captable tbody tr td:nth-child(2)").all_inner_texts()
     check("filters: search as you type, without losing the search box", names and all("roof" in n.lower() for n in names) and await pg.evaluate("document.activeElement && document.activeElement.matches('[data-cap-filter=q]')"), str(names))
     async with pg.expect_download() as dl: await pg.click("button[data-action=capDownload]")
-    f=await dl.value; csvtext=open(await f.path(),encoding="utf-8").read()
-    check("table view: download the filtered table", csvtext.startswith("FY,Initiative,Phase,Priority") and csvtext.count("\n")==len(names)+1, csvtext[:120])
+    f=await dl.value; import openpyxl as _ox, io as _io; _ws=_ox.load_workbook(_io.BytesIO(open(await f.path(),"rb").read())).active; _rows=[[c.value for c in r] for r in _ws.iter_rows()]
+    check("table view: download the filtered table (Excel)", f.suggested_filename.endswith(".xlsx") and _rows[0][:4]==["FY","Initiative","Phase","Priority"] and len(_rows)==len(names)+1 and isinstance(_rows[1][0],int), str(_rows[:2]))
     await pg.click("a[data-action=capClearFilters]"); await pg.click("button[data-action=capView][data-v=cards]"); await pg.wait_for_timeout(300)
     await pg.select_option("select[data-cap-filter=fund]","ppel"); await pg.wait_for_timeout(300)
     check("filters: apply to the cards too", "Showing" in await pg.inner_text("#cap-years") and "Year totals still include everything" in await pg.inner_text("#cap-years"))
@@ -456,7 +472,7 @@ async def main():
     # switch district: admin is viewer in d2
     await pg.select_option("select[data-switch]","cottonwood-ridge"); await pg.wait_for_timeout(500)
     await pg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/people"); await pg.wait_for_timeout(400)
-    t=await pg.inner_text("#view"); check("viewer role hides invite form", "Invite someone" not in t and "Only a district admin" in t)
+    t=await pg.inner_text("#content"); check("viewer role: staff settings don't open at all", "Invite someone" not in t and "Not part of your view" in t, t[:200])
     await pg.goto("http://localhost:8765/#/d/no-such-district/overview/today"); await pg.wait_for_timeout(300)
     check("unknown district message", "don’t have access" in await pg.inner_text("body"))
     # uploads: projects (CSV), errors, Excel, balances, template
@@ -503,7 +519,12 @@ async def main():
     async with pg.expect_download() as dl:
       await pg.click("a[data-action=downloadTemplate][data-kind=projects]")
     d=await dl.value
-    check("upload: template downloads", d.suggested_filename=="highground-projects-template.csv")
+    check("upload: template downloads as Excel", d.suggested_filename=="highground-projects-template.xlsx")
+    await pg.select_option("select[data-upload-kind]","projects")
+    await pg.set_input_files("input[data-upload-file]",files=[{"name":"highground-projects-template.xlsx","mimeType":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","buffer":open(await d.path(),"rb").read()}]); await pg.wait_for_timeout(500)
+    t=await pg.inner_text("#upload-review")
+    check("upload: the Excel template uploads back as is", "4 projects, 5 phases" in t, t[:200])
+    await pg.click("button[data-action=cancelUpload]")
     # Phase 3A: monthly GL export
     GLCSV=subprocess.check_output(["node","-e","process.stdout.write(require('./uploads.js').toCSV(require('./gl.js').sampleExport()))"],cwd=os.path.dirname(os.path.abspath(__file__)))
     TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]
@@ -578,12 +599,12 @@ async def main():
       ok1=(sb["save_receipts"]==1420000 and sb["ppel_growth"]==0.035 and sb["construction_inflation"]==0.03 and sb["plan_start_fy"]==2027
            and sb["grants_yield"]==0.75 and sb["vppel_status"]=="active" and "merge-duplicates" in st[0][3])
     check("setup: saves settings with % converted and plan start derived", ok1, st[0][2][:200] if st else "no settings POST")
-    check("setup: tax estimate settings saved", st and json.loads(st[0][2])[0].get("tax_home_value")==150000 and json.loads(st[0][2])[0].get("ag_value_per_acre")==2400, st[0][2][-200:] if st else "")
+    check("setup: tax estimate settings saved (farmland is per $100,000, no per-acre field)", st and json.loads(st[0][2])[0].get("tax_home_value")==150000 and "ag_value_per_acre" not in json.loads(st[0][2])[0], st[0][2][-200:] if st else "")
     fbb=json.loads(fb[0][2]) if fb else []
     check("setup: saves all four balances for the date", len(fbb)==4 and all(x["as_of"]=="2026-07-01" for x in fbb) and next(x for x in fbb if x["fund"]=="save")["amount"]==2150000)
     check("setup: updates the existing debt and adds the new one", len(dp)==1 and len(di)==1 and json.loads(di[0][2])["fund"]=="ppel" and json.loads(di[0][2])["annual_payment"]==45000)
     await pg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/setup"); await pg.wait_for_timeout(500)
-    check("setup: read-only for a viewer", await pg.locator("form[data-form=saveSetup] button[type=submit]").count()==0 and await pg.is_disabled("input[name=save_receipts]"))
+    check("setup: a viewer can't open Starting numbers", await pg.locator("form[data-form=saveSetup]").count()==0 and "Not part of your view" in await pg.inner_text("#content"))
     # two-step sign-in: turning it on
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/account"); await pg.wait_for_timeout(400)
     await pg.click("button[data-action=mfaOn]"); await pg.wait_for_timeout(400)
@@ -1140,14 +1161,18 @@ async def main():
     check("all funds: what each fund may pay for, with a caution", "423F" in t and "298.3" in t and "not legal advice" in t)
     await pg.screenshot(path=SHOTS+"/funds.png",full_page=True)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/exports"); await pg.wait_for_timeout(500)
-    import csv, io as _io
+    import csv, io as _io, openpyxl as _ox
+    def xl2csv(path):   # the downloads are Excel now: turn the first sheet back into CSV text for the checks
+      out=_io.StringIO(); w=csv.writer(out, lineterminator="\r\n")
+      for r in _ox.load_workbook(_io.BytesIO(open(path,"rb").read())).active.iter_rows(values_only=True): w.writerow(["" if v is None else v for v in r])
+      return out.getvalue()
     async with pg.expect_download() as dl: await pg.click("button[data-action=exportProjects]")
-    f=await dl.value; text=open(await f.path(),encoding="utf-8").read()
+    f=await dl.value; text=xl2csv(await f.path())
     names={r["Project"] for r in csv.DictReader(_io.StringIO(text))}
     reparsed=json.loads(subprocess.run(["node","-e","const U=require('./uploads.js');let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const p=U.parseProjects(U.parseCSV(s),2027,10);process.stdout.write(JSON.stringify({n:p.projects.length,e:p.issues.filter(i=>i.l==='e').length}))})"],input=text,capture_output=True,text=True,cwd=os.path.dirname(os.path.abspath(__file__))).stdout)
     check("exports: projects file is a valid upload with every project", len(names)==16 and reparsed=={"n":16,"e":0} and f.suggested_filename.startswith("ironwood-valley-"), str(reparsed))
     async with pg.expect_download() as dl: await pg.click("button[data-action=exportPhases]")
-    f=await dl.value; prow=list(csv.DictReader(_io.StringIO(open(await f.path(),encoding="utf-8").read())))
+    f=await dl.value; prow=list(csv.DictReader(_io.StringIO(xl2csv(await f.path()))))
     check("exports: every scenario's phases in one sheet", len(prow)==EXP["phases"] and {r["Scenario"] for r in prow}=={"District baseline","Addition phased, bond in FY2030"}, str(len(prow)))
     async with pg.expect_download() as dl: await pg.click("button[data-action=exportBackup]")
     f=await dl.value; bk=json.load(open(await f.path()))
@@ -1201,7 +1226,7 @@ async def main():
     check("activity: who changed what, before and after", "Pat Admin" in t and "Project: Gym floor" in t and "focus area: Facilities → Activities" in t and "updated at" not in t)
     check("activity: someone outside the district shows as staff", "Willow Holler staff" in t and "Scenario: Plan B" in t)
     await pg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/activity"); await pg.wait_for_timeout(400)
-    check("activity: admins only", "Only a district admin" in await pg.inner_text("#view"))
+    check("activity: admins only (a viewer can't open it)", "Not part of your view" in await pg.inner_text("#content"))
     # help map
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(300)
     await pg.screenshot(path=SHOTS+"/help-built.png",full_page=True)
@@ -1233,6 +1258,15 @@ async def main():
     await pg.evaluate("localStorage.removeItem('highground-last-district')")
     await pg.fill("input[name=email]","staff@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
     check("staff land on the Willow Holler page", pg.url.endswith("#/staff"), pg.url)
+    import datetime as _dt
+    _now=_dt.datetime.now(_dt.timezone.utc)
+    TABLES["hg_health_run"]=[{"ran_at":(_now-_dt.timedelta(hours=2)).isoformat(),"status":"fail","n_ok":30,"n_warn":1,"n_fail":1,"emailed":True,
+      "checks":[{"area":"data","check":"Tax rates are current","status":"fail","detail":"latest FY2026"},{"area":"connections","check":"Census Bureau key works","status":"warn","detail":"no key"},{"area":"code","check":"Every calculation test passes","status":"ok","detail":"19 test files"}]},
+      {"ran_at":(_now-_dt.timedelta(days=1,hours=2)).isoformat(),"status":"ok","n_ok":32,"n_warn":0,"n_fail":0,"emailed":False,"checks":[]}]
+    await pg.goto("http://localhost:8765/#/staff?x=1"); await pg.goto("http://localhost:8765/#/staff"); await pg.wait_for_timeout(500)
+    ht=await pg.inner_text("[data-health]")
+    check("staff: System health shows the latest daily check, what failed, and that it was emailed", "Something is broken" in ht and "Tax rates are current" in ht and "latest FY2026" in ht and "emailed" in ht and await pg.locator("[data-health] .hdot").count()==2, ht[:300])
+    TABLES["hg_health_run"]=[]
     await pg.goto("http://localhost:8765/#/staff"); await pg.wait_for_timeout(400)
     await pg.fill("input[name=name]","Harvest Plains Community School District"); await pg.fill("input[name=slug]","harvest-plains"); await pg.check("input[name=is_demo]"); await pg.fill("input[name=admin_email]","Boss@Example.test")
     await pg.click("form[data-form=createDistrict] button"); await pg.wait_for_timeout(500)
@@ -1283,10 +1317,12 @@ async def main():
     check("wizard: full screen, three steps, starting with the Iowa number", "Find Ironwood Valley in the state’s data" in w and "1. Find the district" in w and "Exit setup" in w and await pg.locator(".rail").count()==0, w[:300])
     await pg.click("form[data-form=wizNumber] button[type=submit]"); await pg.wait_for_timeout(900)
     w=await pg.inner_text(".wiz")
-    check("wizard: step 2 has the state's figures filled in", pg.url.endswith("/welcome/start") and "Filled from the state’s annual report (FY2025)" in w and await pg.input_value("form[data-form=wizStart] [name=save_receipts]")!="" , pg.url+" "+w[:200])
+    check("wizard: step 2 has the state's figures filled in", pg.url.endswith("/welcome/start") and "Filled from the state’s annual report (FY2025)" in w and "Also filled in from the state’s data" in w and "General-obligation bonds of $295,000" in w and await pg.input_value("form[data-form=wizStart] [name=save_receipts]")!="" , pg.url+" "+w[:200])
     n0=len(calls); await pg.click("form[data-form=wizStart] button[type=submit]"); await pg.wait_for_timeout(900)
     saved=[c for c in calls[n0:] if c[0]=="POST" and "district_settings" in c[1]]
     check("wizard: step 2 saves the starting numbers (same rules as the full screen) and moves on", saved and pg.url.endswith("/welcome/gf") and not [c for c in calls[n0:] if c[0]=="DELETE"], pg.url)
+    wb=json.loads(saved[0][2])[0] if saved else {}
+    check("wizard: step 2 keeps what's already saved, carries the rest from the state's data, and doesn't blank fields it doesn't show", wb.get("taxable_valuation")==727273000 and wb.get("ppel_growth")==0.035 and wb.get("save_ongoing")==250000 and "go_outstanding" not in wb and "save_receipts" in wb, str(wb)[:600])
     await pg.wait_for_timeout(500)
     check("wizard: step 3 is the General Fund form, state figures filled in", await pg.locator("form[data-form=wizGf]").count()==1 and await pg.input_value("form[data-form=wizGf] [name=fund_balance]")=="2,250,000")
     n0=len(calls); await pg.click("form[data-form=wizGf] button[type=submit]"); await pg.wait_for_timeout(900)
@@ -1336,10 +1372,32 @@ async def main():
     check("starting numbers: once set up, the state's figures fold into a comparison", folded and "Compare with the state’s annual report" in await pg.inner_text("#view"))
     await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     stt=await pg.inner_text("[data-setup-state]")
-    check("starting numbers: the state's figures offered, with the PPEL rates and a voted PPEL", "From the state’s annual report" in stt and "voter-approved $1.340" in stt and "V-PPEL revenue, FY2025, voted share (estimated)" in stt, stt)
+    check("starting numbers: the state's figures offered, with the PPEL rates and a voted PPEL", "From the state’s data" in stt and "voter-approved $1.340" in stt and "V-PPEL revenue, FY2025, voted share (estimated)" in stt, stt)
     n1=len(calls); await pg.click("button[data-action=setupPrefill]"); await pg.wait_for_timeout(200)
     vals=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["as_of","bal_save","bal_ppel","enrollment","enrollment_year","save_receipts","save_receipts_fy","ppel_receipts","ppel_rate","vppel_status","vppel_annual"]]
-    check("starting numbers: Fill in sets the form, nothing saved", vals==["2025-06-30","1,900,000","640,000","1188","2025-26","1,450,000","2025","102,754","0.33","active","417,246"] and not [c for c in calls[n1:] if c[0] in("POST","PATCH")], str(vals))
+    check("starting numbers: Fill in sets the form, nothing saved (PPEL balance split by the two rates)", vals==["2025-06-30","1,900,000","126,467","1188","2025-26","1,450,000","2025","102,754","0.33","active","417,246"] and not [c for c in calls[n1:] if c[0] in("POST","PATCH")], str(vals))
+    more=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["bal_vppel","taxable_valuation","actual_valuation","ppel_growth","save_trend","save_ongoing","ppel_ongoing","grants_avg","vppel_first_fy","vppel_last_fy"]]
+    check("starting numbers: Fill in also sets valuations, growth, SAVE trend, ongoing spending, grants (5 years) and the V-PPEL years", more==["513,533","727,000,000","1,250,000,000","3.1","2.77","180,000","95,000","46,000","2022","2031"], str(more))
+    dfunds=await pg.evaluate("[...document.querySelectorAll('form[data-form=saveSetup] [data-debt-body] [data-debt-row]')].map(tr=>tr.querySelector('[name=debt_fund]').value+':'+tr.querySelector('[name=debt_annual]').value)")
+    check("starting numbers: debt payments from the annual report fill funds that have no row yet", dfunds.count("debt_levy:295,000")==1 and sum(1 for x in dfunds if x.startswith("save:"))>=1, str(dfunds))
+    stt2=await pg.inner_text("[data-setup-state]")
+    await pg.locator("[data-setup-state]").screenshot(path=SHOTS+"/setup-state.png")
+    check("starting numbers: the comparison lists the new state figures", "Taxable valuation, FY2027" in stt2 and "Ongoing SAVE spending a year" in stt2 and "Gifts and grants to the capital funds" in stt2 and "Voter-approved PPEL levied since" in stt2, stt2[-900:])
+    await pg.select_option("select[data-grant-years]","3"); await pg.click("button[data-action=setupPrefill]"); await pg.wait_for_timeout(200)
+    check("starting numbers: a 3-year grants average when chosen", await pg.input_value("form[data-form=saveSetup] [name=grants_avg]")=="60,000")
+    hv=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["tax_home_value","construction_inflation"]]
+    check("starting numbers: the example home is the district's median home value (Census) and construction inflation comes from school construction prices (BLS)", hv==["187,000","4.94"], str(hv))
+    await pg.click("[data-setup-state] button.defn[data-term=sources]"); await pg.wait_for_timeout(300)
+    tt=await pg.inner_text("#toasts")
+    check("the “?” by the state's figures names the public sources", "Where these figures come from" in tt and "U.S. Census Bureau" in tt and "Iowa Department of Management" in tt, tt[-500:])
+    await pg.wait_for_timeout(9000)
+    check("a definition stays until it's closed (no timing out mid-read)", "Where these figures come from" in await pg.inner_text("#toasts"))
+    await pg.click("#toasts .toast.defn .toast-x"); await pg.wait_for_timeout(200)
+    check("…and closes with its ×", await pg.locator("#toasts .toast.defn").count()==0)
+    await pg.click("button[data-action=openHelp]"); await pg.wait_for_timeout(300)
+    hm=await pg.inner_text("[data-modal]")
+    check("Help on Starting numbers lists where the starting figures come from", "Where the starting figures come from" in hm and "U.S. Bureau of Labor Statistics" in hm and "Certified Annual Report" in hm, hm[:400])
+    await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(200)
     await pg.select_option("form[data-form=saveSetup] select[name=vppel_status]","none"); await pg.wait_for_timeout(200)
     check("starting numbers: warns when the state lists a voted PPEL but V-PPEL is None", "voter-approved PPEL of $1.340" in await pg.inner_text("[data-setup-checks]"))
     await pg.click("button[data-action=gfFromState]"); await pg.wait_for_timeout(1200)
@@ -1347,9 +1405,18 @@ async def main():
     await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(200)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/general"); await pg.wait_for_timeout(600)
     await pg.click("button[data-action=gfEdit]"); await pg.wait_for_timeout(700)
-    check("General Fund setup: the state's figures offered", "From the state’s annual report (FY2025)" in await pg.inner_text("[data-gf-state]"))
+    gst=await pg.inner_text("[data-gf-state]")
+    check("General Fund setup: the state's figures offered (budget-year formula, unspent, salaries)", "From the state’s data" in gst and "budget enrollment 1,190.2 for FY2027" in gst and "district cost per pupil $8,148" in gst and "should add up to about" in gst, gst)
     await pg.click("button[data-action=gfPrefill]"); await pg.wait_for_timeout(200)
-    check("General Fund setup: Fill these in", await pg.input_value("form[data-form=saveGf] [name=fund_balance]")=="2,250,000" and await pg.input_value("form[data-form=saveGf] [name=aea_flowthrough]")=="410,000")
+    gv=[await pg.input_value(f"form[data-form=saveGf] [name={n}]") for n in ["fund_balance","aea_flowthrough","enrollment","dcpp","other_formula","misc_income","misc_growth","unspent","nonstaff"]]
+    check("General Fund setup: Fill these in", gv==["2,250,000","410,000","1190.2","8,148","3,802,250","1,900,000","2.1","2,100,000","3,300,000"] and all(v=="30" for v in await pg.eval_on_selector_all("form[data-form=saveGf] [name=s_benefits]","els=>els.map(e=>e.value)")), str(gv))
+    roster=b"Position,Group,FTE,Annual salary,District health insurance contribution (annual)\r\nA,Teachers,1,52000,13200\r\nB,teachers,0.5,26000,0\r\nC,Paraeducators,1,27000,9600\r\nD,,1,1,1\r\n"
+    await pg.set_input_files("input[data-gf-roster]",files=[{"name":"staff.csv","mimeType":"text/csv","buffer":roster}]); await pg.wait_for_timeout(500)
+    srows=await pg.evaluate("[...document.querySelectorAll('form[data-form=saveGf] [data-gf-staff]')].map(tr=>['s_name','s_fte','s_salary','s_benefits','s_health'].map(n=>tr.querySelector('[name='+n+']').value).join('|'))")
+    check("General Fund setup: a staff list fills the groups, averaged per FTE", srows==["Teachers|1.5|52,000|30|8,800","Paraeducators|1|27,000|30|9,600"] and "Read 3 people in 2 groups" in await pg.inner_text("[data-gf-roster-note]") and "no group" in await pg.inner_text("[data-gf-roster-note]"), str(srows))
+    await pg.locator("[data-modal] .modal").screenshot(path=SHOTS+"/gf-filled.png")
+    async with pg.expect_download() as dl: await pg.click("a[data-action=gfRosterTemplate]")
+    check("General Fund setup: the staff list template is an Excel file", (await dl.value).suggested_filename=="highground-staff-list-template.xlsx")
     await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(200)
     # check registers: upload two months, review, apply, then the questions
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pg.wait_for_timeout(600)
@@ -1412,18 +1479,33 @@ async def main():
     check("board member: no editing notices", "Copy it to try changes" not in await pp.inner_text("#view"))
     check("board member: the capital plan leads with the answer, details folded away", "of projects over 10 years" in await pp.inner_text("#cap-lead") and folds and not any(folds), str(folds))
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/account"); await pp.wait_for_timeout(500)
-    await pp.check("input[data-show-all]"); await pp.wait_for_timeout(600)
-    m2=[x.strip() for x in await menu(pp)]
-    check("show every screen: the full menu comes back", "Decisions" in m2 and "Progress" in m2, str(m2))
-    await pp.uncheck("input[data-show-all]"); await pp.wait_for_timeout(500)
+    check("board member: no “show every screen” option", await pp.locator("input[data-show-all]").count()==0)
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pp.wait_for_timeout(500)
-    check("a direct link to a screen outside the menu still opens", "Decisions" in await pp.inner_text("h1"))
+    check("board member: typing a staff screen's address doesn't open it", "Not part of your view" in await pp.inner_text("#content") and await pp.locator("#view").count()==0)
+    # every screen a board member can open: no links to screens they can't
+    bad=[]
+    for path in ["overview/today","direction/priorities","direction/measures","resources/summary","resources/general","resources/capital","reports/board","settings/account","help/guide"]:
+      await pp.goto("http://localhost:8765/#/d/ironwood-valley/reports/board"); await pp.wait_for_timeout(150)
+      await pp.goto("http://localhost:8765/#/d/ironwood-valley/"+path); await pp.wait_for_timeout(700)
+      hrefs=await pp.evaluate("[...document.querySelectorAll('#view a[href^=\"#/d/\"]')].map(a=>a.getAttribute('href'))")
+      bad+=[path+" → "+h for h in hrefs if h.split("/")[3] in ("decisions","progress","settings") and not h.endswith("/settings/account")]
+    check("board member: no links to Decisions, Progress or staff settings anywhere they can go", not bad, str(bad))
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/direction/priorities"); await pp.wait_for_timeout(700)
+    check("board member: Priorities doesn't show the planners' to-do about unlinked initiatives", "linked to a priority yet" not in await pp.inner_text("#view"))
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/help/guide"); await pp.wait_for_timeout(500)
     g=await pp.inner_text("#view")
     check("guide: where to start for a board member, how-to, and the glossary", "open the latest board report" in g and "How do I" in g and "Solvency ratio" in g and "Encumbered" in g and "hello@willowholler.com" in g, g[:300])
     check("guide: no “What’s built” tab for districts", "What’s built" not in await pp.inner_text("nav.tabs") if await pp.locator("nav.tabs").count() else True)
     await cx.close()
     cx,pp=await session("bm@example.test")
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/account"); await pp.wait_for_timeout(500)
+    await pp.check("input[data-show-all]"); await pp.wait_for_timeout(600)
+    m2=[x.strip() for x in await menu(pp)]
+    check("show every screen (staff roles): the full menu comes back", "Decisions" in m2 and "Progress" in m2, str(m2))
+    await pp.uncheck("input[data-show-all]"); await pp.wait_for_timeout(500)
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pp.wait_for_timeout(500)
+    check("staff roles: a direct link to a screen outside the menu still opens", "Decisions" in await pp.inner_text("h1"))
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(700)
     m=[x.strip() for x in await menu(pp)]
     check("business manager: lands on Overview; menu for the monthly close", "/overview/today" in pp.url and m==["Overview","Direction","Resources","Progress","Reports"], str(m)+pp.url)
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/progress/uploads"); await pp.wait_for_timeout(500)
@@ -1438,10 +1520,10 @@ async def main():
     await cx.close()
     cx,pp=await session("viewer@example.test")
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/progress/registers"); await pp.wait_for_timeout(700)
-    t=await pp.inner_text("#view")
-    check("viewer: reads register questions, cannot answer or change settings", "Waiting for the business office" in t and await pp.locator("[data-action=regAnswer], [data-reg-threshold]").count()==0, t[:300])
+    t=await pp.inner_text("#content")
+    check("viewer: the check register is a staff screen (doesn't open)", "Not part of your view" in t and await pp.locator("[data-action=regAnswer], [data-reg-threshold]").count()==0, t[:300])
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/district"); await pp.wait_for_timeout(500)
-    check("viewer: cannot change the Iowa district number", await pp.locator("input[name=state_district_id][disabled]").count()==1 and await pp.locator("[data-ia-q]").count()==0)
+    check("viewer: cannot change the Iowa district number (district settings don't open)", await pp.locator("input[name=state_district_id]").count()==0 and await pp.locator("[data-ia-q]").count()==0 and "Not part of your view" in await pp.inner_text("#content"))
     await cx.close()
     cx,pp=await session("sup@example.test")
     m=[x.strip() for x in await menu(pp)]

@@ -64,6 +64,11 @@ Applying a monthly GL upload replaces the earlier upload for the same month and 
 | benchmark_flaggable, benchmark_rule | Which measures can get a callout, and the thresholds (a district can have its own) |
 | district_peer | Hand-picked peer districts (none = districts the same size) |
 | ia_levy_rate | Each district's property tax rates by year (Department of Management), including regular and voter-approved PPEL (part 17) |
+| ia_valuation | Taxable and 100% valuations by district and year, with TIF; farmland and homes on their own (part 19) |
+| ia_aid_levy | Each district's Aid and Levy worksheet lines by year, as jsonb (part 19) |
+| ia_unspent | Spending authority, miscellaneous income and unspent balance by district and year (part 19) |
+| ia_home_value | Median value of owner-occupied homes by district (Census Bureau ACS 5-year), for the tax example (part 19) |
+| ia_reference | Outside reference figures, e.g. construction inflation from the BLS school construction price index (part 19) |
 
 `district.state_district_id` links a HighGround district to its Iowa district number. Signed-in users can read the state data; anonymous visitors can't.
 

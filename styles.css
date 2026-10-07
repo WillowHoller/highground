@@ -112,6 +112,10 @@ form.stack{max-width:420px}
 .toast.error{border-left-color:var(--gap)}
 .toast.notbuilt{border-left-color:var(--caution);background:var(--caution-bg)}
 .toast b{display:block;margin-bottom:2px}
+.toast{position:relative;padding-right:34px}
+.toast-x{position:absolute;top:6px;right:6px;width:28px;height:28px;border:0;background:transparent;font-size:20px;line-height:1;color:var(--muted);cursor:pointer;border-radius:6px}
+.toast-x:hover{background:var(--page);color:var(--text)}
+.toast.defn{border-left-color:var(--rail);font-size:15px;line-height:1.5}
 
 .demo-bar{background:#FBF5E6;border-bottom:1px solid var(--gold);color:#6B5A1E;font-size:13px;padding:6px 32px}
 
@@ -389,3 +393,6 @@ input.rankpos{width:46px;height:32px;border:1px solid var(--border);border-radiu
 .wiz-card .fgrid{display:grid;gap:12px 16px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));align-items:start}
 .wiz-card table.debt input,.wiz-card table.debt select{height:34px;border:1px solid var(--border);border-radius:6px;padding:0 8px;background:#fff;width:100%;min-width:90px}
 .wiz-card form.stack{max-width:none}
+.hdot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:3px;vertical-align:middle;background:var(--live)}
+.hdot.warn{background:var(--caution)}
+.hdot.fail{background:var(--gap)}

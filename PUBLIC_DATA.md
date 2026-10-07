@@ -15,6 +15,19 @@
 
 5. **Levy rates.** `loader/load_iowa_levy.py` reads the Department of Management's "School Tax Rates, FY ____" files (FY2019 on) into `ia_levy_rate` (part 17). It runs in the same monthly workflow. `ia_levy(state number)` returns a district's latest rates, including **voter-approved PPEL** and regular PPEL.
 
+6. **Valuations, Aid and Levy, unspent balances.** `loader/load_iowa_dom.py` reads three Department of Management sources (part 19):
+   - "School District Assessed & Taxable Valuations by Class" (FY2023 on) into `ia_valuation`: taxable and 100% valuation with TIF and utilities, farmland and homes on their own;
+   - "Aid and Levy, Tax Certification, and Program Summary" (FY2018 on) into `ia_aid_levy`: every worksheet line (L101 budget enrollment, L203 district cost per pupil, L519 combined district cost …);
+   - the "Unspent Authorized Budget Report" (FY2015 on) into `ia_unspent`.
+
+   `ia_prefill_more(state number)` combines these with the annual reports: valuation growth, the district's own rollbacks, the General Fund formula figures, the unspent balance and miscellaneous income, the SAVE trend, ongoing SAVE and PPEL spending (3-year average leaving out construction, debt and transfers), debt payments, gifts and grants to the capital funds by year, General Fund salaries and benefits, and the year the V-PPEL started.
+
+7. **Construction prices and home values.** `loader/load_reference.py` (part 19):
+   - the U.S. Bureau of Labor Statistics producer price index for new school building construction (series PCU236222236222, public API, no key) → `ia_reference` key `construction_inflation`: the yearly rise over the last three years;
+   - the U.S. Census Bureau's American Community Survey 5-year median value of owner-occupied homes (B25077) for every Iowa unified school district → `ia_home_value`. This needs a free Census API key in the `CENSUS_API_KEY` GitHub secret; without it the step says so and skips. Census names are matched to `ia_district` by name; any that don't match are listed in the log (add them to `ALIASES`).
+
+   Either part failing (a busy service) is logged and skipped; it never fails the monthly run.
+
 ## In the app
 
 - **Settings → District** (admins): the **Iowa district number**, with "Find" to look it up by name (`ia_district_search`). Saved as `district.state_district_id`. Everything below needs it.
@@ -25,7 +38,10 @@
 
   Nothing shows when nothing is unusual. The year is the latest Actual year in the state data. Code: `peers.js`.
 - **Overview → Needs attention**: one line when numbers stand out, and one when register questions are open.
-- **Settings → Starting numbers** and **General Fund starting figures**: "From the state's annual report" with a **Fill in** button. Nothing is saved until the person clicks Save.
+- **Settings → Starting numbers** and **General Fund starting figures**: "From the state's data" with a **Fill in** button. Nothing is saved until the person clicks Save. The guided setup uses the same figures.
+  - Starting numbers also fills: valuations and their growth, the SAVE trend, ongoing SAVE/PPEL spending, the grants average (3, 5 or 10 years, chosen on the card), the V-PPEL balance (split by the two rates) and its first year (last year assumed 10 years later), and debt rows for funds with payments in the annual report (the final year still has to be added).
+  - General Fund starting figures also fills: budget enrollment, district cost per pupil and other formula funding (Aid and Levy), miscellaneous income and its growth and the unspent balance (Unspent Authorized Budget), other spending and benefits % (annual report). It shows General Fund salaries by kind as a check.
+  - **Fill from a staff list**: an Excel or CSV export from payroll (Group, FTE, Annual salary, district health insurance) becomes the staff groups, averaged per FTE. Template: `HGGF.ROSTER_TEMPLATE`.
   - The card shows the PPEL rates. When the state lists a voter-approved PPEL, Fill in sets V-PPEL to Active.
   - The annual report has one PPEL fund for both levies. Fill in splits its revenue between PPEL and V-PPEL by the two rates. That split is an estimate, and the card says so.
   - The setup checks warn when the state's levy file and the V-PPEL setting disagree.

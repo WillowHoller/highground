@@ -1,9 +1,9 @@
--- HighGround — structure check. Run after setting up (01–16). Changes nothing. Every row should say PASS.
+-- HighGround — structure check. Run after setting up (01–20). Changes nothing. Every row should say PASS.
 with t as (
   select c.relname, c.relrowsecurity
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public' and c.relkind = 'r'
-  -- HighGround's own 36 tables; state data, peer comparisons and check registers (parts 15-17) are counted in test 10
+  -- HighGround's own 37 tables (including the health-check log, part 20); state data, peer comparisons and check registers (parts 15-19) are counted in test 10
     and c.relname not like 'ia\_%' and c.relname not like 'register\_%'
     and c.relname not in ('benchmark_rule','benchmark_flaggable','district_peer','vendor_note')
 ), t_all as (
@@ -18,8 +18,8 @@ with t as (
   where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')
     and p.proname <> 'public_publication'
 )
-select 1 as n, 'All 36 tables exist' as test,
-       case when count(*) = 36 then 'PASS' else 'FAIL' end as result, count(*)::text || ' tables' as detail
+select 1 as n, 'All 37 tables exist' as test,
+       case when count(*) = 37 then 'PASS' else 'FAIL' end as result, count(*)::text || ' tables' as detail
   from t
 union all
 select 2, 'Every table has row level security on',
@@ -56,8 +56,8 @@ select 9, 'Iowa rule values loaded',
        case when count(*) >= 18 then 'PASS' else 'FAIL' end, count(*)::text || ' values'
   from public.rule_value where state = 'IA'
 union all
-select 10, 'State data, peer comparisons and check register tables (parts 15-17)',
-       case when count(*) = 16 then 'PASS' else 'FAIL' end, count(*)::text || ' of 16 tables'
+select 10, 'State data, peer comparisons and check register tables (parts 15-19)',
+       case when count(*) = 21 then 'PASS' else 'FAIL' end, count(*)::text || ' of 21 tables'
   from t_all where relname like 'ia\_%' or relname like 'register\_%'
                 or relname in ('benchmark_rule','benchmark_flaggable','district_peer','vendor_note')
 order by n;
