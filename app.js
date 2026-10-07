@@ -377,7 +377,7 @@
             ${f('vppel_annual', 'V-PPEL receipts, $', m(val(s0.vppel_annual, sp.voted)))}${f('vppel_first_fy', 'First fiscal year', s0.vppel_first_fy || sv.vppel_first_fy || '', sv.vppel_first_fy && !s0.vppel_first_fy ? 'The first year the state’s levy files show it' : '')}${f('vppel_last_fy', 'Last fiscal year', s0.vppel_last_fy || sv.vppel_last_fy || '', sv.vppel_last_fy && !s0.vppel_last_fy ? 'Assumed: 10 years, the most a vote allows. Check the ballot measure.' : 'From the ballot measure')}</div>
           <h3>Enrollment</h3><div class="fgrid">${f('enrollment', 'Certified enrollment', val(s0.enrollment, le.certified == null ? '' : Math.round(Number(le.certified))))}${f('enrollment_year', 'Enrollment year', val(s0.enrollment_year, le.fiscal_year ? schoolYear(le.fiscal_year) : ''))}</div>
           ${hiddenState.map(([n, v]) => `<input type="hidden" name="${n}" value="${esc(v)}">`).join('')}
-          ${SF.list.length ? `<div class="notice ok small"><b>Also filled in from the state’s data</b> ${def('sources')} (change them later in Settings → Starting numbers):<ul>${SF.list.filter(([l]) => !/payments|paid in/i.test(l)).map(([l, v]) => `<li>${esc(l)}: ${esc(v)}</li>`).join('')}</ul></div>` : ''}
+          ${SF.list.length ? `<div class="notice ok small"><b>Also filled in from the state’s data</b> ${def('sources')} (change them later in Settings → Starting numbers):<ul>${SF.list.filter(([l]) => !/payments|paid in/i.test(l)).map(([l, v]) => `<li>${esc(l)}: ${esc(v)}</li>`).join('')}</ul>${st && st.more && st.more.home_value ? `<span class="muted">${CENSUS_NOTICE}</span>` : ''}</div>` : ''}
           <h3>Existing debt paid from SAVE or PPEL</h3>
           <p class="small muted">Revenue bonds and leases already committed. You can add more later in Settings → Starting numbers.</p>
           <div class="scroll"><table class="data debt"><thead><tr><th>Obligation</th><th>Paid from</th><th>Payment per year, $</th><th>Final fiscal year</th><th></th></tr></thead><tbody data-debt-body>${wizDebtRow()}</tbody></table></div>
@@ -3372,7 +3372,7 @@
     measure_status: ['Measure status', 'On track: at or ahead of a straight path from the starting point to the target. Off track: behind it. Met: the target is reached. Update owed: no result within the measure’s schedule.'],
     fiscal_year: ['Fiscal year', 'July 1 to June 30, named for the year it ends: FY2027 runs from July 2026 to June 2027.'],
     turnover: ['Turnover savings', 'When experienced staff leave and newer staff join on lower pay, total salaries grow a little slower than the settlement.'],
-    sources: ['Where these figures come from', 'Public reports only: the district’s own Certified Annual Report and certified enrollment (Iowa Department of Education); tax rates, valuations, the Aid and Levy worksheet and the unspent balance report (Iowa Department of Management); median home values (U.S. Census Bureau); and school construction prices (U.S. Bureau of Labor Statistics). They’re refreshed monthly. They’re starting points: change any of them, and nothing is used until you save.'],
+    sources: ['Where these figures come from', 'Public reports only: the district’s own Certified Annual Report and certified enrollment (Iowa Department of Education); tax rates, valuations, the Aid and Levy worksheet and the unspent balance report (Iowa Department of Management); median home values (U.S. Census Bureau); and school construction prices (U.S. Bureau of Labor Statistics). They’re refreshed monthly. They’re starting points: change any of them, and nothing is used until you save. This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau.'],
   };
   /** the public sources behind every pre-filled figure, for the Help panel on setup screens */
   const SOURCES = [
@@ -3383,7 +3383,9 @@
   ];
   const sourcesHtml = () => `<h3>Where the starting figures come from</h3><p class="small">Every figure HighGround fills in comes from a public report the district already files or a public agency publishes. They’re refreshed monthly and are starting points: change any of them, and nothing is used until you save.</p>
     <dl class="terms">${SOURCES.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl>
-    <p class="small muted">Planning assumptions with no public source (health insurance growth, settlements, turnover) start from typical recent Iowa figures and are yours to set.</p>`;
+    <p class="small muted">Planning assumptions with no public source (health insurance growth, settlements, turnover) start from typical recent Iowa figures and are yours to set.</p>
+    <p class="small"><b>${CENSUS_NOTICE}</b></p>`;
+  const CENSUS_NOTICE = 'This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau.';
   /** a small “?” beside a term; tapping it shows the definition */
   const def = (key) => (TERMS[key] ? `<button type="button" class="defn" data-action="define" data-term="${key}" aria-label="${key === 'sources' ? esc(TERMS[key][0]) : `What is ${esc(TERMS[key][0])}?`}">?</button>` : '');
   async function vGuide(c) {
@@ -3413,6 +3415,7 @@
       <div class="card"><h3>How do I…</h3><table class="data"><tbody>${tasks.map(([q, a]) => `<tr><td>${esc(q)}</td><td class="small">${esc(a)}</td></tr>`).join('')}</tbody></table></div>
       <div class="card"><h3>What the terms mean</h3><dl class="glossary">${Object.values(TERMS).sort((x, y) => x[0].localeCompare(y[0])).map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl>
         <p class="small muted">Iowa figures were checked on ${esc(day(HGGF.RULES.checked))}. HighGround is a planning tool; confirm decisions with the district’s auditor, attorney or financial advisor.</p></div>
+      <div class="card">${sourcesHtml()}</div>
       <div class="card"><h3>Questions</h3><p>Email <a href="mailto:hello@willowholler.com">hello@willowholler.com</a>.</p></div>`;
   }
   async function vBuilt() {
@@ -3610,7 +3613,8 @@
           <div class="row">${hasForm ? `<button type="button" class="btn" data-action="setupPrefill">${setUp ? 'Replace the form’s figures with the state’s' : 'Fill in the form with these'}</button>` : ''}${gfb != null && setUp ? '<button type="button" class="btn" data-action="gfFromState">Use in the General Fund setup</button>' : ''}<span class="small muted">Nothing is saved until you click Save.</span></div>
           ${lv && Number(lv.voted_ppel) > 0 ? `<p class="small">The state lists a <b>voter-approved PPEL</b> for FY${esc(lv.fiscal_year)}. Filling in sets V-PPEL to Active and splits the annual report’s PPEL revenue between PPEL and V-PPEL by the two rates. Add the vote’s first and last fiscal years from the ballot measure.</p>` : ''}
           <p class="small muted">${esc([st.source, lv && lv.source, M.valuation && M.valuation.source, M.car && M.car.source].filter(Boolean).join('. '))}.
-            Ongoing spending is an estimate: the average of the last three years of SAVE or PPEL spending, leaving out construction, debt payments and transfers.</p></div>`;
+            Ongoing spending is an estimate: the average of the last three years of SAVE or PPEL spending, leaving out construction, debt payments and transfers.</p>
+          ${M.home_value ? `<p class="small"><b>${CENSUS_NOTICE}</b></p>` : ''}</div>`;
         return setUp ? fold(c, `Compare with the state’s annual report${nDiff ? ` · ${nDiff} figure${nDiff === 1 ? '' : 's'} differ` : ''}`, body, false) : body; })()
       : c.finance && !c.district.state_district_id ? `<p class="small muted">${c.admin ? `Add the district’s Iowa district number in <a href="#/d/${enc(c.district.slug)}/settings/district">Settings → District</a> to fill these from the state’s annual report.` : 'Once an admin adds the district’s Iowa district number, these can be filled from the state’s annual report.'}</p>` : ''}
       <form class="stack setup" data-form="saveSetup" novalidate>
