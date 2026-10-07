@@ -13,13 +13,18 @@ on:
 jobs:
   load:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Install psql
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-      - name: Load expenditures and revenues
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install psql and openpyxl
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          python -m pip install --quiet openpyxl
+      - name: Load state annual reports and enrollment (FY2019 on)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python3 loader/load_iowa_datahub.py ${{ inputs.force && '--force' || '' }}
+          python loader/load_iowa_car.py ${{ inputs.force && '--force' || '' }}
