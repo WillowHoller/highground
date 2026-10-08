@@ -240,13 +240,13 @@ async def main():
     # every tab
     tabs=await pg.evaluate("""()=>{const out=[];document.querySelectorAll('.rail a[href^="#/d/"]').forEach(a=>out.push(a.getAttribute('href')));return out}""")
     visited=0; bad=[]
-    secs=["overview/today","direction/priorities","direction/measures","direction/community","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","resources/funds","resources/capital","resources/assumptions","progress/initiatives","progress/measures","progress/actuals","progress/uploads","reports/board","reports/community","reports/exports","settings/district","settings/people","settings/account","help/built"]
+    secs=["overview/today","direction/priorities","direction/measures","direction/community","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","resources/funds","resources/capital","resources/assumptions","progress/initiatives","progress/measures","progress/actuals","progress/uploads","reports/board","reports/plans","reports/community","reports/exports","settings/district","settings/people","settings/account","help/guide"]
     for s in secs:
       await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+s); await pg.wait_for_timeout(250)
       v=await pg.inner_text("#view"); visited+=1
       if "couldn’t load" in v or "Loading" in v: bad.append(s+": "+v[:80])
       if s in("resources/capital","settings/people","progress/uploads","resources/funds"): await pg.screenshot(path=SHOTS+"/"+s.replace("/","-")+".png",full_page=True)
-    check("all 23 screens render", visited==23 and not bad, "; ".join(bad))
+    check("all 24 screens render", visited==24 and not bad, "; ".join(bad))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(900); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view"); check("latest balance only", "$2,150,000" in t and "$1\n" not in t)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/capital"); await pg.wait_for_timeout(500)
@@ -876,7 +876,7 @@ async def main():
       if(!/(auto|scroll)/.test(cs.overflowY)||el.matches('.modal-back'))return false; return el.scrollHeight>el.clientHeight;}).map(el=>el.className||el.tagName).slice(0,5)"""
     stray={}
     for route in ["overview/today","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/capital","resources/funds","resources/assumptions",
-                  "progress/initiatives","progress/actuals","progress/uploads","reports/exports","reports/community","settings/setup","settings/people","settings/activity","help/built"]:
+                  "progress/initiatives","progress/actuals","progress/uploads","reports/exports","reports/community","settings/setup","settings/people","settings/activity","help/guide"]:
       await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+route); await pg.wait_for_timeout(450)
       found=await pg.evaluate(stray_js)
       if found: stray[route]=found
@@ -968,6 +968,58 @@ async def main():
     await pg.reload(); await pg.wait_for_timeout(800)
     t=await pg.inner_text("#view")
     check("priorities: each with outcomes, measures and their status, and initiatives serving it", "Every graduate ready for what’s next" in t and "Career and technical pathways" in t and "On track" in t and "Off track" in t and "Secure entrances — three buildings" in t, t[:500])
+    # Reports → Plans: one plan, three views
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/plans"); await pg.wait_for_timeout(900)
+    t=await pg.inner_text("#view")
+    check("plans: the full plan, with goals, initiatives by status, schedule and capital funds", "District improvement plan" in t and "approved initiative" in t and "Goals" in t and "Every graduate ready for what’s next" in t and "Capital funds, FY" in t and "Totals count approved work only" in t, t[:900])
+    check("plans: approved only by default (no proposals listed)", "Proposed, not yet approved by the board" not in t)
+    await pg.select_option("select[data-plan-items]","all"); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#view")
+    npend=len([i for i in TABLES["initiative"] if (i.get("status") or "proposed") in ("idea","proposed","analysis")])
+    check("plans: all items shows proposals, labelled and not counted, and the schedule by year", (("Proposed, not yet approved by the board" in t) and "not counted" in t and "Schedule by year" in t and "(proposed)" in t) if npend else True, f"{npend} pending; "+t[:400])
+    await pg.click("button[data-action=planView][data-v=capital]"); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#view")
+    check("plans: the capital improvement plan has capital work and the funding picture, no goals", "Capital improvement plan" in t and "Capital funds, FY" in t and "Coming in" in t and "\nGoals\n" not in t, t[:600])
+    async with pg.expect_download() as dl: await pg.click("button[data-action=planXlsx]")
+    f=await dl.value
+    import openpyxl as _ox2, io as _io2
+    wb=_ox2.load_workbook(_io2.BytesIO(open(await f.path(),"rb").read())).active; hdr=[c.value for c in wb[1]]
+    check("plans: Excel in the district's columns", f.suggested_filename.startswith("ironwood-valley-capital-improvement-plan-") and hdr[:3]==["Status","Initiative","Anticipated completion"] and "Funding source" in hdr and wb.max_row>1, str(hdr))
+    await pg.click("button[data-action=planView][data-v=csip]"); await pg.wait_for_timeout(600)
+    check("plans: academic goals view explains how to tag CSIP goals", "No priorities are tagged as CSIP goals yet" in await pg.inner_text("#view"))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/priorities"); await pg.wait_for_timeout(700)
+    pid=TABLES["priority"][0]["id"]
+    await pg.click(f"button[data-action=editPriority][data-id='{pid}']"); await pg.wait_for_timeout(300)
+    await pg.check("[data-modal] input[name=csip_goal]")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(700)
+    up=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and c[1].split("?")[0]=="/rest/v1/priority"]
+    check("priorities: tagged as a state CSIP goal", up and up[0].get("csip_goal") is True, str(up)[:200])
+    for p0 in TABLES["priority"]:
+      if p0["id"]==pid: p0["csip_goal"]=True
+    await pg.reload(); await pg.wait_for_timeout(700)
+    check("priorities: the CSIP badge shows", "CSIP goal" in await pg.inner_text("#view"))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/plans"); await pg.wait_for_timeout(800)
+    await pg.click("button[data-action=planView][data-v=csip]"); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#view")
+    check("plans: the academic goals view shows the CSIP goal with its measures", "Academic goals (CSIP)" in t and TABLES["priority"][0]["name"] in t and "filed with the Department of Education in CASA" in t, t[:700])
+    TABLES.setdefault("report_snapshot",[])
+    n0=len(calls); await pg.click("button[data-action=planSave]"); await pg.wait_for_timeout(700)
+    sv=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/report_snapshot"]
+    check("plans: a version is saved exactly as shown", sv and sv[0]["kind"]=="improvement_plan" and sv[0]["payload"]["plan"]["view"]=="csip" and "Academic goals (CSIP)" in sv[0]["title"], str(sv)[:300])
+    await pg.wait_for_timeout(300)
+    if "Saved versions" in await pg.inner_text("#view"):
+      await pg.click("a[data-action=planOpen] >> nth=0"); await pg.wait_for_timeout(500)
+      check("plans: a saved version opens as it was", "Back to the live plan" in await pg.inner_text("#view") and "saved" in await pg.inner_text("#view"))
+      await pg.click("button[data-action=planBack]"); await pg.wait_for_timeout(500)
+    await pg.click("button[data-action=planView][data-v=full]"); await pg.wait_for_timeout(500)
+    await pg.fill("form[data-form=savePlanName] input[name=plan_name]","Comprehensive improvement plan")
+    n0=len(calls); await pg.click("form[data-form=savePlanName] button[type=submit]"); await pg.wait_for_timeout(700)
+    pn=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and c[1].split("?")[0]=="/rest/v1/district_settings"]
+    check("plans: the district names its full plan", pn and pn[0].get("plan_name")=="Comprehensive improvement plan", str(pn)[:200])
+    for st0 in TABLES.get("district_settings",[]): st0["plan_name"]="Comprehensive improvement plan"
+    await pg.reload(); await pg.wait_for_timeout(800)
+    check("plans: the full plan carries the district's name", "Comprehensive improvement plan" in await pg.inner_text("#view"))
+    await pg.locator("#view").screenshot(path=SHOTS+"/plans.png")
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/direction/measures"); await pg.wait_for_timeout(700)
     t=await pg.inner_text("#view")
     check("measures: start → target, latest, status, progress, owner", "7 measures:" in t and "Four-year graduation rate" in t and "88% 2024-25 → 94% 2028-29" in t.replace("\t"," ").replace("  "," ") and "lower is better" in t and "Principal, high school" in t, t[:600])
@@ -1054,6 +1106,10 @@ async def main():
     await pg.locator("#view").screenshot(path=SHOTS+"/today.png")
     check("overview: needs attention lists what's off track", "Needs attention" in t and "is off track" in t and "The strategic plan" in t)
     check("overview: recent changes for admins", "Recent changes" in t)
+    bsc=[x["id"] for x in TABLES.get("scenario",[]) if x.get("is_board_version")]
+    inb={x["initiative_id"] for x in TABLES.get("phase",[])+TABLES.get("recurring_cost",[]) if bsc and x.get("scenario_id")==bsc[0]}
+    pend=[i for i in TABLES["initiative"] if (i.get("status") or "proposed") in ("idea","proposed","analysis") and i["id"] in inb]
+    check("overview: initiatives not yet approved but counted in the board version are called out", (("counted in the board version’s numbers" in t) == bool(pend)) and bool(pend), f"{len(pend)} pending in board; "+t[:900])
     await pg.click("button[data-action=openSearch]"); await pg.wait_for_timeout(500)
     await pg.fill("[data-search]","roof"); await pg.wait_for_timeout(200)
     hits=await pg.inner_text("[data-search-results]")
@@ -1064,9 +1120,9 @@ async def main():
     check("search: going to a result", "/direction/measures" in pg.url)
     for t in ["priority","outcome","measure","measure_value","survey","survey_result"]: TABLES[t]=[]
     for i0 in TABLES["initiative"]: i0.pop("priority_id", None)
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(500)
-    rowtxt=[r for r in (await pg.inner_text("#view")).split("\n") if r.startswith("Public link")]
-    check("help: the public link row matches the finished community page", rowtxt and "Live" in rowtxt[0] and "Phase" not in rowtxt[0], str(rowtxt))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/guide"); await pg.wait_for_timeout(500)
+    htabs=[x.strip() for x in await pg.locator("nav.tabs a").all_inner_texts()]
+    check("help: no “What’s built” page (everything is built)", "What’s built" not in htabs and "What’s built" not in await pg.inner_text("body"), str(htabs))
     # step B: lead with the answer; Funds chart; folds open for editors; moved screens
     leads={}
     for route in ["overview/today","direction/priorities","direction/measures","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","progress/initiatives"]:
@@ -1140,9 +1196,6 @@ async def main():
     check("budget upload: saved as the adopted budget for the year", bb and bb[0]["kind"]=="budget" and bb[0]["period_end"] is None and bl and all(x["version"]=="adopted" and x["fiscal_year"]==bb[0]["fiscal_year"] for x in bl[0]) and len(bl[0])==16, str(bb)[:150]+str(len(bl[0]) if bl else 0))
     check("budget upload: no balances touched", not any(c[1].startswith("/rest/v1/gl_amount") for c in calls[n0:]) and "The adopted FY" in await pg.inner_text("#toasts"))
     TABLES["gl_account"]=[]
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(500)
-    bt=await pg.inner_text("#view")
-    check("help: every screen is live", "Partly built" not in bt and "Not built" not in bt and "Phase " not in bt, bt[:300])
     # milestone 6: summary, all funds, exports, activity
     EXP=json.loads(subprocess.check_output(["node","-e","""
       const C=require('./capital.js'),E=require('./engine.js'),D=require('./demo_data.js');let i=0;
@@ -1228,8 +1281,6 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/activity"); await pg.wait_for_timeout(400)
     check("activity: admins only (a viewer can't open it)", "Not part of your view" in await pg.inner_text("#content"))
     # help map
-    await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(300)
-    await pg.screenshot(path=SHOTS+"/help-built.png",full_page=True)
     await pg.click("button.topbar-signout"); await pg.wait_for_timeout(400)
     check("sign out", "Sign in" in await pg.inner_text("h1") and any("/auth/v1/logout" in c[1] for c in calls))
     # no-district user
@@ -1392,8 +1443,8 @@ async def main():
     check("the “?” by the state's figures names the public sources", "Where these figures come from" in tt and "U.S. Census Bureau" in tt and "Iowa Department of Management" in tt, tt[-500:])
     await pg.wait_for_timeout(9000)
     check("a definition stays until it's closed (no timing out mid-read)", "Where these figures come from" in await pg.inner_text("#toasts"))
-    await pg.click("#toasts .toast.defn .toast-x"); await pg.wait_for_timeout(200)
-    check("…and closes with its ×", await pg.locator("#toasts .toast.defn").count()==0)
+    await pg.click("#toasts .toast.term .toast-x"); await pg.wait_for_timeout(200)
+    check("…and closes with its ×", await pg.locator("#toasts .toast.term").count()==0)
     await pg.click("button[data-action=openHelp]"); await pg.wait_for_timeout(300)
     hm=await pg.inner_text("[data-modal]")
     check("Help on Starting numbers lists where the starting figures come from, with the Census Bureau's required notice", "Where the starting figures come from" in hm and "U.S. Bureau of Labor Statistics" in hm and "Certified Annual Report" in hm and "This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau." in hm, hm[:400])
@@ -1410,11 +1461,13 @@ async def main():
     check("General Fund setup: the state's figures offered (budget-year formula, unspent, salaries)", "From the state’s data" in gst and "budget enrollment 1,190.2 for FY2027" in gst and "district cost per pupil $8,148" in gst and "should add up to about" in gst, gst)
     await pg.click("button[data-action=gfPrefill]"); await pg.wait_for_timeout(200)
     gv=[await pg.input_value(f"form[data-form=saveGf] [name={n}]") for n in ["fund_balance","aea_flowthrough","enrollment","dcpp","other_formula","misc_income","misc_growth","unspent","nonstaff"]]
-    check("General Fund setup: Fill these in", gv==["2,250,000","410,000","1190.2","8,148","3,802,250","1,900,000","2.1","2,100,000","3,300,000"] and all(v=="30" for v in await pg.eval_on_selector_all("form[data-form=saveGf] [name=s_benefits]","els=>els.map(e=>e.value)")), str(gv))
+    check("General Fund setup: Fill these in", gv==["2,250,000","410,000","1190.2","8,148","3,802,250","1,900,000","2.1","2,100,000","3,300,000"] , str(gv))
+    bh=await pg.evaluate("[...document.querySelectorAll('form[data-form=saveGf] [data-gf-staff]')].map(tr=>[tr.querySelector('[name=s_benefits]').value,tr.querySelector('[name=s_health]').value])")
+    check("General Fund setup: the state's benefits % (which includes health) goes only where health per FTE is blank, so health isn't counted twice", bh and all((b!="30") if h.strip() not in ("","0") else (b=="30") for b,h in bh) and ("already includes health insurance" in await pg.inner_text("#toasts") if any(h.strip() not in ("","0") for b,h in bh) else True), str(bh))
     roster=b"Position,Group,FTE,Annual salary,District health insurance contribution (annual)\r\nA,Teachers,1,52000,13200\r\nB,teachers,0.5,26000,0\r\nC,Paraeducators,1,27000,9600\r\nD,,1,1,1\r\n"
     await pg.set_input_files("input[data-gf-roster]",files=[{"name":"staff.csv","mimeType":"text/csv","buffer":roster}]); await pg.wait_for_timeout(500)
     srows=await pg.evaluate("[...document.querySelectorAll('form[data-form=saveGf] [data-gf-staff]')].map(tr=>['s_name','s_fte','s_salary','s_benefits','s_health'].map(n=>tr.querySelector('[name='+n+']').value).join('|'))")
-    check("General Fund setup: a staff list fills the groups, averaged per FTE", srows==["Teachers|1.5|52,000|30|8,800","Paraeducators|1|27,000|30|9,600"] and "Read 3 people in 2 groups" in await pg.inner_text("[data-gf-roster-note]") and "no group" in await pg.inner_text("[data-gf-roster-note]"), str(srows))
+    check("General Fund setup: a staff list fills the groups, averaged per FTE", srows==["Teachers|1.5|52,000|17.09|8,800","Paraeducators|1|27,000|17.09|9,600"] and "Read 3 people in 2 groups" in await pg.inner_text("[data-gf-roster-note]") and "no group" in await pg.inner_text("[data-gf-roster-note]"), str(srows))
     await pg.locator("[data-modal] .modal").screenshot(path=SHOTS+"/gf-filled.png")
     async with pg.expect_download() as dl: await pg.click("a[data-action=gfRosterTemplate]")
     check("General Fund setup: the staff list template is an Excel file", (await dl.value).suggested_filename=="highground-staff-list-template.xlsx")
@@ -1485,7 +1538,7 @@ async def main():
     check("board member: typing a staff screen's address doesn't open it", "Not part of your view" in await pp.inner_text("#content") and await pp.locator("#view").count()==0)
     # every screen a board member can open: no links to screens they can't
     bad=[]
-    for path in ["overview/today","direction/priorities","direction/measures","direction/community","resources/summary","resources/general","resources/capital","reports/board","settings/account","help/guide"]:
+    for path in ["overview/today","direction/priorities","direction/measures","direction/community","resources/summary","resources/general","resources/capital","reports/board","reports/plans","settings/account","help/guide"]:
       await pp.goto("http://localhost:8765/#/d/ironwood-valley/reports/board"); await pp.wait_for_timeout(150)
       await pp.goto("http://localhost:8765/#/d/ironwood-valley/"+path); await pp.wait_for_timeout(700)
       hrefs=await pp.evaluate("[...document.querySelectorAll('#view a[href^=\"#/d/\"]')].map(a=>a.getAttribute('href'))")
@@ -1517,6 +1570,8 @@ async def main():
     check("business manager: Uploads first in Progress", [x.strip() for x in await pp.locator("nav.tabs a").all_inner_texts()][0]=="Uploads")
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(600)
     await pp.click("button.defn[data-term=gap]"); await pp.wait_for_timeout(200)
+    dw=await pp.evaluate("(()=>{const t=document.querySelector('#toasts .toast.term');return t?[t.getBoundingClientRect().width,t.scrollWidth<=t.clientWidth+1]:null})()")
+    check("definitions: the explanation is a full-size card (not squeezed into the “?” circle)", dw and dw[0]>=280 and dw[1], str(dw))
     check("definitions: tapping “?” explains the term", "Capital costs in the plan that SAVE, PPEL, V-PPEL and grants can’t cover" in await pp.inner_text("#toasts"))
     await cx.close()
     cx,pp=await session("viewer@example.test")
@@ -1555,7 +1610,7 @@ async def main():
     sw=await pp.evaluate("document.documentElement.scrollWidth"); check("phone: no sideways scroll", sw<=375, str(sw))
     WIDE_JS="""(()=>{const W=innerWidth,out=[];document.querySelectorAll('body *').forEach(e=>{const r=e.getBoundingClientRect();if(r.width>0&&r.right>W+1){let p=e.parentElement,clipped=false;while(p&&p!==document.body){const cs=getComputedStyle(p);if(/auto|scroll/.test(cs.overflowX)&&p.getBoundingClientRect().right<=W+1){clipped=true;break}p=p.parentElement}if(!clipped)out.push((e.className&&e.className.baseVal===undefined?e.tagName+'.'+String(e.className).split(' ')[0]:e.tagName)+':'+Math.round(r.right))}});return [document.documentElement.scrollWidth,[...new Set(out)].slice(0,8)]})()"""
     wide=[]
-    for path in ["overview/today","direction/priorities","direction/measures","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","resources/capital","progress/initiatives","progress/actuals","progress/uploads","progress/registers","reports/board","reports/community","settings/district","settings/setup","settings/people","settings/activity","settings/assumptions","settings/exports","settings/account","help/guide"]:
+    for path in ["overview/today","direction/priorities","direction/measures","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","resources/capital","progress/initiatives","progress/actuals","progress/uploads","progress/registers","reports/board","reports/plans","reports/community","settings/district","settings/setup","settings/people","settings/activity","settings/assumptions","settings/exports","settings/account","help/guide"]:
       await pp.goto("http://localhost:8765/#/d/ironwood-valley/"+path); await pp.wait_for_timeout(700)
       await pp.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)"); await pp.wait_for_timeout(150)
       sw2,els=await pp.evaluate(WIDE_JS)
@@ -1563,8 +1618,8 @@ async def main():
     check("phone: nothing on any screen runs past the edge or is cut off (wide tables scroll in their own box)", not wide, "\n".join(wide))
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(700)
     await pp.click("button.defn >> nth=0"); await pp.wait_for_timeout(300)
-    tb=await pp.evaluate("(()=>{const r=document.querySelector('#toasts .toast').getBoundingClientRect();return [r.left,r.right,innerWidth]})()")
-    check("phone: a definition sits inside the screen", tb[0]>=0 and tb[1]<=tb[2], str(tb))
+    tb=await pp.evaluate("(()=>{const t=document.querySelector('#toasts .toast'),r=t.getBoundingClientRect(),cs=getComputedStyle(t);return [r.left,r.right,innerWidth,r.width,t.scrollWidth<=t.clientWidth+1,cs.backgroundColor,cs.borderRadius]})()")
+    check("phone: a definition sits inside the screen, nearly full width, on a solid card with its text inside it", tb[0]>=0 and tb[1]<=tb[2] and tb[3]>=tb[2]*0.85 and tb[4] and tb[5] not in ("rgba(0, 0, 0, 0)","transparent") and tb[6]!="50%", str(tb))
     await pp.click("#toasts .toast-x")
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pp.wait_for_timeout(800)
     await pp.click("button[data-action=openHelp]"); await pp.wait_for_timeout(400)

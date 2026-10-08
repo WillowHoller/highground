@@ -39,4 +39,8 @@ check('roster: groups by name, case-insensitive; FTE defaults to 1', ro.groups.m
 check('roster: averages are per FTE (a half-time teacher on half pay doesn’t lower the average)', tg.salary === Math.round((52000 + 26000 + 50000) / 2.5) && tg.health === Math.round(13200 / 2.5), tg);
 check('roster: rows without a group, without a salary or with an odd FTE are left out and listed', ro.people === 6 && ro.issues.length === 3 && /no group/.test(ro.issues[0]) && /no salary/.test(ro.issues[1]) && /FTE 9/.test(ro.issues[2]), ro.issues);
 check('roster: needs the headings', F.roster([['a', 'b'], [1, 2]]).issues.length === 1);
+check('health counted twice: a 30% benefits rate beside health per FTE is caught; 17.09% with health, or 30% without, is fine',
+  F.healthTwice([{ name: 'Teachers', benefits: 0.30, health: 13000 }, { name: 'Support', benefits: 0.1709, health: 12000 }, { name: 'Admin', benefits: 0.30, health: 0 }]).join() === 'Teachers');
+const sc = F.staffCost([{ fte: 10, salary: 50000, benefits: 0.1709, health: 12000 }, { fte: 2, salary: 100000 }]);
+check('staff cost: salaries, benefits besides health (17.09% when blank) and health', near(sc.salaries, 700000) && near(sc.benefits, 700000 * 0.1709) && near(sc.health, 120000) && near(sc.total, 700000 * 1.1709 + 120000), sc);
 console.log(`gf tests: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

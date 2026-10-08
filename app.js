@@ -175,6 +175,7 @@
     ] },
     { id: 'reports', label: 'Reports', tabs: [
       { id: 'board', label: 'Board reports', status: 'live', lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
+      { id: 'plans', label: 'Plans', status: 'live', lede: 'The district’s plan in three views: the full plan, academic goals (CSIP) and the capital improvement plan.', render: vPlan },
       { id: 'community', label: 'Community page', status: 'live', lede: 'What the public link shows.', render: vCommunityPage },
     ] },
   ];
@@ -190,7 +191,6 @@
     ] },
     { id: 'help', label: 'Help', tabs: [
       { id: 'guide', label: 'Guide', status: 'live', lede: 'How to do the common things, and what the terms mean.', render: vGuide },
-      { id: 'built', label: 'What’s built', status: 'live', lede: 'Every screen, and whether it works yet (Willow Holler staff).', render: vBuilt },
     ] },
   ];
   const ALL = [...SECTIONS, ...FOOT];
@@ -205,10 +205,10 @@
   const MOVED = { 'resources/funds': 'resources/summary', 'progress/measures': 'direction/measures', 'resources/assumptions': 'settings/assumptions', 'reports/exports': 'settings/exports' };
 
   /* ---- what each role sees in the menu (permissions are unchanged; a direct link still opens) ---- */
-  const BOARD_VIEW = { overview: ['today'], direction: ['priorities', 'measures'], resources: ['summary', 'general', 'capital'], reports: ['board'], settings: ['account'], help: ['guide'] };
+  const BOARD_VIEW = { overview: ['today'], direction: ['priorities', 'measures'], resources: ['summary', 'general', 'capital'], reports: ['board', 'plans'], settings: ['account'], help: ['guide'] };
   const LEAD_VIEW = { overview: ['today'], direction: null, decisions: null, resources: ['summary', 'general', 'capital'], progress: ['initiatives', 'actuals', 'uploads', 'registers'],
-    reports: ['board'], settings: ['assumptions', 'account'], help: ['guide'] };
-  const FINANCE_VIEW = { overview: ['today'], direction: ['measures'], progress: ['uploads', 'registers', 'actuals', 'initiatives'], resources: ['summary', 'general', 'capital'], reports: ['board'],
+    reports: ['board', 'plans'], settings: ['assumptions', 'account'], help: ['guide'] };
+  const FINANCE_VIEW = { overview: ['today'], direction: ['measures'], progress: ['uploads', 'registers', 'actuals', 'initiatives'], resources: ['summary', 'general', 'capital'], reports: ['board', 'plans'],
     settings: ['setup', 'exports', 'account'], help: ['guide'] };
   const VIEWS = { board: BOARD_VIEW, viewer: BOARD_VIEW, superintendent: LEAD_VIEW, editor: LEAD_VIEW, business_manager: FINANCE_VIEW };
   const showAllKey = () => `highground-show-all-${(S.user && S.user.id) || ''}`;
@@ -256,7 +256,7 @@
   document.addEventListener('toggle', (e) => { if (e.target.tagName === 'DETAILS' && e.target.open) fitTables(e.target); }, true);
   { let tm; window.addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(() => { fitTables(document.getElementById('view')); fitTables(document.querySelector('[data-modal]')); }, 200); }); }
   function visibleTabs(section) {
-    const tabs = section.tabs.filter((t) => t.id !== 'built' || S.isStaff);   // “What’s built” is for Willow Holler staff
+    const tabs = section.tabs;
     const v = VIEWS[S.role];
     if (S.isStaff || S.role === 'admin' || !v || showAll()) return tabs;
     if (!(section.id in v)) return [];
@@ -454,12 +454,15 @@
     const pending = rows.initiatives.filter((i) => ['idea', 'proposed', 'analysis'].includes(i.status || 'proposed'));
     const inBoard = (id) => board && (rows.phases.some((p) => p.scenario_id === board.id && p.initiative_id === id) || (rows.recurring || []).some((r) => r.scenario_id === board.id && r.initiative_id === id));
     const approvedOut = rows.initiatives.filter((i) => ['approved', 'underway'].includes(i.status) && board && !inBoard(i.id));
+    const pendingIn = board ? pending.filter((i) => inBoard(i.id)) : [];   // not approved, yet counted in the board version's numbers
     const link = (path, text) => `<a href="#/d/${enc(d.slug)}/${path}">${text}</a>`;
     const tile = (label, value, sub) => `<div class="card tile-card"><div class="small muted">${label}</div><div class="stat">${value}</div>${sub ? `<div class="small muted">${sub}</div>` : ''}</div>`;
     const attention = [
       ...off.map((y) => `${esc(y.m.name)} is off track (${link('direction/measures', 'measures')}).`),
       owed.length ? `${owed.length} measure${owed.length === 1 ? ' has' : 's have'} an update owed (${link('direction/measures', 'record results')}).` : '',
       ...approvedOut.map((i) => (c.plan ? `${esc(i.name)} is approved but not in the board version (${link('decisions/initiatives', 'decisions')}).` : `${esc(i.name)} is approved but not yet in the board version.`)),
+      pendingIn.length ? `${pendingIn.length > 3 ? `${pendingIn.length} initiatives that aren’t approved yet are` : `${pendingIn.map((i) => esc(i.name)).join(', ')} ${pendingIn.length === 1 ? 'isn’t approved yet but is' : 'aren’t approved yet but are'}`} counted in the board version’s numbers`
+        + (c.plan ? ` (${link('resources/capital', 'capital plan')}). Approve ${pendingIn.length === 1 ? 'it' : 'them'}, or move ${pendingIn.length === 1 ? 'it' : 'them'} to another scenario.` : '.') : '',
       !board && rows.scenarios.length ? `No scenario is the board version yet (${link('resources/capital', 'capital plan')}).` : '',
       !rows.settings ? (c.finance ? `Starting numbers aren’t set up yet (${link('settings/setup', 'starting numbers')}).` : 'The district’s starting numbers aren’t entered yet.') : '',
       regOpen.length ? (c.finance ? `${regOpen.length} check-register question${regOpen.length === 1 ? ' is' : 's are'} waiting for your answer (${link('progress/registers', 'check register')}).`
@@ -500,6 +503,7 @@
     'progress/registers': ['Questions from the month’s bills: new vendors, possible duplicates, changed names, payments much larger than usual.', 'The business office answers; everyone in the district can read the answers. Set the bid threshold in the settings at the bottom.'],
     'reports/board': ['Create the month’s board report: it’s saved exactly as made, and the next one compares itself with it.', 'Decision packets put one initiative on one page for a vote.'],
     'reports/community': ['Publish the board version to the public link, with unapproved initiatives held back.', 'Preview first; every publish is logged.'],
+    'reports/plans': ['One plan, three views: the full plan (named by the district), the academic goals tagged as state CSIP goals, and the capital improvement plan.', 'Choose approved items only, or all items with proposals labelled; totals always count approved work only. Print it, download it for Excel, or save the version the board adopted.'],
     'settings/district': ['The district’s name, look and public link, and its Iowa district number (for peer comparisons and pre-filled numbers).'],
     'settings/setup': ['What the capital plan starts from: receipts, balances and existing debt.', 'If the Iowa district number is set, “Fill in” uses public figures from the state and federal agencies listed below; you can change any of them before saving.'],
     'settings/people': ['Invite people with a role: admin, business manager, superintendent, editor, board member or viewer.'],
@@ -656,7 +660,7 @@
       ${D.priorities.map((pr, k) => {
         const outs = D.outcomes.filter((o) => o.priority_id === pr.id), ms = D.measures.filter((m) => m.priority_id === pr.id), inits = rows.initiatives.filter((i) => i.priority_id === pr.id);
         return `<div class="card prio"><div class="row" style="justify-content:space-between;align-items:flex-start">
-          <div><div class="small muted">Priority ${k + 1}</div><h3 style="margin:2px 0">${esc(pr.name)}</h3>${pr.statement ? `<p>${esc(pr.statement)}</p>` : ''}
+          <div><div class="small muted">Priority ${k + 1}${pr.csip_goal ? ' · <span class="st st-approved">CSIP goal</span>' : ''}</div><h3 style="margin:2px 0">${esc(pr.name)}</h3>${pr.statement ? `<p>${esc(pr.statement)}</p>` : ''}
             ${(() => { const sv = D.surveys[0], imp = sv && D.results.find((r) => r.survey_id === sv.id && r.kind === 'importance' && r.priority_id === pr.id && r.value != null);
               return imp ? `<div class="small">Community importance: <b>${Number(imp.value).toLocaleString('en-US', { maximumFractionDigits: 2 })}</b>${Number(imp.value) <= 5 ? ' out of 5' : ''} <span class="muted">· ${esc(sv.name)}</span></div>` : ''; })()}</div>
           ${c.plan ? `<div class="row moves"><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="-1" ${k ? '' : 'disabled'} aria-label="Move up">▲</button><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="1" ${k < D.priorities.length - 1 ? '' : 'disabled'} aria-label="Move down">▼</button><button type="button" class="btn small" data-action="editPriority" data-id="${esc(pr.id)}">Edit</button></div>` : ''}</div>
@@ -674,6 +678,7 @@
       <div class="row" style="justify-content:space-between"><h2 id="modal-title">${id ? 'Edit priority' : 'Add a priority'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
       <label class="field">Priority<input name="name" maxlength="120" value="${esc(pr.name)}" required placeholder="Every graduate ready for what’s next"></label>
       <label class="field">What it means <span class="small muted">(optional)</span><textarea name="statement" maxlength="600">${esc(pr.statement || '')}</textarea></label>
+      <label class="row"><input type="checkbox" name="csip_goal" ${pr.csip_goal ? 'checked' : ''}> One of the district’s state CSIP goals ${def('csip')}</label>
       <div class="field"><span>Outcomes <span class="small muted">(one per line; the results that would show this priority is being achieved)</span></span>
         <textarea name="outcomes" rows="4" placeholder="Graduation and readiness&#10;Career and technical pathways">${esc(outs.map((o) => o.name).join('\n'))}</textarea></div>
       <div class="notice error" data-form-errors hidden></div>
@@ -684,8 +689,11 @@
     const D = DIR.D, d = S.district.id, name = (f.name || '').trim(), box = form.querySelector('[data-form-errors]');
     if (!name) { box.hidden = false; box.textContent = 'Name the priority.'; return; }
     let id = form.dataset.id;
-    if (id) await HG.db.update('priority', `id=eq.${enc(id)}`, { name: name.slice(0, 120), statement: (f.statement || '').trim() || null });
-    else { id = crypto.randomUUID(); await HG.db.insert('priority', { id, district_id: d, name: name.slice(0, 120), statement: (f.statement || '').trim() || null, position: D.priorities.length + 1 }); }
+    // the CSIP tag needs database part 21; send it only when it's set or the column is already there, so nothing breaks before then
+    const old = id ? D.priorities.find((x) => x.id === id) : null, csip = !!f.csip_goal;
+    const tag = csip || (old && 'csip_goal' in old) ? { csip_goal: csip } : {};
+    if (id) await HG.db.update('priority', `id=eq.${enc(id)}`, { name: name.slice(0, 120), statement: (f.statement || '').trim() || null, ...tag });
+    else { id = crypto.randomUUID(); await HG.db.insert('priority', { id, district_id: d, name: name.slice(0, 120), statement: (f.statement || '').trim() || null, position: D.priorities.length + 1, ...tag }); }
     // outcomes: keep those still listed (by name), add new ones, remove the rest
     const want = String(f.outcomes || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 12);
     const have = D.outcomes.filter((o) => o.priority_id === id);
@@ -1315,7 +1323,11 @@
       years.forEach((fy) => { extra[fy] = HGEngine.recurIn(bi.cfg, 'general', fy - bi.cfg.start, L); });
     } else { const s0 = rows.settings.plan_start_fy || 2027; years = [0, 1, 2, 3, 4].map((k) => s0 + k); }
     const g = Object.assign({}, gfi, over && over.turnover != null ? { turnover_savings: over.turnover } : {});
-    return { gfi: g, sc, set, a: A, base: a, R: HGGF.forecast(g, A, years, extra), extra };
+    // yearly General Fund costs that started by the first year for work already underway or done are probably in the staff groups or other spending already
+    const INI = new Map(rows.initiatives.map((i) => [i.id, i]));
+    const already = sc && years.length ? [...new Set((rows.recurring || []).filter((r) => r.scenario_id === sc.id && r.fund === 'general' && Number(r.first_fy) <= years[0]
+      && ['underway', 'done'].includes((INI.get(r.initiative_id) || {}).status)).map((r) => (INI.get(r.initiative_id) || {}).name || 'An initiative'))] : [];
+    return { gfi: g, sc, set, a: A, base: a, R: HGGF.forecast(g, A, years, extra), extra, already };
   }
   const pct1 = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
   function gfChart(R) {
@@ -1340,6 +1352,7 @@
       FL.lowUnspent.length && !FL.negativeUnspent.length ? `<li>The unspent balance ratio falls below 5% in FY${FL.lowUnspent.join(', FY')}.</li>` : '',
       FL.deficit.length ? `<li>Spending exceeds revenue in ${FL.deficit.length === ys.length ? 'every year' : 'FY' + FL.deficit.join(', FY')}.</li>` : '',
       FL.guarantee.length ? `<li>The 101% budget guarantee applies in FY${FL.guarantee.join(', FY')} (enrollment falls faster than funding grows).</li>` : '',
+      (run.already || []).length ? `<li>${run.already.map(esc).join(', ')}: ${run.already.length === 1 ? 'its' : 'their'} yearly General Fund cost started by FY${ys[0].fy} and the work is underway or done, so it may already be in the staff groups or other spending. If so, it’s counted twice: end the yearly cost before FY${ys[0].fy}, or take it out of the starting figures.</li>` : '',
     ].filter(Boolean);
     const extraYears = ys.filter((y) => y.extra > 0.5);
     const y2 = ys[1];
@@ -1367,7 +1380,7 @@
           ['Spending authority', (y) => f(y.authority)], ['Unspent balance', (y) => `<span class="${y.unspent < 0 ? 'gaptext' : ''}">${f(y.unspent)}</span>`], ['Unspent balance ratio', (y) => pct1(y.unspentRatio)], ['Staff share of spending', (y) => pct1(y.staffShare)],
         ].map(([l, fn]) => `<tr><td>${l}</td>${ys.map((y) => `<td class="num">${fn(y)}</td>`).join('')}</tr>`).join('')}
       </tbody></table></div>
-      ${FL.guarantee.length ? '<p class="small muted">* includes the 101% budget guarantee.</p>' : ''}
+      ${FL.guarantee.length ? `<p class="small muted">* includes the 101% budget guarantee.${def('guarantee')}</p>` : ''}
       <p class="small muted" style="margin-top:6px">Planning estimates, not the state’s official calculation. FY2027 uses the enacted 2% state supplemental aid ($8,148 state cost per pupil, SF 2201). Solvency = unassigned and assigned balance ÷ revenue less AEA flowthrough. Spending authority = regular program and other formula funding + miscellaneous income + last year’s unspent balance. Figures checked ${esc(day(HGGF.RULES.checked))}.</p></div></details>`;
   }
   async function vGeneralFund(c) {
@@ -1419,7 +1432,7 @@
         ${f('enrollment', 'Certified enrollment (budget enrollment)', g.enrollment == null ? '' : g.enrollment, 'Tenths are fine here (e.g. 1188.4): state aid is figured on the certified number')}${f('dcpp', 'District cost per pupil, $', money2(g.dcpp), 'FY2027 state cost per pupil: $8,148')}
         ${f('other_formula', 'Other state formula funding, $', money2(g.other_formula), 'Categorical supplements, special education and similar')}${f('misc_income', 'Miscellaneous income, $', money2(g.misc_income), 'Local, federal and other income')}
         ${f('misc_growth', 'Miscellaneous income growth, % a year', pc(g.misc_growth))}${f('aea_flowthrough', 'AEA flowthrough, $', money2(g.aea_flowthrough), 'Left out of revenue for the solvency ratio')}</div>
-      <h3>Spending</h3><p class="small muted">One row per group that settles or is paid differently: teachers, support staff (paras, custodial, food service, transportation, office), administrators. Split a group out when its raise or insurance differs (paraeducators, say). Health insurance is the district’s share per FTE.</p><div class="scroll"><table class="data"><thead><tr><th>Staff group</th><th>FTE</th><th>Average salary, $</th><th>Benefits, % of salary</th><th>Health insurance per FTE, $</th><th></th></tr></thead>
+      <h3>Spending</h3><p class="small muted">One row per group that settles or is paid differently: teachers, support staff (paras, custodial, food service, transportation, office), administrators. Split a group out when its raise or insurance differs (paraeducators, say). Health insurance is the district’s share per FTE. Count health in one place only: the benefits % is FICA (7.65%), IPERS (9.44%) and other benefits <i>besides</i> health; if you leave health blank, the benefits % can include it instead.${def('benefits')}</p><div class="scroll"><table class="data"><thead><tr><th>Staff group</th><th>FTE</th><th>Average salary, $</th><th>Benefits besides health, % of salary</th><th>Health insurance per FTE, $</th><th></th></tr></thead>
         <tbody data-gf-staff-body>${(g.staff || []).map(staffRow).join('')}</tbody></table></div>
       <template data-gf-staff-template>${staffRow({ benefits: 0.1709 })}</template>
       <div class="row"><button type="button" class="btn small" data-action="gfStaffAdd">Add a staff group</button>
@@ -1535,7 +1548,7 @@
     // help: what the latest ledger or adopted budget says, so the business manager can split it into these fields
     const d = S.district, box = document.querySelector('[data-gf-hint]'); if (!box) return;
     GF.prefill = null;
-    const st = await statePrefill(d);
+    const st = await statePrefill(d), gfi0 = GF.rows && GF.rows.settings && GF.rows.settings.gf_inputs;
     if (st && document.querySelector('[data-gf-hint]') === box) {
       GF.prefill = gfStateFill(st);
       const P = GF.prefill, fm = HGReport.fmt;
@@ -1547,8 +1560,9 @@
         P.fund_balance != null ? `unassigned and assigned balance ${fm(P.fund_balance)} at June 30, ${esc(st.fiscal_year)}` : '',
         P.aea_flowthrough != null ? `AEA flowthrough ${fm(P.aea_flowthrough)}` : '',
         P.nonstaff != null ? `other spending ${fm(P.nonstaff)} (FY${esc(P.carFY)})` : '',
-        P.benefits != null ? `benefits ${pctIn(P.benefits)}% of salaries` : ''].filter(Boolean);
-      const sal = P.salaries ? `<br><span class="muted">FY${esc(P.carFY)} General Fund salaries: instruction ${fm(P.salaries.instruction)}, administration ${fm(P.salaries.admin)}, everything else ${fm(P.salaries.support)}. Your staff groups’ FTE × average salary should add up to about ${fm(P.salaries.total)}.</span>` : '';
+        P.benefits != null ? `benefits ${pctIn(P.benefits)}% of salaries (including health insurance)` : ''].filter(Boolean);
+      const mine = gfi0 ? HGGF.staffCost(gfi0.staff) : null;
+      const sal = P.salaries ? `<br><span class="muted">FY${esc(P.carFY)} General Fund salaries: instruction ${fm(P.salaries.instruction)}, administration ${fm(P.salaries.admin)}, everything else ${fm(P.salaries.support)}. Your staff groups’ FTE × average salary should add up to about ${fm(P.salaries.total)}${P.benefits != null ? `, and salaries plus benefits and health to about ${fm(P.salaries.total * (1 + P.benefits))}` : ''}${mine && mine.total ? ` (saved now: salaries ${fm(mine.salaries)}, all in ${fm(mine.total)})` : ''}.</span>` : '';
       if (items.length) box.insertAdjacentHTML('afterbegin', `<div class="notice ok small" data-gf-state>From the state’s data ${def('sources')}: ${items.join('; ')}.
         <button type="button" class="btn small" data-action="gfPrefill" style="margin-left:6px">Fill these in</button>${sal}<br><span class="muted">Nothing is saved until you click Save. Use the plan’s first-year figures if you have newer ones.</span></div>`);
     }
@@ -1561,7 +1575,8 @@
         if (bt[0]) { const am = await HG.db.selectAll('gl_amount', `select=account_id,budget_amount&batch_id=eq.${bt[0].id}`); lines = am.map((x) => Object.assign({}, A.get(x.account_id) || {}, { budget: x.budget_amount })); from = `the budget column of the ${day(bt[0].period_end)} ledger`; }
       }
       const b = HGGF.fromBudget(lines);
-      if (b.revenue || b.total) box.insertAdjacentHTML('beforeend', `<div class="notice ok small">From ${esc(from)}: General Fund revenue ${HGReport.fmt(b.revenue)}; staff spending (objects 1xx–2xx) ${HGReport.fmt(b.staff)}; other spending ${HGReport.fmt(b.nonstaff)}. Use these to check your figures add up.</div>`);
+      const mine = gfi0 ? HGGF.staffCost(gfi0.staff) : null, gap = mine && mine.total && b.staff ? (mine.total - b.staff) / b.staff : null;
+      if (b.revenue || b.total) box.insertAdjacentHTML('beforeend', `<div class="notice ${gap != null && Math.abs(gap) > 0.05 ? 'warn' : 'ok'} small">From ${esc(from)}: General Fund revenue ${HGReport.fmt(b.revenue)}; staff spending (objects 1xx–2xx: salaries, and benefits including health) ${HGReport.fmt(b.staff)}; other spending ${HGReport.fmt(b.nonstaff)}. Use these to check your figures add up.${gap != null ? ` Your staff groups come to ${HGReport.fmt(mine.total)}, ${Math.abs(gap) <= 0.05 ? 'within 5% of the budget' : `${(Math.abs(gap) * 100).toFixed(0)}% ${gap > 0 ? 'above' : 'below'} the budget: check for health counted twice, or a group left out`}.` : ''}</div>`);
     } catch (e) { /* no ledger or budget yet */ }
   }
   /** a payroll staff list → the staff groups table (replaces its rows; nothing saved until Save) */
@@ -1570,7 +1585,8 @@
     const R = HGGF.roster(await HGUploads.readTable(file)); input.value = '';
     if (!R.groups.length) { note.innerHTML = `<div class="notice error small">${esc(R.issues[0] || 'No staff found in that file.')}</div>`; return; }
     const keepBen = (form.querySelector('[name=s_benefits]') || {}).value, ben = keepBen ? Number(keepBen) / 100 : 0.1709;
-    form.querySelector('[data-gf-staff-body]').innerHTML = R.groups.map((x) => GF.staffRow({ name: x.name, fte: x.fte, salary: x.salary, health: x.health, benefits: ben })).join('');
+    // a group with health per FTE takes a benefits % without health (FICA and IPERS) when the form's % looks all-in
+    form.querySelector('[data-gf-staff-body]').innerHTML = R.groups.map((x) => GF.staffRow({ name: x.name, fte: x.fte, salary: x.salary, health: x.health, benefits: x.health && ben > 0.24 ? 0.1709 : ben })).join('');
     note.innerHTML = `<div class="notice ok small">Read ${R.people} ${R.people === 1 ? 'person' : 'people'} in ${R.groups.length} group${R.groups.length === 1 ? '' : 's'}: ${R.groups.map((x) => `${esc(x.name)} ${x.fte} FTE`).join(', ')}. Averages are per FTE. Check them, then Save.
       ${R.issues.length ? `<br><span class="muted">${R.issues.slice(0, 5).map(esc).join(' ')}${R.issues.length > 5 ? ` and ${R.issues.length - 5} more.` : ''}</span>` : ''}</div>`;
   }
@@ -1589,6 +1605,8 @@
     Object.keys(g.assume).forEach((k) => { if (g.assume[k] == null) delete g.assume[k]; });
     if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return false; }
     await HG.db.update('district_settings', `district_id=eq.${S.district.id}`, { gf_inputs: g });
+    const twice = HGGF.healthTwice(staff);
+    if (twice.length) toast('Health insurance may be counted twice', `${twice.join(', ')}: the benefits % is over 24% and health insurance per FTE is filled in too. A benefits % that high usually already includes health. Use about 17.09% (FICA and IPERS) with health per FTE, or leave health blank.`, 'error');
     if (form.dataset.form === 'wizGf') return true;
     closeModal(); toast('Saved', 'General Fund starting figures.'); here(); return true;
   }
@@ -2894,6 +2912,97 @@
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
 
+  // ------------------------------------------------------------------ Reports → Plans: the improvement plan in three views (plan.js)
+  const PL = { key: null, view: 'full', items: 'approved', years: 5, open: null };
+  const planName = (st) => ((st && st.plan_name) || '').trim() || 'District improvement plan';
+  /** the board version's capital funds over the plan years: start, receipts, spending, end, lowest; borrowing; the gap */
+  function planFunding(rows, board, start, last) {
+    if (!board || !rows.settings) return null;
+    const bi = HGCapital.buildInputs(rows, board.id), r = HGEngine.compute(bi.projects, bi.levers, bi.cfg), P = HGCapital.fundPaths(r, bi.cfg);
+    const funds = ['save', 'ppel', 'vppel', 'grants'].map((k) => {
+      const ys = P[k].years.filter((y) => y.fy >= start && y.fy <= last); if (!ys.length) return null;
+      const low = ys.reduce((a, y) => (y.end < a.end ? y : a), ys[0]);
+      return { k, name: HGPlan.FUND_WORD[k], start: ys[0].start, receipts: ys.reduce((t, y) => t + y.receipts, 0), spend: ys.reduce((t, y) => t + y.spend, 0),
+        over: ys.reduce((t, y) => t + y.over, 0), end: ys[ys.length - 1].end, low: low.end, lowFY: low.fy };
+    }).filter((x) => x && (x.start || x.receipts || x.spend));
+    const KIND = { go: 'General-obligation bond (voter-approved)', rev: 'SAVE revenue bond', lease: 'Lease-purchase', gift: 'Gift or grant' };
+    const borrow = (rows.financing || []).filter((x) => x.scenario_id === board.id && Number(x.issue_fy) >= start && Number(x.issue_fy) <= last)
+      .map((x) => ({ name: x.name, kind: KIND[x.kind] || x.kind, fy: Number(x.issue_fy), amount: Number(x.amount), years: Number(x.years) }));
+    const pending = rows.initiatives.filter((i) => ['idea', 'proposed', 'analysis'].includes(i.status || 'proposed')
+      && rows.phases.some((p) => p.scenario_id === board.id && p.initiative_id === i.id)).length;
+    return { funds, borrow, gap: r.gap, pending };
+  }
+  function planHtml(c, plan, extra, saved) {
+    const f = HGReport.fmt, d = c.district;
+    const T = plan.totals, money = (x) => (x.noCost ? '<span class="muted">No outside cost</span>' : `${x.cost > 0.5 ? f(x.cost) : ''}${x.yearly > 0.5 ? `${x.cost > 0.5 ? '<br>' : ''}${f(x.yearly)} a year` : ''}`);
+    const fundList = Object.entries(T.byFund).filter(([, v]) => v > 0.5).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(HGPlan.FUND_WORD[k] || k)} ${f(v)}`);
+    const yrs = plan.start ? `FY${plan.start}–FY${plan.last}` : '';
+    const lead = `<b>${T.count}</b> approved initiative${T.count === 1 ? '' : 's'}${T.cost > 0.5 ? `, <b>${f(T.cost)}</b> in ${esc(yrs || 'the plan')}` : ''}${T.yearly > 0.5 ? ` and ${f(T.yearly)} a year ongoing` : ''}${T.noCost ? `; ${T.noCost} with no outside cost` : ''}.`
+      + (plan.items === 'all' && T.proposedCount ? ` ${T.proposedCount} proposal${T.proposedCount === 1 ? '' : 's'} shown${T.proposedCost > 0.5 ? ` (${f(T.proposedCost)})` : ''}, not counted.` : '')
+      + (extra && extra.funding && plan.view !== 'csip' ? (extra.funding.gap > 0.5 ? ` The board version is <b>${f(extra.funding.gap)}</b> short.` : ' The board version is fully paid for.') : '');
+    const cols = [
+      { label: 'Initiative', html: (x) => `<b>${esc(x.name)}</b>${x.counted ? '' : ' <span class="st st-proposed">Proposed</span>'}${x.csip && plan.view !== 'csip' ? ' <span class="st st-approved">CSIP</span>' : ''}` },
+      { label: 'Completion', get: (x) => (/^\d{4}-\d{2}-\d{2}$/.test(x.completion) ? day(x.completion) : x.completion) },
+      { label: 'Category', get: (x) => x.category }, { label: 'Priority', get: (x) => x.priority },
+      { label: 'Cost', num: true, html: money }, { label: 'Funding', get: (x) => x.funding },
+      { label: 'Responsible', get: (x) => x.owner }, ...(plan.view === 'capital' ? [] : [{ label: 'Goal', get: (x) => x.goal }]),
+    ];
+    const goals = plan.goals.length ? `<div class="card"><h3>${plan.view === 'csip' ? 'Academic goals' : 'Goals'}</h3>${plan.goals.map((g, k) => `<div class="plan-goal">
+        <div class="small muted">Goal ${k + 1}${g.csip ? ' · <span class="st st-approved">CSIP goal</span>' : ''} · ${g.initiatives} initiative${g.initiatives === 1 ? '' : 's'}</div><h4>${esc(g.name)}</h4>${g.statement ? `<p class="small">${esc(g.statement)}</p>` : ''}
+        ${g.outcomes.length ? `<div class="small"><span class="muted">Outcomes:</span> ${g.outcomes.map(esc).join('; ')}</div>` : ''}
+        ${g.measures.length ? `<ul class="small">${g.measures.map((m) => `<li>${esc(m.name)}${m.latest != null ? `: <b>${esc(mVal(m, m.latest))}</b>${m.period ? ` <span class="muted">(${esc(m.period)})</span>` : ''}` : ''}${m.target != null ? ` <span class="muted">· target ${esc(mVal(m, m.target))}</span>` : ''} <span class="st ${STATE_CLASS[m.state] || 'st-proposed'}">${esc(HGDirection.STATE_NAME[m.state] || '')}</span></li>`).join('')}</ul>` : '<p class="small muted">No measures yet.</p>'}</div>`).join('')}
+      ${plan.view === 'csip' ? '<p class="small muted">The CSIP itself is filed with the Department of Education in CASA; this view shows the same goals beside the district’s initiatives and costs.</p>' : ''}</div>` : (plan.view === 'csip' ? `<div class="card"><h3>Academic goals</h3><p>No priorities are tagged as CSIP goals yet.${c.plan ? ` Open a priority on <a href="#/d/${enc(d.slug)}/direction/priorities">Direction → Priorities</a> and tick “One of the district’s state CSIP goals”.` : ''}</p></div>` : '');
+    const groups = plan.groups.length ? plan.groups.map((g) => `<div class="card"><h3>${esc(g.label)} <span class="small muted">· ${g.items.length}</span></h3>${table(cols, g.items, '')}</div>`).join('')
+      : `<div class="card"><p class="muted">Nothing to show${plan.items === 'approved' ? ' among approved initiatives. Choose “All items” to include proposals' : ''}.</p></div>`;
+    const sched = plan.schedule.length ? `<div class="card"><h3>Schedule by year</h3><div class="plan-years">${plan.schedule.map((y) => `<div><h4>FY${y.fy}</h4><ul class="small">${y.items.map((x) => `<li>${esc(x.name)}${x.counted ? '' : ' <span class="muted">(proposed)</span>'}<br><b>${f(x.cost)}</b>${x.funding ? ` <span class="muted">· ${esc(x.funding)}</span>` : ''}</li>`).join('')}</ul></div>`).join('')}</div></div>` : '';
+    const F = extra && extra.funding;
+    const funding = F && plan.view !== 'csip' && F.funds.length ? `<div class="card"><h3>Capital funds, ${esc(yrs)}</h3>${table([
+        { label: 'Fund', get: (x) => x.name }, { label: `Start of FY${plan.start}`, num: true, get: (x) => f(x.start) }, { label: 'Coming in', num: true, get: (x) => f(x.receipts) },
+        { label: 'Planned spending', num: true, get: (x) => f(x.spend) }, { label: `End of FY${plan.last}`, num: true, get: (x) => f(x.end) }, { label: 'Lowest', num: true, get: (x) => `${f(x.low)} (FY${x.lowFY})` }], F.funds, '')}
+      ${F.borrow.length ? `<p class="small"><b>Borrowing in the plan:</b> ${F.borrow.map((b) => `${esc(b.name)}, ${esc(b.kind)}, ${f(b.amount)} in FY${b.fy}${b.years ? ` over ${b.years} years` : ''}`).join('; ')}.</p>` : ''}
+      <p class="small muted">From the board version “${esc(extra.boardName)}” as a whole: spending includes existing debt, ongoing costs and every phase in it${F.pending ? `, including ${F.pending} initiative${F.pending === 1 ? '' : 's'} not yet approved` : ''}.${fundList.length ? ` Approved initiatives in this view: ${fundList.join(', ')}${T.auto > 0.5 ? `, and ${f(T.auto)} the plan assigns across the capital funds` : ''}.` : ''}</p></div>` : '';
+    const title = plan.view === 'full' ? (extra.planName) : plan.viewName;
+    return `<div class="card plan-head"><div class="small muted">${esc(d.name)}${saved ? ` · saved ${esc(day(saved.created_at))}` : ''}</div><h2 style="margin:4px 0">${esc(title)}</h2>
+        <p class="small muted">${esc(yrs)}${plan.board ? ` · costs from the board version “${esc(plan.board.name)}”` : ' · no board version yet, so no costs'} · ${plan.items === 'approved' ? 'approved items only' : 'all items; proposals are labelled and not counted'}</p>
+        <p>${lead}</p></div>
+      ${goals}${groups}${sched}${funding}
+      <p class="small muted">Totals count approved work only (approved, in progress and completed). Costs are the board version’s phases within the plan years, at their planned cost (the actual cost once finished), plus yearly costs.${plan.unlinked ? ` ${plan.unlinked} initiative${plan.unlinked === 1 ? ' isn’t' : 's aren’t'} linked to a goal.` : ''}</p>`;
+  }
+  async function vPlan(c) {
+    const d = c.district;
+    if (PL.key !== d.id) { PL.key = d.id; PL.open = null; PL.view = 'full'; PL.items = 'approved'; PL.years = 5; }
+    const [D, saved] = await Promise.all([loadDirection(d),
+      HG.db.select('report_snapshot', `select=id,title,created_at,payload&district_id=eq.${d.id}&kind=eq.improvement_plan&order=created_at.desc&limit=30`).catch(() => [])]);
+    const rows = D.rows, board = rows.scenarios.find((x) => x.is_board_version) || null;
+    if (PL.open) {
+      const sv = saved.find((x) => x.id === PL.open);
+      if (sv) {
+        setLead(`Saved ${esc(day(sv.created_at))}: ${esc(sv.title)}.`);
+        return `<div class="row noprint"><button type="button" class="btn" data-action="planBack">← Back to the live plan</button><button type="button" class="btn" data-action="rpPrint">Print or save as PDF</button></div>${planHtml(c, sv.payload.plan, sv.payload.extra, sv)}`;
+      }
+      PL.open = null;
+    }
+    let start = rows.settings && rows.settings.plan_start_fy ? Number(rows.settings.plan_start_fy) : null;
+    if (!start && board && rows.settings) start = HGCapital.buildInputs(rows, board.id).cfg.start;
+    if (!start) start = new Date().getMonth() >= 6 ? new Date().getFullYear() + 1 : new Date().getFullYear();
+    const plan = HGPlan.build(rows, D, { view: PL.view, items: PL.items, years: PL.years, start, boardId: board && board.id });
+    const extra = { planName: planName(rows.settings), boardName: board ? board.name : '', funding: planFunding(rows, board, start, start + PL.years - 1) };
+    PL.last = { plan, extra };
+    setLead((PL.view === 'full' ? esc(extra.planName) : esc(plan.viewName)) + `: <b>${plan.totals.count}</b> approved initiative${plan.totals.count === 1 ? '' : 's'}${plan.totals.cost > 0.5 ? `, ${HGReport.fmt(plan.totals.cost)} over ${PL.years} years` : ''}.`);
+    const btn = (v, label) => `<button type="button" class="pipe ${PL.view === v ? 'on' : ''}" data-action="planView" data-v="${v}">${label}</button>`;
+    const canName = c.admin && rows.settings;
+    return `<div class="card noprint"><div class="pipeline" role="group" aria-label="Which plan">${btn('full', esc(extra.planName))}${btn('csip', 'Academic goals (CSIP)')}${btn('capital', 'Capital improvement plan')} ${def('plans')}</div>
+        <div class="inline-form" style="margin-top:10px">
+          <label class="field">Items<select data-plan-items><option value="approved" ${PL.items === 'approved' ? 'selected' : ''}>Approved only</option><option value="all" ${PL.items === 'all' ? 'selected' : ''}>All items, proposals labelled</option></select></label>
+          <label class="field">Years<select data-plan-years>${[5, 10].map((y) => `<option value="${y}" ${PL.years === y ? 'selected' : ''}>${y} years</option>`).join('')}</select></label>
+          <button type="button" class="btn" data-action="rpPrint">Print or save as PDF</button><button type="button" class="btn" data-action="planXlsx">Download Excel</button>
+          ${c.plan ? '<button type="button" class="btn" data-action="planSave">Save this version</button>' : ''}</div>
+        ${canName ? `<form class="inline-form" data-form="savePlanName" style="margin-top:10px"><label class="field">The district’s name for its full plan<input name="plan_name" maxlength="80" value="${esc((rows.settings.plan_name || '').trim())}" placeholder="District improvement plan"></label><button type="submit" class="btn small">Save name</button></form>` : ''}</div>
+      ${planHtml(c, plan, extra, null)}
+      ${saved.length ? `<div class="card noprint"><h3>Saved versions</h3><p class="small muted">Exactly as they were when saved, for example the version the board adopted.</p>${table([
+        { label: 'Saved', html: (r) => `<a href="#" data-action="planOpen" data-id="${esc(r.id)}">${esc(day(r.created_at))}</a>` }, { label: 'Version', get: (r) => r.title }], saved, '')}</div>` : ''}`;
+  }
+
   // ------------------------------------------------------------------ views: Reports
   const RP = { key: null, open: null };
   async function vBoardReports(c) {
@@ -3404,7 +3513,7 @@
     solvency: ['Solvency ratio', 'The General Fund’s cushion: unassigned and assigned fund balance divided by General Fund revenue (less AEA flowthrough). Many districts aim for 5–10%.'],
     authority: ['Spending authority', 'The most a district may spend from the General Fund in a year: formula funding, plus miscellaneous income, plus unspent balance carried forward.'],
     unspent: ['Unspent balance', 'Spending authority not used, carried into next year. Spending more than the authority requires a corrective plan; two years in a row brings state review.'],
-    guarantee: ['Budget guarantee', 'Iowa’s formula guarantees at least 101% of last year’s regular program funding, which matters most when enrollment falls.'],
+    guarantee: ['Budget guarantee', 'Iowa’s budget adjustment (Iowa Code 257.14): regular program funding of at least 101% of the year before’s. It isn’t a one-time cushion: it’s available every year, so with several years of falling enrollment a district can be on it year after year, each year 1% above the last. The board adopts a resolution by May 15 to use it, and the extra is normally paid by local property taxes (for FY2027 the state paid it instead, under SF 2201).'],
     ssa: ['State supplemental aid', 'The yearly percentage increase in per-student funding, set by the Legislature. It is 2% for FY2027 ($8,148 state cost per pupil).'],
     dcpp: ['District cost per pupil', 'The per-student amount the school funding formula provides: the state cost per pupil plus any district adjustment.'],
     go_bond: ['General obligation bond', 'Borrowing approved by voters (60% in Iowa), repaid by a property tax called the debt service levy.'],
@@ -3413,6 +3522,9 @@
     assumptions: ['Assumption set', 'The outlook a scenario plans for: inflation, revenue growth, enrollment, settlements and health insurance. Base, Conservative and Growth are common sets.'],
     measure_status: ['Measure status', 'On track: at or ahead of a straight path from the starting point to the target. Off track: behind it. Met: the target is reached. Update owed: no result within the measure’s schedule.'],
     fiscal_year: ['Fiscal year', 'July 1 to June 30, named for the year it ends: FY2027 runs from July 2026 to June 2027.'],
+    csip: ['CSIP goal', 'Iowa requires each district’s comprehensive school improvement plan (CSIP) to set long-range goals in at least reading, math and science, with annual improvement goals and a progress report to the community, the AEA and the Department of Education by September 15 (Iowa Administrative Code 281-12.8). The plan itself is filed in the Department’s CASA system. Tag the priorities that are CSIP goals, and Reports → Plans shows them, with their measures and the initiatives behind them, as the academic goals view.'],
+    plans: ['The three plan views', 'One plan, three views of it. The full plan has every goal and initiative, with or without a cost. Academic goals (CSIP) has only the priorities tagged as state CSIP goals and the initiatives serving them. The capital improvement plan has the initiatives paid from SAVE, PPEL, V-PPEL, bonds or capital grants and gifts, with the funding picture. Costs come from the board version; totals count approved work only (approved, in progress, completed).'],
+    benefits: ['Benefits and health insurance', 'Each staff group costs FTE × (average salary × (1 + benefits %) + health insurance per FTE). The benefits % is the district’s FICA (7.65%), IPERS (9.44% for FY2027) and any other benefits paid as a share of salary, which comes to 17.09% before anything else. Health insurance is a dollar amount per FTE, because it doesn’t rise with salary and grows at its own rate. The state’s annual report lumps health insurance in with benefits, so its benefits % (often 25–35%) already includes health: use it only if you leave health per FTE blank.'],
     turnover: ['Turnover savings', 'When experienced staff leave and newer staff join on lower pay, total salaries grow a little slower than the settlement.'],
     sources: ['Where these figures come from', 'Public reports only: the district’s own Certified Annual Report and certified enrollment (Iowa Department of Education); tax rates, valuations, the Aid and Levy worksheet and the unspent balance report (Iowa Department of Management); median home values (U.S. Census Bureau); and school construction prices (U.S. Bureau of Labor Statistics). They’re refreshed monthly. They’re starting points: change any of them, and nothing is used until you save. This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau.'],
   };
@@ -3460,20 +3572,6 @@
       <div class="card">${sourcesHtml()}</div>
       <div class="card"><h3>Questions</h3><p>Email <a href="mailto:support@willowholler.com">support@willowholler.com</a>.</p></div>`;
   }
-  async function vBuilt() {
-    const rows = [];
-    ALL.forEach((s) => s.tabs.forEach((t) => rows.push({ s: s.label, t: t.label, status: t.status, phase: t.phase })));
-    rows.push({ s: 'Sign-in', t: 'Email and password, confirmation and reset; invitations by email; two-step sign-in; access requests', status: 'live' });
-    // the public link is the community page: take its status from that screen, so this row can't go stale
-    const cp = ALL.find((x) => x.id === 'reports').tabs.find((x) => x.id === 'community');
-    rows.push({ s: 'Public link', t: 'District-branded board version with what-if levers; unapproved proposals held back', status: cp.status, phase: cp.phase });
-    return `<div class="card">${table([
-      { label: 'Section', get: (r) => r.s }, { label: 'Screen', get: (r) => r.t },
-      { label: 'Status', html: (r) => badge(r.status) }, { label: 'Rest arrives', get: (r) => (r.status === 'live' ? '' : r.phase ? 'Phase ' + r.phase : '') },
-    ], rows, '')}</div>
-`;
-  }
-
   // ------------------------------------------------------------------ Willow Holler staff
   /** the daily health check's latest result (part 20; filled by the "Daily health check" GitHub workflow) */
   function healthCard(runs) {
@@ -4066,8 +4164,13 @@
       set('misc_income', P.misc_income, null, 'miscellaneous income'); set('misc_growth', P.misc_growth, 'pct');
       set('aea_flowthrough', P.aea_flowthrough, null, 'AEA flowthrough'); set('fund_balance', P.fund_balance, null, 'fund balance'); set('unspent', P.unspent, null, 'unspent balance');
       set('nonstaff', P.nonstaff, null, 'other spending');
-      if (P.benefits != null) { form.querySelectorAll('[name=s_benefits]').forEach((el) => { el.value = pctIn(P.benefits); }); const t = form.querySelector('[data-gf-staff-template]'); if (t) t.innerHTML = t.innerHTML.replace(/name="s_benefits" inputmode="decimal" value="[^"]*"/, `name="s_benefits" inputmode="decimal" value="${pctIn(P.benefits)}"`); done.push('benefits %'); }
-      toast('Filled in', `${done.join(', ')}. Check them, then Save.`);
+      // the annual report's benefits include health insurance: use its % only where health per FTE is blank, so health isn't counted twice
+      let kept = 0;
+      if (P.benefits != null) {
+        form.querySelectorAll('[data-gf-staff]').forEach((tr) => { const h = toNum(tr.querySelector('[name=s_health]').value); if (h) { kept++; return; } tr.querySelector('[name=s_benefits]').value = pctIn(P.benefits); });
+        if (kept < form.querySelectorAll('[data-gf-staff]').length) done.push('benefits % (including health) where health per FTE is blank');
+      }
+      toast('Filled in', `${done.join(', ')}. Check them, then Save.${kept ? ` Groups with health per FTE keep their benefits % (FICA and IPERS, about 17.09%): the state’s ${pctIn(P.benefits)}% already includes health insurance, so it would be counted twice.` : ''}`);
     },
     async setupPrefill() { setupPrefill(); },
     async setupGo(el) { const st = (SETUP.steps || []).find((x) => x.k === el.dataset.k); if (!st) return; SETUP.step = st.k; go(`#/d/${enc(S.district.slug)}/${st.path}`); },
@@ -4117,7 +4220,7 @@
     async openSearch() { await openSearch(); },
     async openHelp() { openHelp(); },
     async toggleMenu(el) { const rail = el.closest('.rail'), open = !rail.classList.contains('open'); rail.classList.toggle('open', open); el.setAttribute('aria-expanded', String(open)); },
-    async define(el) { const t = TERMS[el.dataset.term]; if (t) toast(t[0], t[1], 'defn', { sticky: true, key: 'defn' }); },
+    async define(el) { const t = TERMS[el.dataset.term]; if (t) toast(t[0], t[1], 'term', { sticky: true, key: 'term' }); },
     async searchGo(el) {
       const k = el.dataset.k, id = el.dataset.id, slug = S.district.slug; closeModal();
       if (k === 'initiative') { INI.key = S.district.id; go(`#/d/${enc(slug)}/decisions/initiatives`); setTimeout(() => openDecisionEditor(id), 600); }
@@ -4150,6 +4253,26 @@
     async rpOpen(el) { RP.open = el.dataset.id; here(); },
     async rpClose() { RP.open = null; here(); },
     async rpPrint() { window.print(); },
+    async planView(el) { PL.view = el.dataset.v; here(); },
+    async planBack() { PL.open = null; here(); },
+    async planOpen(el) { PL.open = el.dataset.id; here(); },
+    async planXlsx() {
+      const L = PL.last; if (!L) return;
+      const name = PL.view === 'full' ? L.extra.planName : L.plan.viewName;
+      saveXlsx(`${S.district.slug}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${L.plan.start}.xlsx`, HGPlan.sheet(L.plan), 'Plan');
+    },
+    async planSave() {
+      const L = PL.last; if (!L) return;
+      const name = PL.view === 'full' ? L.extra.planName : L.plan.viewName;
+      const title = `${name}, FY${L.plan.start}–FY${L.plan.last}, ${L.plan.items === 'approved' ? 'approved items only' : 'all items'}`;
+      try {
+        await HG.db.insert('report_snapshot', { district_id: S.district.id, kind: 'improvement_plan', title, scenario_id: L.plan.board ? L.plan.board.id : null, payload: { v: 1, opts: { view: PL.view, items: PL.items, years: PL.years }, plan: L.plan, extra: L.extra } });
+      } catch (e) {
+        if (/check constraint|violates/i.test(e.message || '')) throw new UserError('Saving plan versions needs database update 21 (21_improvement_plan.sql). Run it in Supabase, then try again.');
+        throw e;
+      }
+      toast('Saved', title); here();
+    },
     async rpDelete(el) { if (!confirm('Delete this board report? Later reports will compare with the one before it.')) return; await HG.db.remove('report_snapshot', `id=eq.${enc(el.dataset.id)}`); RP.open = null; toast('Deleted'); here(); },
     async baFund(el) { BA.fund = el.dataset.k; here(); },
     async piOpen(el) { PI.open = PI.open === el.dataset.id ? null : el.dataset.id; here(); },
@@ -4334,6 +4457,11 @@
     async saveGf(f, form) { await saveGf(f, form); },
     async saveSurvey(f, form) { await saveSurvey(f, form); },
     async savePriority(f, form) { await savePriority(f, form); },
+    async savePlanName(f) {
+      try { await HG.db.update('district_settings', `district_id=eq.${S.district.id}`, { plan_name: String(f.plan_name || '').trim().slice(0, 80) || null }); }
+      catch (e) { if (/plan_name|column/i.test(e.message || '')) throw new UserError('Naming the plan needs database update 21 (21_improvement_plan.sql). Run it in Supabase, then try again.'); throw e; }
+      toast('Saved', 'The plan’s name.'); here();
+    },
     async saveMeasure(f, form) { await saveMeasure(f, form); },
     async saveRecord(f, form) { await saveRecord(f, form); },
     async saveSet(f, form) { await saveSet(f, form); },
@@ -4485,6 +4613,10 @@
     if (gyr) { SETUP_PREFILL.grantYears = Number(gyr.value); return; }
     const sa = e.target.closest('[data-show-all]');
     if (sa) { try { localStorage.setItem(showAllKey(), sa.checked ? '1' : '0'); } catch (x) {} toast(sa.checked ? 'Every screen shown' : 'Menu for your role', 'The menu has changed.'); return here(); }
+    const pli = e.target.closest('[data-plan-items]');
+    if (pli) { PL.items = pli.value; return here(); }
+    const ply = e.target.closest('[data-plan-years]');
+    if (ply) { PL.years = Number(ply.value); return here(); }
     const gsc = e.target.closest('[data-gf-sc]');
     if (gsc) { GF.sid = gsc.value; GF.over = {}; return here(); }
     const mp = e.target.closest('[data-me-prio]');

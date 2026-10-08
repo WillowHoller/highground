@@ -106,7 +106,6 @@ If the address differs from the one in step 4, update **Authentication → URL C
 1. Open the address and sign in with the staff account from step 6.
 2. **Willow Holler** (bottom of the left rail) → **Add a district**. Start with a fictional demo district, tick *Demo district*, and optionally enter a first admin's email.
 3. To try the other roles, invite test addresses from **Settings → People** and create those accounts from a private browser window. Invitations aren't emailed yet; the person creates an account with the invited address, confirms it, and has access.
-4. **Help → What's built** lists every screen and whether it works.
 
 ## 12. Sign-in update (database)
 

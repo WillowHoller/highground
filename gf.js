@@ -119,5 +119,16 @@
     ['Special education paraeducator', 'Paraeducators', 1, 27000, 9600], ['Head custodian', 'Support staff', 1, 41000, 13200],
     ['High school principal', 'Administrators', 1, 112000, 13200]];
 
-  return { RULES, DEFAULTS, forecast, fromBudget, roster, ROSTER_TEMPLATE };
+  /** staff groups whose benefits % looks like it already includes health insurance while health per FTE is also entered */
+  function healthTwice(staff) {
+    return (staff || []).filter((x) => Number(x.benefits) > 0.24 && Number(x.health) > 0).map((x) => x.name || 'Staff');
+  }
+  /** the first year's staff cost from the staff groups: salaries, benefits besides health, health */
+  function staffCost(staff) {
+    const t = { salaries: 0, benefits: 0, health: 0 };
+    (staff || []).forEach((x) => { const f = Number(x.fte) || 0, sal = Number(x.salary) || 0; t.salaries += f * sal; t.benefits += f * sal * (x.benefits == null ? 0.1709 : Number(x.benefits)); t.health += f * (Number(x.health) || 0); });
+    t.total = t.salaries + t.benefits + t.health; return t;
+  }
+
+  return { RULES, DEFAULTS, forecast, fromBudget, roster, ROSTER_TEMPLATE, healthTwice, staffCost };
 });

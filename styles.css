@@ -117,7 +117,7 @@ form.stack{max-width:420px}
 .toast{position:relative;padding-right:34px}
 .toast-x{position:absolute;top:6px;right:6px;width:28px;height:28px;border:0;background:transparent;font-size:20px;line-height:1;color:var(--muted);cursor:pointer;border-radius:6px}
 .toast-x:hover{background:var(--page);color:var(--text)}
-.toast.defn{border-left-color:var(--rail);font-size:15px;line-height:1.5}
+.toast.term{border-left-color:var(--rail);font-size:15px;line-height:1.5}
 
 .demo-bar{background:#FBF5E6;border-bottom:1px solid var(--gold);color:#6B5A1E;font-size:13px;padding:6px 32px}
 
@@ -456,3 +456,14 @@ html.modal-open,html.modal-open body{overflow:hidden}
 .cbar{display:flex;height:22px;border-radius:4px;overflow:hidden;background:#F1EEE6}
 .cbar span{display:block;height:100%}
 .cbar-note{margin-top:4px}
+
+/* ---------- Reports → Plans ---------- */
+.plan-goal{padding:10px 0;border-top:1px solid var(--border)}
+.plan-goal:first-of-type{border-top:0}
+.plan-goal h4{margin:2px 0 4px}
+.plan-goal ul{margin:6px 0 0 18px;padding:0}
+.plan-years{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.plan-years h4{margin:0 0 4px}
+.plan-years ul{margin:0;padding-left:16px}
+.plan-years li{margin-bottom:6px}
+@media print{.plan-head{border:0;box-shadow:none}.plan-years{grid-template-columns:repeat(3,1fr)}}
