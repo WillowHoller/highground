@@ -1090,7 +1090,7 @@ async def main():
     check("moved screens: old links land in their new homes", all(moved.values()), str(moved))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/district"); await pg.wait_for_timeout(500)
     st=[x.strip() for x in await pg.locator("nav.tabs a").all_inner_texts()]
-    check("settings: assumption sets and exports live here now", "Assumption sets" in st and "Exports" in st, str(st))
+    check("settings: assumption sets and exports live here now", "Assumptions" in st and "Assumption sets" not in st and "Exports" in st, str(st))
     # step A: search is never stale
     await pg.click("button[data-action=openSearch]"); await pg.wait_for_timeout(400)
     await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(100)
@@ -1485,7 +1485,7 @@ async def main():
     check("board member: typing a staff screen's address doesn't open it", "Not part of your view" in await pp.inner_text("#content") and await pp.locator("#view").count()==0)
     # every screen a board member can open: no links to screens they can't
     bad=[]
-    for path in ["overview/today","direction/priorities","direction/measures","resources/summary","resources/general","resources/capital","reports/board","settings/account","help/guide"]:
+    for path in ["overview/today","direction/priorities","direction/measures","direction/community","resources/summary","resources/general","resources/capital","reports/board","settings/account","help/guide"]:
       await pp.goto("http://localhost:8765/#/d/ironwood-valley/reports/board"); await pp.wait_for_timeout(150)
       await pp.goto("http://localhost:8765/#/d/ironwood-valley/"+path); await pp.wait_for_timeout(700)
       hrefs=await pp.evaluate("[...document.querySelectorAll('#view a[href^=\"#/d/\"]')].map(a=>a.getAttribute('href'))")
@@ -1495,7 +1495,7 @@ async def main():
     check("board member: Priorities doesn't show the planners' to-do about unlinked initiatives", "linked to a priority yet" not in await pp.inner_text("#view"))
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/help/guide"); await pp.wait_for_timeout(500)
     g=await pp.inner_text("#view")
-    check("guide: where to start for a board member, how-to, the glossary, and the data sources with the Census notice", "open the latest board report" in g and "How do I" in g and "Solvency ratio" in g and "Encumbered" in g and "hello@willowholler.com" in g and "Where the starting figures come from" in g and "not endorsed or certified by the Census Bureau" in g, g[:300])
+    check("guide: where to start for a board member, how-to, the glossary, and the data sources with the Census notice", "open the latest board report" in g and "How do I" in g and "Solvency ratio" in g and "Encumbered" in g and "support@willowholler.com" in g and "Where the starting figures come from" in g and "not endorsed or certified by the Census Bureau" in g, g[:300])
     check("guide: no “What’s built” tab for districts", "What’s built" not in await pp.inner_text("nav.tabs") if await pp.locator("nav.tabs").count() else True)
     await cx.close()
     cx,pp=await session("bm@example.test")
@@ -1553,14 +1553,49 @@ async def main():
     pp=await ph.new_page(); pp.on("pageerror",lambda e:errs.append(str(e)))
     await pp.goto("http://localhost:8765/#/signin"); await pp.fill("input[name=email]","admin@example.test"); await pp.fill("input[name=password]",PW); await pp.click("button[type=submit]"); await pp.wait_for_timeout(700)
     sw=await pp.evaluate("document.documentElement.scrollWidth"); check("phone: no sideways scroll", sw<=375, str(sw))
-    WIDE_JS="""(()=>{const W=innerWidth,out=[];document.querySelectorAll('body *').forEach(e=>{const r=e.getBoundingClientRect();if(r.width>0&&r.right>W+1){let p=e.parentElement,clipped=false;while(p&&p!==document.body){const cs=getComputedStyle(p);if(/auto|scroll|hidden|clip/.test(cs.overflowX)&&p.getBoundingClientRect().right<=W+1){clipped=true;break}p=p.parentElement}if(!clipped)out.push((e.className&&e.className.baseVal===undefined?e.tagName+'.'+String(e.className).split(' ')[0]:e.tagName)+':'+Math.round(r.right))}});return [document.documentElement.scrollWidth,[...new Set(out)].slice(0,8)]})()"""
+    WIDE_JS="""(()=>{const W=innerWidth,out=[];document.querySelectorAll('body *').forEach(e=>{const r=e.getBoundingClientRect();if(r.width>0&&r.right>W+1){let p=e.parentElement,clipped=false;while(p&&p!==document.body){const cs=getComputedStyle(p);if(/auto|scroll/.test(cs.overflowX)&&p.getBoundingClientRect().right<=W+1){clipped=true;break}p=p.parentElement}if(!clipped)out.push((e.className&&e.className.baseVal===undefined?e.tagName+'.'+String(e.className).split(' ')[0]:e.tagName)+':'+Math.round(r.right))}});return [document.documentElement.scrollWidth,[...new Set(out)].slice(0,8)]})()"""
     wide=[]
     for path in ["overview/today","direction/priorities","direction/measures","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","resources/capital","progress/initiatives","progress/actuals","progress/uploads","progress/registers","reports/board","reports/community","settings/district","settings/setup","settings/people","settings/activity","settings/assumptions","settings/exports","settings/account","help/guide"]:
       await pp.goto("http://localhost:8765/#/d/ironwood-valley/"+path); await pp.wait_for_timeout(700)
       await pp.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)"); await pp.wait_for_timeout(150)
       sw2,els=await pp.evaluate(WIDE_JS)
       if sw2>375 or els: wide.append(f"{path}:{sw2}:{els}")
-    check("phone: no screen is wider than the phone (nothing to drift sideways)", not wide, "\n".join(wide))
+    check("phone: nothing on any screen runs past the edge or is cut off (wide tables scroll in their own box)", not wide, "\n".join(wide))
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(700)
+    await pp.click("button.defn >> nth=0"); await pp.wait_for_timeout(300)
+    tb=await pp.evaluate("(()=>{const r=document.querySelector('#toasts .toast').getBoundingClientRect();return [r.left,r.right,innerWidth]})()")
+    check("phone: a definition sits inside the screen", tb[0]>=0 and tb[1]<=tb[2], str(tb))
+    await pp.click("#toasts .toast-x")
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pp.wait_for_timeout(800)
+    await pp.click("button[data-action=openHelp]"); await pp.wait_for_timeout(400)
+    mb=await pp.evaluate("(()=>{const m=document.querySelector('[data-modal] .modal'),b=m.querySelector('.modal-body');b.scrollTop=b.scrollHeight;const r=m.getBoundingClientRect();const h=m.querySelector('#modal-title').getBoundingClientRect();const c=m.querySelector('[data-action=closeModal]').getBoundingClientRect();return [r.top,r.bottom,innerHeight,h.top>=r.top-1&&h.bottom<=r.bottom&&c.bottom<=r.bottom&&h.bottom<=b.getBoundingClientRect().top+1,b.scrollTop>0]})()")
+    check("phone: Help slides up inside the screen, scrolls inside itself, and keeps its title and Close in view", mb[0]>=0 and mb[1]<=mb[2]+1 and mb[3] and mb[4], str(mb))
+    await pp.screenshot(path=SHOTS+"/phone-help.png")
+    await pp.click("[data-modal] button[data-action=closeModal]"); await pp.wait_for_timeout(200)
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/assumptions"); await pp.wait_for_timeout(800)
+    tabs=await pp.evaluate("(()=>{const n=document.querySelector('nav.tabs');return [...n.querySelectorAll('a')].every(a=>a.getBoundingClientRect().right<=innerWidth)})()")
+    check("phone: every sub-menu tab is visible (they wrap instead of scrolling)", tabs)
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pp.wait_for_timeout(900)
+    await pp.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)"); await pp.wait_for_timeout(300)
+    sc=await pp.evaluate("[...document.querySelectorAll('[data-setup-state] .scroll')].map(b=>b.scrollWidth-b.clientWidth)")
+    check("phone: the state comparison fits without sideways scrolling (it becomes a list)", sc and max(sc)<=2 and await pp.locator("[data-setup-state] table.stacked").count()>=1, str(sc))
+    await pp.screenshot(path=SHOTS+"/phone-setup-state.png", full_page=True)
+    small=[]
+    for path in ["resources/summary","resources/general"]:
+      await pp.goto("http://localhost:8765/#/d/ironwood-valley/"+path); await pp.wait_for_timeout(900)
+      hs=await pp.evaluate("[...document.querySelectorAll('#view svg text')].filter(t=>t.getBoundingClientRect().width>0).map(t=>t.getBoundingClientRect().height)")
+      if hs and min(hs)<9: small.append(f"{path}: {min(hs):.1f}px")
+    check("phone: chart labels stay readable (at least 9px tall on screen)", not small, str(small))
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/decisions/initiatives"); await pp.wait_for_timeout(900)
+    ov=await pp.evaluate("""(()=>{const els=[...document.querySelectorAll('#view .row > .chip, #view .row > .btn')].map(e=>e.getBoundingClientRect());for(let i=0;i<els.length;i++)for(let j=i+1;j<els.length;j++){const a=els[i],b=els[j];if(a.left<b.right-1&&b.left<a.right-1&&a.top<b.bottom-1&&b.top<a.bottom-1)return true}return false})()""")
+    check("phone: the initiative pickers and buttons don't overlap", not ov)
+    await pp.screenshot(path=SHOTS+"/phone-initiatives.png")
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/resources/capital"); await pp.wait_for_timeout(1000)
+    await pp.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)"); await pp.wait_for_timeout(300)
+    rows=await pp.evaluate("[...document.querySelectorAll('.outrow')].slice(0,6).map(l=>{const c=l.querySelector('input').getBoundingClientRect(),n=l.querySelector('span').getBoundingClientRect();return Math.abs(c.top-n.top)<12})")
+    check("phone: Leave projects out keeps each checkbox beside its project", rows and all(rows), str(rows))
+    await pp.screenshot(path=SHOTS+"/phone-capital.png", full_page=True)
+    await pp.screenshot(path=SHOTS+"/phone-assumptions.png", full_page=True)
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(600)
     navvis=await pp.locator(".rail .nav a").first.is_visible()
     await pp.click(".menu-btn"); await pp.wait_for_timeout(200)

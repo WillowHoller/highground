@@ -37,7 +37,7 @@
     user: d.user || null,
   });
 
-  const SUPPORT = 'hello@willowholler.com';
+  const SUPPORT = 'support@willowholler.com';
   function friendly(msg, code) {
     const m = String(msg || '');
     // the database is missing something the app expects (an update not yet run)

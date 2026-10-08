@@ -184,7 +184,7 @@
       { id: 'setup', label: 'Starting numbers', status: 'live', lede: 'What the capital plan starts from: receipts, balances and existing debt.', render: vSetup },
       { id: 'people', label: 'People', status: 'live', lede: 'Who can see and change this district.', render: vPeople },
       { id: 'activity', label: 'Activity', status: 'live', lede: 'Every change: who, when, and what it was before.', render: vActivity },
-      { id: 'assumptions', label: 'Assumption sets', status: 'live', lede: 'Base, Conservative and Growth: the world the plan has to survive.', render: vAssumptions },
+      { id: 'assumptions', label: 'Assumptions', status: 'live', lede: 'Base, Conservative and Growth: the world the plan has to survive.', render: vAssumptions },
       { id: 'exports', label: 'Exports', status: 'live', lede: 'Download the district’s data, for spreadsheets or backup.', render: vExports },
       { id: 'account', label: 'Your account', status: 'live', lede: 'Your name, password and sign-in security.', render: vAccount },
     ] },
@@ -227,6 +227,34 @@
       if (sec && sec !== 'welcome' && !tabAllowed(sec, tab)) a.replaceWith(document.createTextNode(a.textContent));
     });
   }
+  /**
+   * Tables on narrow screens. Every table sits in its own sideways-scrolling box (so it can never push the page);
+   * a table that doesn't fit becomes a stacked list on phones when it has six columns or fewer, and wider ones get a
+   * visible "swipe" cue and a fading edge until they're scrolled to the end.
+   */
+  function fitTables(root) {
+    if (!root) return;
+    root.querySelectorAll('table').forEach((t) => {
+      if (t.closest('details:not([open])')) return;   // measured when its fold opens
+      let box = t.parentElement;
+      if (!box.classList.contains('scroll')) { box = document.createElement('div'); box.className = 'scroll'; t.replaceWith(box); box.appendChild(t); }
+      const heads = [...t.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+      if (!t.dataset.labelled) {
+        t.querySelectorAll('tbody tr').forEach((tr) => [...tr.children].forEach((td, i) => { if (td.tagName === 'TD' && !td.hasAttribute('data-label')) td.setAttribute('data-label', heads[i] || ''); }));
+        t.dataset.labelled = '1';
+      }
+      const cols = Math.max(heads.length, ...[...t.querySelectorAll('tbody tr')].slice(0, 3).map((tr) => tr.children.length), 0);
+      t.classList.remove('stacked'); box.classList.remove('scroll-more', 'at-end');
+      const prev = box.previousElementSibling; if (prev && prev.classList.contains('swipe-hint')) prev.remove();
+      if (box.scrollWidth <= box.clientWidth + 2) return;
+      if (cols <= 6 && window.matchMedia('(max-width: 820px)').matches) { t.classList.add('stacked'); return; }
+      box.classList.add('scroll-more');
+      box.insertAdjacentHTML('beforebegin', '<p class="swipe-hint small muted" aria-hidden="true">Swipe the table sideways to see all its columns →</p>');
+      if (!box.dataset.watch) { box.dataset.watch = '1'; box.addEventListener('scroll', () => box.classList.toggle('at-end', box.scrollLeft + box.clientWidth >= box.scrollWidth - 4), { passive: true }); }
+    });
+  }
+  document.addEventListener('toggle', (e) => { if (e.target.tagName === 'DETAILS' && e.target.open) fitTables(e.target); }, true);
+  { let tm; window.addEventListener('resize', () => { clearTimeout(tm); tm = setTimeout(() => { fitTables(document.getElementById('view')); fitTables(document.querySelector('[data-modal]')); }, 200); }); }
   function visibleTabs(section) {
     const tabs = section.tabs.filter((t) => t.id !== 'built' || S.isStaff);   // “What’s built” is for Willow Holler staff
     const v = VIEWS[S.role];
@@ -304,7 +332,7 @@
     const view = document.getElementById('view');
     ACT.before = null;
     PAGE.lead = null;
-    try { const html = await tab.render(ctx()); view.innerHTML = (PAGE.lead ? `<p class="lead">${PAGE.lead}</p>` : '') + html; stripHidden(view); }
+    try { const html = await tab.render(ctx()); view.innerHTML = (PAGE.lead ? `<p class="lead">${PAGE.lead}</p>` : '') + html; stripHidden(view); fitTables(view); }
     catch (err) {
       view.innerHTML = `<div class="notice error">${esc(err instanceof HG.NotBuiltError ? err.message : 'This screen couldn’t load: ' + (err.message || err))}</div>`;
       if (!(err instanceof HG.NotBuiltError)) console.error(err);
@@ -489,7 +517,7 @@
       ${tips.length ? `<ul>${tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
       ${['settings/setup', 'resources/general', 'settings/district'].includes(`${sec.id}/${tab.id}`) ? sourcesHtml() : ''}
       ${terms.filter((k) => k !== 'sources').length ? `<h3>Terms on this screen</h3><dl class="terms">${terms.filter((k) => k !== 'sources').map((k) => `<dt>${esc(TERMS[k][0])}</dt><dd>${esc(TERMS[k][1])}</dd>`).join('')}</dl>` : ''}
-      <p class="small"><a href="#/d/${enc(S.district.slug)}/help/guide">The full guide</a> · Questions: <a href="mailto:hello@willowholler.com">hello@willowholler.com</a></p></div>`);
+      <p class="small"><a href="#/d/${enc(S.district.slug)}/help/guide">The full guide</a> · Questions: <a href="mailto:support@willowholler.com">support@willowholler.com</a></p></div>`);
   }
   /* ---- guided setup: the district's first steps, each checked against its own data; each step opens the real screen ---- */
   const SETUP = { step: null };
@@ -1165,32 +1193,36 @@
     <p>${!b.rows.settings ? 'Enter the district’s receipts, balances and debt first.' : 'Upload the district’s projects to create its first scenario.'}</p>
     <a class="btn primary" href="#/d/${enc(c.district.slug)}/${!b.rows.settings ? 'settings/setup' : 'progress/uploads'}">${!b.rows.settings ? 'Starting numbers' : 'Upload projects'}</a></div>`);
   /** each capital fund's balance at the end of each year: one line per fund */
+  /** charts are drawn narrower on phones so their labels stay readable when scaled to the screen */
+  /** [2027, 2028, 2029, 2031] → "FY2027–FY2029, FY2031" */
+  const fyRanges = (ys) => { const a = [...new Set(ys.map(Number))].sort((x, y) => x - y), out = []; let s0 = a[0], p = a[0];
+    for (let i = 1; i <= a.length; i++) { if (a[i] === p + 1) { p = a[i]; continue; } out.push(s0 === p ? `FY${s0}` : `FY${s0}–FY${p}`); s0 = p = a[i]; }
+    return out.join(', '); };
+  const narrow = () => window.matchMedia('(max-width: 600px)').matches;
   function fundsChart(paths, funds) {
-    const COLORS = { save: '#3E6190', ppel: '#2F6B4F', vppel: '#8A5A00', grants: '#7A4E8C' };
-    const ys = paths[funds[0]].years, n = ys.length, W = 1000, H = 260, padL = 60, padR = 16;
+    const COLORS = { save: '#3E6190', ppel: '#2F6B4F', vppel: '#8A5A00', grants: '#7A4E8C' }, ph = narrow(), fs = ph ? 13 : 11;
+    const ys = paths[funds[0]].years, n = ys.length, W = ph ? 400 : 1000, H = ph ? 240 : 260, padL = ph ? 54 : 60, padR = ph ? 10 : 16;
     const all = funds.flatMap((k) => paths[k].years.map((y) => y.end)), hi = Math.max(1, ...all);
     const X = (i) => padL + (i / Math.max(1, n - 1)) * (W - padL - padR), Y = (v) => H - 26 - (v / hi) * (H - 44);
     const ticks = [0, 0.5, 1].map((t) => t * hi);
     return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Each capital fund's balance at the end of each year">
-      ${ticks.map((v) => `<line x1="${padL}" x2="${W - padR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${padL - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="11" text-anchor="end" fill="#5A6660">${fmtK(v)}</text>`).join('')}
+      ${ticks.map((v) => `<line x1="${padL}" x2="${W - padR}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${padL - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="${fs}" text-anchor="end" fill="#5A6660">${fmtK(v)}</text>`).join('')}
       ${funds.map((k) => `<polyline fill="none" stroke="${COLORS[k]}" stroke-width="2.5" points="${paths[k].years.map((y, i) => `${X(i).toFixed(1)},${Y(y.end).toFixed(1)}`).join(' ')}"/>`).join('')}
-      ${ys.map((y, i) => (i % 2 === 0 || n <= 6 ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="11" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>` : '')).join('')}</svg></div>
+      ${ys.map((y, i) => ((ph ? i % 3 === 0 || i === n - 1 : i % 2 === 0) || n <= (ph ? 4 : 6) ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="${fs}" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>` : '')).join('')}</svg></div>
       <p class="small">${funds.map((k) => `<span style="color:${COLORS[k]}">●</span> ${esc(FUND_NAMES[k])}`).join(' &nbsp; ')}</p>`;
   }
   /** for each capital fund over the plan: money available (starting balance + receipts) split into what's already committed
       (debt payments, ongoing and yearly costs), the board version's projects, and what's left; anything short shows in red */
   function commitChart(paths, funds, L, cfg) {
-    const K = HGCapital.commitments(L, cfg), W = 1000, rowH = 46, padL = 170, padR = 16, top = 8;
+    const K = HGCapital.commitments(L, cfg);
     const rows = funds.map((k) => { const p = paths[k], c = K[k], committed = c.debt + c.ongoing + c.yearly, avail = p.open + p.receipts + committed;
       return { k, avail, debt: c.debt, other: c.ongoing + c.yearly, proj: p.spend, left: Math.max(0, avail - committed - p.spend), short: p.over }; });
-    const hi = Math.max(1, ...rows.map((r) => Math.max(r.avail, r.debt + r.other + r.proj) + r.short)), X = (v) => (v / hi) * (W - padL - padR);
+    const hi = Math.max(1, ...rows.map((r) => Math.max(r.avail, r.debt + r.other + r.proj) + r.short));
     const SEG = [['debt', '#5A6660', 'Debt payments'], ['other', '#A9B3AE', 'Ongoing and yearly costs'], ['proj', '#2F6B4F', 'Board-version projects'], ['left', '#CFE3D6', 'Left over'], ['short', '#B42318', 'Short']];
-    const H = top + rows.length * rowH + 4;
-    const bars = rows.map((r, i) => { let x = padL; const y = top + i * rowH;
-      const segs = SEG.map(([key, color, name]) => { const w = X(r[key]); if (w < 0.5) return ''; const out = `<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="22" fill="${color}"><title>${esc(FUND_NAMES[r.k])}: ${name} ${fmtK(r[key])}</title></rect>`; x += w; return out; }).join('');
-      return `<text x="${padL - 10}" y="${y + 15}" font-size="13" text-anchor="end" fill="#1C2A24">${esc(FUND_NAMES[r.k])}</text>${segs}
-        <text x="${padL}" y="${y + 38}" font-size="12" fill="#5A6660">${fmtK(r.avail)} available · ${fmtK(r.debt + r.other)} committed · ${fmtK(r.proj)} to projects · ${r.short > 0.5 ? `short ${fmtK(r.short)}` : `${fmtK(r.left)} left`}</text>`; }).join('');
-    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Each capital fund: money available against what is committed, planned and left">${bars}</svg></div>
+    const bars = rows.map((r) => `<div class="cbar-row"><div class="cbar-name">${esc(FUND_NAMES[r.k])}</div>
+        <div class="cbar" role="img" aria-label="${esc(FUND_NAMES[r.k])}: ${SEG.filter(([key]) => r[key] > 0.5).map(([key, , name]) => `${name} ${fmtK(r[key])}`).join(', ')}">${SEG.map(([key, color, name]) => (r[key] > 0.5 ? `<span style="width:${(100 * r[key] / hi).toFixed(2)}%;background:${color}" title="${esc(name)} ${fmtK(r[key])}"></span>` : '')).join('')}</div>
+        <div class="cbar-note small muted">${fmtK(r.avail)} available · ${fmtK(r.debt + r.other)} committed · ${fmtK(r.proj)} to projects · ${r.short > 0.5 ? `<span class="gaptext">short ${fmtK(r.short)}</span>` : `${fmtK(r.left)} left`}</div></div>`).join('');
+    return `<div class="cbars">${bars}</div>
       <p class="small">${SEG.filter(([key]) => rows.some((r) => r[key] > 0.5)).map(([, color, name]) => `<span style="color:${color}">■</span> ${name}`).join(' &nbsp; ')}</p>
       <p class="small muted">Over FY${cfg.start}–FY${cfg.start + cfg.n - 1}. Available = the starting balance plus every year’s receipts. Committed = payments on existing debt and planned borrowing, ongoing commitments, and yearly costs of programs and hires paid from the fund.</p>`;
   }
@@ -1287,15 +1319,15 @@
   }
   const pct1 = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
   function gfChart(R) {
-    const ys = R.years, W = 1000, H = 240, pad = 40, n = ys.length;
+    const ph = narrow(), fs = ph ? 13 : 11, ys = R.years, W = ph ? 400 : 1000, H = ph ? 230 : 240, pad = ph ? 36 : 40, n = ys.length;
     const vals = ys.flatMap((y) => [y.solvency, y.unspentRatio]).filter((v) => v != null);
     const lo = Math.min(0, ...vals), hi = Math.max(0.2, ...vals), X = (i) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2), Y = (v) => H - 24 - ((v - lo) / (hi - lo)) * (H - 40);
     const line = (k, color) => `<polyline fill="none" stroke="${color}" stroke-width="2.5" points="${ys.map((y, i) => `${X(i).toFixed(1)},${Y(y[k] || 0).toFixed(1)}`).join(' ')}"/>${ys.map((y, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(y[k] || 0).toFixed(1)}" r="3" fill="${color}"/>`).join('')}`;
     const band = `<rect x="${pad}" width="${W - pad * 2}" y="${Y(0.10).toFixed(1)}" height="${(Y(0.05) - Y(0.10)).toFixed(1)}" fill="#E6F0EA"/>`;
-    const grid = [0, 0.05, 0.10, 0.15, 0.20].filter((v) => v >= lo && v <= hi).map((v) => `<line x1="${pad}" x2="${W - pad}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${pad - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="11" text-anchor="end" fill="#5A6660">${(v * 100).toFixed(0)}%</text>`).join('');
+    const grid = [0, 0.05, 0.10, 0.15, 0.20].filter((v) => v >= lo && v <= hi).map((v) => `<line x1="${pad}" x2="${W - pad}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${pad - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="${fs}" text-anchor="end" fill="#5A6660">${(v * 100).toFixed(0)}%</text>`).join('');
     const zero = lo < 0 ? `<line x1="${pad}" x2="${W - pad}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#B42318"/>` : '';
     return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Solvency ratio and unspent balance ratio by year">${band}${grid}${zero}${line('solvency', '#1E3A2F')}${line('unspentRatio', '#C9A24A')}
-      ${ys.map((y, i) => `<text x="${X(i).toFixed(1)}" y="${H - 6}" font-size="11" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>`).join('')}</svg></div>
+      ${ys.map((y, i) => (ph && n > 5 && i % 2 && i !== n - 1 ? '' : `<text x="${X(i).toFixed(1)}" y="${H - 6}" font-size="${fs}" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>`)).join('')}</svg></div>
       <p class="small"><span style="color:#1E3A2F">●</span> Solvency ratio &nbsp; <span style="color:#C9A24A">●</span> Unspent balance ratio &nbsp; <span class="muted">shaded: the 5–10% range many districts aim for</span></p>`;
   }
   function gfResultsHtml(run) {
@@ -1652,7 +1684,7 @@
     return `<h3>Leave projects out</h3>
       <p class="small muted">Tick a project to see the plan without its one-time costs (yearly costs of programs and hires stay). Nothing is saved${CAP.pub ? '' : ' unless you save it as a new scenario'}.</p>
       ${out.size ? `<p class="lead" style="font-size:15px">Leaving out ${out.size} project${out.size === 1 ? '' : 's'} (${fmtK(saved)}): the gap goes from <b>${fmtK(base.gap)}</b> to <b>${fmtK(now.gap)}</b>.</p>` : ''}
-      <div class="outlist">${list.map((x) => `<label class="row small"><input type="checkbox" data-cap-out="${esc(x.p.id)}" ${out.has(String(x.p.id)) ? 'checked' : ''}> <span>${esc(x.p.name)} <span class="muted">FY${x.years.join(', FY')}</span></span><b style="margin-left:auto">${fmtK(x.total)}</b></label>`).join('')}</div>
+      <div class="outlist">${list.map((x) => `<label class="outrow small"><input type="checkbox" data-cap-out="${esc(x.p.id)}" ${out.has(String(x.p.id)) ? 'checked' : ''}><span>${esc(x.p.name)}<span class="muted outyrs">${esc(fyRanges(x.years))}</span></span><b>${fmtK(x.total)}</b></label>`).join('')}</div>
       ${out.size ? `<div class="row" style="margin-top:10px"><button type="button" class="btn small" data-action="capOutClear">Put them all back</button>${!CAP.pub && CAP.ctx && CAP.ctx.plan ? '<button type="button" class="btn small primary" data-action="capOutSave">Save as a new scenario</button>' : ''}</div>` : ''}`;
   }
 
@@ -2174,10 +2206,16 @@
   function modal(inner) {
     closeModal();
     document.body.insertAdjacentHTML('beforeend', `<div class="modal-back" data-modal><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">${inner}</div></div>`);
-    stripHidden(document.querySelector('[data-modal]'));
+    // the title row (title + Close) becomes a header that stays put; the rest scrolls under it on small screens
+    const m = document.querySelector('[data-modal] .modal'), body = m && m.firstElementChild, head = body && body.firstElementChild;
+    if (head && head.classList.contains('row') && head.querySelector('h2')) {
+      const h = document.createElement('div'); h.className = 'modal-head'; m.insertBefore(h, body); h.appendChild(head); body.classList.add('modal-body');
+    }
+    stripHidden(document.querySelector('[data-modal]')); fitTables(document.querySelector('[data-modal]'));
+    document.documentElement.classList.add('modal-open');
     const first = document.querySelector('[data-modal] input, [data-modal] select'); if (first) first.focus();
   }
-  function closeModal() { document.querySelectorAll('[data-modal]').forEach((m) => m.remove()); }
+  function closeModal() { document.querySelectorAll('[data-modal]').forEach((m) => m.remove()); document.documentElement.classList.remove('modal-open'); }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
   const INIT_TYPES = [['capital', 'Capital project'], ['program', 'Program'], ['staff', 'Staff or hire'], ['curriculum', 'Curriculum'], ['technology', 'Technology'], ['other', 'Other']];
@@ -3420,7 +3458,7 @@
       <div class="card"><h3>What the terms mean</h3><dl class="glossary">${Object.values(TERMS).sort((x, y) => x[0].localeCompare(y[0])).map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl>
         <p class="small muted">Iowa figures were checked on ${esc(day(HGGF.RULES.checked))}. HighGround is a planning tool; confirm decisions with the district’s auditor, attorney or financial advisor.</p></div>
       <div class="card">${sourcesHtml()}</div>
-      <div class="card"><h3>Questions</h3><p>Email <a href="mailto:hello@willowholler.com">hello@willowholler.com</a>.</p></div>`;
+      <div class="card"><h3>Questions</h3><p>Email <a href="mailto:support@willowholler.com">support@willowholler.com</a>.</p></div>`;
   }
   async function vBuilt() {
     const rows = [];
