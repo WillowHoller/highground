@@ -21,7 +21,7 @@ import argparse, csv, datetime, json, os, re, subprocess, tempfile, urllib.reque
 BLS_SERIES = "PCU236222236222"
 BLS_URL = "https://api.bls.gov/publicAPI/v1/timeseries/data/"
 CENSUS = "https://api.census.gov/data/{y}/acs/acs5?get=NAME,B25077_001E,B25077_001M&for=school%20district%20(unified):*&in=state:19"
-UA = {"User-Agent": "HighGround public-data loader (Willow Holler; hello@willowholler.com)", "Content-Type": "application/json"}
+UA = {"User-Agent": "HighGround public-data loader (Willow Holler; support@willowholler.com)", "Content-Type": "application/json"}
 # Census name -> the state's district number, for names that don't match on their own (add here as they turn up)
 ALIASES = {}
 

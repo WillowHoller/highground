@@ -21,7 +21,7 @@ import argparse, datetime, glob, hashlib, html, json, os, re, subprocess, sys, u
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.environ.get("HEALTH_SITE", "https://highground.willowholler.com/")
-UA = {"User-Agent": "HighGround health check (Willow Holler; hello@willowholler.com)"}
+UA = {"User-Agent": "HighGround health check (Willow Holler; support@willowholler.com)"}
 SOURCES = [
     ("Iowa Department of Education: annual report page", "https://educate.iowa.gov/pk-12/operation-support/business-finance/accounting-reporting/certified-annual-report", None),
     ("Iowa Department of Education: certified enrollment page", "https://educate.iowa.gov/pk-12/data/data-collections/certified-enrollment/public-schools", None),

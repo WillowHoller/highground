@@ -19,7 +19,7 @@ import argparse, csv, hashlib, io, os, re, subprocess, sys, tempfile, urllib.req
 FILE_LIST = ("https://docs.google.com/spreadsheets/d/e/2PACX-1vS78tJSKEh8IWFHwsLY3oqnyAwZt2XgJKiOftrrAyugpsg4Leh"
              "iPlEVkYnSMmdGnDNu36-QF1bNt8Lm/pub?output=csv")
 FIRST_FY = 2019
-UA = {"User-Agent": "HighGround public-data loader (Willow Holler; hello@willowholler.com)"}
+UA = {"User-Agent": "HighGround public-data loader (Willow Holler; support@willowholler.com)"}
 
 # header text (lower case, spaces squeezed) -> column in ia_levy_rate
 COLS = [

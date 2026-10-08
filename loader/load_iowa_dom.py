@@ -33,7 +33,7 @@ NAME_RE = {
 FIRST_FY = {"valuation": 2019, "aidlevy": 2019, "unspent": 2015}   # FY2018 Aid and Levy uses an older layout
 SCHOOLS_PAGE = "https://dom.iowa.gov/schools"
 UNSPENT_ID = "19rG7pafGN8WWd9mpJTKizfyQpLsvz-pY"     # used when the page link can't be found
-UA = {"User-Agent": "HighGround public-data loader (Willow Holler; hello@willowholler.com)"}
+UA = {"User-Agent": "HighGround public-data loader (Willow Holler; support@willowholler.com)"}
 
 
 def fetch(url):
