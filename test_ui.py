@@ -1230,7 +1230,7 @@ async def main():
     # help map
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/help/built"); await pg.wait_for_timeout(300)
     await pg.screenshot(path=SHOTS+"/help-built.png",full_page=True)
-    await pg.click("button[data-action=signOut]"); await pg.wait_for_timeout(400)
+    await pg.click("button.topbar-signout"); await pg.wait_for_timeout(400)
     check("sign out", "Sign in" in await pg.inner_text("h1") and any("/auth/v1/logout" in c[1] for c in calls))
     # no-district user
     await pg.fill("input[name=email]","new@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
@@ -1240,7 +1240,7 @@ async def main():
     n0=len(calls); await pg.click("form[data-form=requestAccess] button"); await pg.wait_for_timeout(500)
     rq=[json.loads(c[2]) for c in calls[n0:] if "rpc/request_access" in c[1]]
     check("request access: sent by link id", rq==[{"p_slug":"ironwood-valley","p_message":"I'm the new principal"}] and "Request sent" in await pg.inner_text("#toasts"), str(rq))
-    await pg.click("button[data-action=signOut]"); await pg.wait_for_timeout(300)
+    await pg.click("button.topbar-signout"); await pg.wait_for_timeout(300)
     # two-step sign-in: someone who has it on is asked for a code
     await pg.fill("input[name=email]","mfa@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
     check("two-step: code asked for after the password", "Enter the 6-digit code" in await pg.inner_text("body"))
@@ -1248,12 +1248,12 @@ async def main():
     check("two-step: nothing else opens until the code is entered", "Enter the 6-digit code" in await pg.inner_text("body"))
     await pg.fill("input[name=code]","123456"); await pg.click("button[type=submit]"); await pg.wait_for_timeout(700)
     check("two-step: right code lets them in", "Welcome to HighGround" in await pg.inner_text("body"))
-    await pg.click("button[data-action=signOut]"); await pg.wait_for_timeout(300)
+    await pg.click("button.topbar-signout"); await pg.wait_for_timeout(300)
     # staff with no districts yet
     await pg.fill("input[name=email]","empty.staff@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
     t=await pg.inner_text("body")
     check("staff with no districts lands on Willow Holler page", "#/staff" in pg.url and "Add a district" in t and "don’t have access" not in t, pg.url)
-    await pg.click("button[data-action=signOut]"); await pg.wait_for_timeout(300)
+    await pg.click("button.topbar-signout"); await pg.wait_for_timeout(300)
     # staff
     await pg.evaluate("localStorage.removeItem('highground-last-district')")
     await pg.fill("input[name=email]","staff@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
@@ -1292,7 +1292,7 @@ async def main():
     check("reset: only that district is touched", all("district_id=eq.d2" in c[1] for c in calls[n0:] if c[0]=="DELETE"))
     check("reset: says it's done", "Demo reset" in await pg.inner_text("#toasts"))
     await pg.screenshot(path=SHOTS+"/staff.png",full_page=True)
-    await pg.click("button[data-action=signOut]"); await pg.wait_for_timeout(300)
+    await pg.click("button.topbar-signout"); await pg.wait_for_timeout(300)
     # sign up
     await pg.goto("http://localhost:8765/#/signup"); await pg.wait_for_timeout(200)
     await pg.fill("input[name=full_name]","Nia New"); await pg.fill("input[name=email]","nia@example.test"); await pg.fill("input[name=password]","short1"); await pg.fill("input[name=again]","short1")
@@ -1549,10 +1549,28 @@ async def main():
     await pub.goto("http://localhost:8765/#/p/nowhere"); await pub.wait_for_timeout(400)
     check("unpublished link", "Nothing published here yet" in await pub.inner_text("body"))
     # phone
-    ph=await b.new_context(viewport={"width":390,"height":844}); await ph.route("**/config.js",cfg); await ph.route(SB+"/**",handler); await ph.route("**/fonts.g*/**",lambda r:r.abort())
+    ph=await b.new_context(viewport={"width":375,"height":812},is_mobile=True,has_touch=True,device_scale_factor=3); await ph.route("**/config.js",cfg); await ph.route(SB+"/**",handler); await ph.route("**/fonts.g*/**",lambda r:r.abort())
     pp=await ph.new_page(); pp.on("pageerror",lambda e:errs.append(str(e)))
     await pp.goto("http://localhost:8765/#/signin"); await pp.fill("input[name=email]","admin@example.test"); await pp.fill("input[name=password]",PW); await pp.click("button[type=submit]"); await pp.wait_for_timeout(700)
-    sw=await pp.evaluate("document.documentElement.scrollWidth"); check("phone: no sideways scroll", sw<=390, str(sw))
+    sw=await pp.evaluate("document.documentElement.scrollWidth"); check("phone: no sideways scroll", sw<=375, str(sw))
+    WIDE_JS="""(()=>{const W=innerWidth,out=[];document.querySelectorAll('body *').forEach(e=>{const r=e.getBoundingClientRect();if(r.width>0&&r.right>W+1){let p=e.parentElement,clipped=false;while(p&&p!==document.body){const cs=getComputedStyle(p);if(/auto|scroll|hidden|clip/.test(cs.overflowX)&&p.getBoundingClientRect().right<=W+1){clipped=true;break}p=p.parentElement}if(!clipped)out.push((e.className&&e.className.baseVal===undefined?e.tagName+'.'+String(e.className).split(' ')[0]:e.tagName)+':'+Math.round(r.right))}});return [document.documentElement.scrollWidth,[...new Set(out)].slice(0,8)]})()"""
+    wide=[]
+    for path in ["overview/today","direction/priorities","direction/measures","decisions/initiatives","decisions/ranking","decisions/scenarios","resources/summary","resources/general","resources/capital","progress/initiatives","progress/actuals","progress/uploads","progress/registers","reports/board","reports/community","settings/district","settings/setup","settings/people","settings/activity","settings/assumptions","settings/exports","settings/account","help/guide"]:
+      await pp.goto("http://localhost:8765/#/d/ironwood-valley/"+path); await pp.wait_for_timeout(700)
+      await pp.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)"); await pp.wait_for_timeout(150)
+      sw2,els=await pp.evaluate(WIDE_JS)
+      if sw2>375 or els: wide.append(f"{path}:{sw2}:{els}")
+    check("phone: no screen is wider than the phone (nothing to drift sideways)", not wide, "\n".join(wide))
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/overview/today"); await pp.wait_for_timeout(600)
+    navvis=await pp.locator(".rail .nav a").first.is_visible()
+    await pp.click(".menu-btn"); await pp.wait_for_timeout(200)
+    opened=await pp.locator(".rail .nav a").first.is_visible() and await pp.locator(".menu-signout").is_visible()
+    await pp.screenshot(path=SHOTS+"/phone-menu.png")
+    await pp.click(".rail .nav a:has-text('Resources')"); await pp.wait_for_timeout(600)
+    check("phone: a Menu button opens the sections (with Sign out); picking one goes there and closes it", not navvis and opened and "/resources/" in pp.url and not await pp.locator(".rail .nav a").first.is_visible() and await pp.locator(".topbar-signout").is_hidden(), pp.url)
+    await pp.set_viewport_size({"width":1360,"height":900}); await pp.wait_for_timeout(300)
+    check("desktop: the side rail shows every section and no Menu button", await pp.locator(".menu-btn").is_hidden() and await pp.locator(".rail .nav a").first.is_visible() and await pp.locator(".topbar-signout").is_visible())
+    await pp.set_viewport_size({"width":375,"height":812})
     await pp.screenshot(path=SHOTS+"/phone.png")
     # phone sign-in: fields at 16px (iPhone Safari zooms into smaller ones and the page drifts); card pinned to the top
     ph2=await b.new_context(viewport={"width":390,"height":844},is_mobile=True,has_touch=True); await ph2.route("**/config.js",cfg); await ph2.route(SB+"/**",handler); await ph2.route("**/fonts.g*/**",lambda r:r.abort())
