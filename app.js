@@ -246,10 +246,14 @@
       <div class="frame">
         <nav class="rail" aria-label="HighGround">
           <a class="brand" href="#/" aria-label="HighGround home">${LOGO_LIGHT}</a>
-          <div class="nav">${slug ? SECTIONS.map(navLink).join('') : ''}</div>
-          <div class="nav nav-foot">
-            ${slug ? FOOT.map(navLink).join('') : ''}
-            ${S.isStaff ? `<a href="#/staff" ${sectionId === 'staff' ? 'aria-current="page"' : ''}>Willow Holler</a>` : ''}
+          <button type="button" class="menu-btn" data-action="toggleMenu" aria-expanded="false" aria-controls="rail-menu"><span aria-hidden="true">☰</span> Menu</button>
+          <div class="rail-menu" id="rail-menu">
+            <div class="nav">${slug ? SECTIONS.map(navLink).join('') : ''}</div>
+            <div class="nav nav-foot">
+              ${slug ? FOOT.map(navLink).join('') : ''}
+              ${S.isStaff ? `<a href="#/staff" ${sectionId === 'staff' ? 'aria-current="page"' : ''}>Willow Holler</a>` : ''}
+              <button type="button" class="menu-signout" data-action="signOut">Sign out</button>
+            </div>
           </div>
         </nav>
         <div class="main">
@@ -260,7 +264,7 @@
             ${S.districts.length ? `<label class="chip">${d ? (d.logo_path ? `<span class="tile logo"><img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt=""></span>` : `<span class="tile" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>`) : ''}
               <select data-switch aria-label="District">${d ? '' : '<option value="">Choose a district</option>'}${options}</select></label>` : ''}
             <a class="avatar" href="${slug ? `#/d/${enc(slug)}/settings/account` : '#/'}" title="${esc(name)}" aria-label="Your account">${esc(initials(name))}</a>
-            <button type="button" class="btn small" data-action="signOut">Sign out</button>
+            <button type="button" class="btn small topbar-signout" data-action="signOut">Sign out</button>
           </header>
           <main class="content" id="content">${body}</main>
         </div>
@@ -4074,6 +4078,7 @@
     },
     async openSearch() { await openSearch(); },
     async openHelp() { openHelp(); },
+    async toggleMenu(el) { const rail = el.closest('.rail'), open = !rail.classList.contains('open'); rail.classList.toggle('open', open); el.setAttribute('aria-expanded', String(open)); },
     async define(el) { const t = TERMS[el.dataset.term]; if (t) toast(t[0], t[1], 'defn', { sticky: true, key: 'defn' }); },
     async searchGo(el) {
       const k = el.dataset.k, id = el.dataset.id, slug = S.district.slug; closeModal();
