@@ -10,7 +10,7 @@ Decisions deferred during the build, and launch tasks.
 - **Phase 6 General Fund built** (1 Oct 2026): five-year forecast (enrollment × cost per pupil with state aid and the 101% guarantee; staff by group with settlement, health and turnover; solvency; spending authority and unspent balance; new money vs. settlement), adopted budget upload, assumption sets covering the General Fund, the General Fund in Summary and the board report.
 - **Phase 5 Direction built** (1 Oct 2026): priorities, outcomes and measures with status; automatic measures; community survey with themes; goals, results and survey uploads; Overview dashboard; search.
 - **Phase 4 Reports and community built** (1 Oct 2026): monthly board report with what changed, decision packets, the branded community page with unapproved proposals held back and a publish log. Remaining Phase 1 work is operations, below.
-- **Waiting on Postmark approval:** the Supabase Pro upgrade and the settings that follow it. Leslie is holding these until Postmark approves the account.
+- **Postmark approved (8 Oct 2026).** Next: the Supabase Pro upgrade and the settings that follow it, which were waiting on this.
 - **Deliberately deferred:** staging (set up when the first real district's data is needed, not before; no point paying yet) and a private repository (wanted, but not yet). Work through this list before any district outside Willow Holler signs in. Any new chat with Claude: read this file first when "going live" comes up.
 
 ## Decisions to revisit
@@ -27,13 +27,13 @@ Decisions deferred during the build, and launch tasks.
 
 ## Accounts and services
 
-- [ ] **Supabase: upgrade to Pro** *(waiting on Postmark approval)* ($25/month for the organization; the $10 compute credit covers one project). Retire or pause the old `horizon` project first, or it adds about $10/month. Leave the spending cap on.
+- [ ] **Supabase: upgrade to Pro** *(next: Postmark is approved)* ($25/month for the organization; the $10 compute credit covers one project). Retire or pause the old `horizon` project first, or it adds about $10/month. Leave the spending cap on.
 - [ ] **Backups checked** *(after the Pro upgrade)*: Database → Backups lists daily backups (Pro keeps 7 days). Download a full backup from Reports → Exports monthly; it's your own copy, and Supabase's backups don't include uploaded files.
 - [ ] **Staging copy** (second Supabase project and repo, about $10/month). *Deferred by decision: set up when the first real district's data is needed.*
 - [ ] **Supabase: leaked-password protection on** (Pro). *(after the Pro upgrade)* Authentication → Sign In / Providers.
 - [ ] **Supabase: email rate limit.** Custom SMTP starts at 30 emails an hour; raise it in Authentication → Rate Limits before onboarding several districts at once.
 - [ ] **Supabase: consider CAPTCHA** on sign-up (Supabase's main advice against sign-up abuse).
-- [ ] **Postmark: account approved.** *(requested; waiting)* Until approval, only willowholler.com addresses receive mail.
+- [x] **Postmark: account approved.** *Done 8 Oct 2026: mail now reaches any address.*
 - [x] **Postmark: DKIM and Return-Path both verified** for willowholler.com. *Done: invitation emails arrive at willowholler.com.*
 - [x] **Postmark: token hygiene.** The first Server API token was shown in a screenshot and replaced; make sure only the new one is active. *Done: replaced after the screenshot.*
 - [ ] **Supabase email templates** reworded for HighGround (Confirm signup, Reset password, Change email).
@@ -55,7 +55,7 @@ Decisions deferred during the build, and launch tasks.
 
 ## Product
 
-- [x] **Invitation emails working** (built 30 Sept 2026): `send-invitation` deployed, `POSTMARK_SERVER_TOKEN` secret set, a real invitation received outside willowholler.com after Postmark approval. *Function deployed and verified 30 Sept 2026; the outside-address test waits on Postmark approval.*
+- [x] **Invitation emails working** (built 30 Sept 2026): `send-invitation` deployed, `POSTMARK_SERVER_TOKEN` secret set, a real invitation received outside willowholler.com after Postmark approval. *Function deployed and verified 30 Sept 2026. Postmark approved 8 Oct 2026: send one test invitation to an outside address to confirm.*
 - [ ] **Two-step sign-in required for admins.** Offered to everyone since 30 Sept 2026. Requiring it means database rules that check the session's assurance level (`aal2`) for admin actions; decide, then build.
 - [ ] **Email-domain allow-list reviewed** for each district: only the district's own domains, and the role is right.
 - [ ] **Setup screen, project upload, saving scenarios.** Phase 1 items still marked "Not built yet".
