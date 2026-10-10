@@ -81,4 +81,26 @@ check('SF 2472 cut: LSA dollars ÷ projected school-infrastructure SAVE', near(E
   // cash: 1,200,000 − 400,000 − 300,000 = 500,000 < coverage 700,000
   check('SAVE bond room: what’s left after ongoing commitments when that is tighter', near(cap2.pay, 500000), cap2);
 }
+// fill in around the gaps (Rank & fund)
+{
+  const R = require('./ranking.js');
+  const mk = (projects, extra) => {
+    const demo = { enrollment: 500, settings: Object.assign({ plan: { years: 6 }, balances: { asOf: '2026-06-30', save: 0, ppel: 0, vppel: 0, grants: 0 }, save: { receipts: 100000, sf2472: false, trend: 0 }, ppel: { receipts: 0, growth: 0 }, vppel: { status: 'none' }, grants: { avg: 0 }, debt: [], inflation: 0 }, extra || {}),
+      scenarios: [{ name: 'S', board: true, projects }] };
+    let k = 0; const X = C.demoRows(demo, 'd', () => 'id' + (++k));
+    const rows = { district: { name: 'x' }, settings: X.district_settings[0], balances: X.fund_balance, debts: X.debt_obligation, scenarios: X.scenario, initiatives: X.initiative, phases: X.phase, funding: X.phase_funding,
+      financing: X.financing, recurring: X.recurring_cost, scenario_initiative: X.scenario_initiative };
+    return R.build(rows, X.scenario[0].id);
+  };
+  const ph = (cost, year) => [{ cost, year, funding: [{ b: 'save', p: 100 }] }];
+  // $100k of SAVE a year for 6 years. #2 costs $2M: it never fits, so it holds nothing up.
+  const a = mk([{ id: 1, name: 'Roof', phases: ph(150000, 1) }, { id: 2, name: 'New gym', phases: ph(2000000, 2) }, { id: 3, name: 'Doors', phases: ph(100000, 3) }]);
+  check('fill in: strict order stops at #2; filling in funds #3 too', a.line === 1 && a.fillIn.count === 2 && a.fillIn.extra.map((x) => x.name).join() === 'Doors' && a.items[1].fill.reason === 'other', [a.line, a.fillIn.funded, a.items.map((x) => x.fill)]);
+  // #2 ($280k in FY2029) fits if it waits a year; #3 ($150k, also FY2029) fits now but would take the money #2 needs, so #3 waits
+  const b = mk([{ id: 1, name: 'Roof', phases: ph(100000, 0) }, { id: 2, name: 'Boiler', phases: ph(280000, 2) }, { id: 3, name: 'Turf', phases: ph(150000, 2) }, { id: 4, name: 'Signs', phases: ph(10000, 5) }]);
+  const it = (n) => b.items.find((x) => x.name === n);
+  check('fill in: a lower initiative never takes money a higher one needs within its wait', it('Boiler').fill.reason === 'later' && it('Boiler').fill.delay === 1 && it('Turf').fill.reason === 'holding' && it('Turf').fill.for.name === 'Boiler', b.items.map((x) => [x.name, x.fill]));
+  check('fill in: something small that leaves room for it is still funded', it('Signs').fill.funded && b.fillIn.count >= b.line, b.fillIn.funded);
+  check('fill in: never funds fewer than strict order, and what it funds fits', b.fillIn.count >= b.rankOrder.count && b.fillIn.overflow <= 0.5 && a.fillIn.overflow <= 0.5);
+}
 console.log(`validation tests: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

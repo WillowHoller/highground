@@ -1387,15 +1387,30 @@
       <td>${x.years.length ? 'FY' + x.years.join(', ') : '<span class="muted">yearly only</span>'}${x.needBy ? `<br><span class="small ${lateIds.has(String(x.id)) ? 'gaptext' : 'muted'}">needed by FY${x.needBy}${lateIds.has(String(x.id)) ? ' (planned later)' : ''}</span>` : ''}</td>
       <td class="num">${x.oneTime ? fmtK(x.oneTime) : ''}</td>
       <td class="num">${x.yearly ? fmtK(x.yearly) + '/yr' : ''}</td>
-      <td>${x.above && x.outsideOnly ? `<span class="st st-proposed">${x.camp > 0.5 ? 'Campaign or bond' : 'Boosters'}</span>` : x.above ? '<span class="st st-approved">Fits</span>' : x.fitsAlone ? '<span class="st st-proposed">Below the line, but would fit on its own</span>' : '<span class="st st-declined">Below the line</span>'}</td>
+      <td>${x.above && x.outsideOnly ? `<span class="st st-proposed">${x.camp > 0.5 ? 'Campaign or bond' : 'Boosters'}</span>` : x.above ? '<span class="st st-approved">Fits</span>' : x.fill && x.fill.funded ? '<span class="st st-approved">Fits if we fill in around the gaps</span>' : x.fitsAlone ? '<span class="st st-proposed">Below the line, but would fit on its own</span>' : '<span class="st st-declined">Below the line</span>'}</td>
       <td class="moves">${canMove && ranked ? `<button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="-1" ${canStep(x, -1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} up">▲</button><button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="1" ${canStep(x, 1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} down">▼</button>` : ''}</td></tr>`;
     const body = k.items.map((x, j) => (j === k.line ? `<tr class="fline"><td colspan="8">Funding line: the money runs out here</td></tr>` : '') + row(x)).join('');
     const ro = k.rankOrder;
     const scenSel = `<label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (adopted plan)' : ''}${x.is_locked ? ' (locked)' : ''}</option>`).join('')}</select></label>`;
-    setLead(summary);
+    setLead(summary + (k.fillIn && k.fillIn.extra.length ? ` Filling in around the gaps funds <a href="#/d/${enc(c.district.slug)}/plan/ranking/fit">${k.fillIn.extra.length} more</a> without delaying anything ranked higher.` : ''));
     const fitCard = (() => {
       const warn = [...SG.urgentBelow.map((x) => `<li class="gaptext">${esc(x.name)} is below the line but needed by FY${x.needBy}.</li>`), ...(SG.late.length ? [`<li>${SG.late.length} initiative${SG.late.length === 1 ? ' is' : 's are'} planned after the year ${SG.late.length === 1 ? 'it’s' : 'they’re'} needed (marked in the ranked list).</li>`] : [])];
-      return `<div class="card" data-suggest><h3>Ways to fit more</h3>
+      const fi = k.fillIn, ro2 = k.rankOrder;
+      const why = (x) => x.fill.reason === 'holding' ? `waits so #${x.fill.for.position} ${esc(x.fill.for.name)} can still be funded${x.fill.for.needBy ? ` by FY${x.fill.for.needBy}` : ''}`
+        : x.fill.reason === 'later' ? (x.fill.delay > 0 ? `fits if moved ${x.fill.delay} year${x.fill.delay === 1 ? '' : 's'} later; everything below leaves room for it` : 'held: everything below leaves room for it')
+        : 'needs other money (a campaign, bond or grant), or a later year than its needed-by year';
+      const fillCard = fi ? `<div class="card" data-fillin><h3>Fill in around the gaps ${def('fill_in')}</h3>
+        ${fi.extra.length ? `<p>Skip what doesn’t fit yet and keep going down the list: <b>${fi.count} of ${k.items.length}</b> initiatives are funded instead of ${ro2.count}, and nothing ranked higher is pushed past the year it’s needed.</p>`
+          : `<p>${k.line >= k.items.length ? 'Everything fits in rank order already.' : 'Nothing below the line can be funded without taking money a higher-ranked initiative needs by its year.'}</p>`}
+        <div class="scroll"><table class="data"><thead><tr><th></th><th class="num">Strict rank order</th><th class="num">Fill in around the gaps</th></tr></thead><tbody>
+          <tr><td>Initiatives funded</td><td class="num">${ro2.count}</td><td class="num"><b>${fi.count}</b></td></tr>
+          <tr><td>One-time cost funded</td><td class="num">${fmtK(k.aboveCost)}</td><td class="num"><b>${fmtK(fi.cost)}</b></td></tr>
+          <tr><td>SAVE, PPEL, V-PPEL and grants left unspent at the end of FY${k.cfg.start + k.cfg.n - 1}</td><td class="num">${fmtK(ro2.left)}</td><td class="num"><b>${fmtK(fi.left)}</b></td></tr>
+        </tbody></table></div>
+        ${fi.extra.length ? `<p class="small"><b>Also funded:</b> ${fi.extra.map((x) => `#${x.position} ${esc(x.name)}`).join(', ')}.</p>` : ''}
+        ${fi.skipped.length ? `<p class="small"><b>Still waiting:</b></p><ul class="small">${fi.skipped.map((x) => `<li>#${x.position} ${esc(x.name)}: ${why(x)}.</li>`).join('')}</ul>` : ''}
+        ${c.plan && fi.extra.length ? '<button type="button" class="btn primary" data-action="fillScenario">Make a scenario with this</button>' : ''}</div>` : '';
+      return fillCard + `<div class="card" data-suggest><h3>Ways to fit more</h3>
         ${warn.length ? `<ul>${warn.join('')}</ul>` : ''}
         ${useful.length ? `<p class="small muted">Each is one change, tried against this scenario: the plan rerun with that initiative moved, keeping everything above the line where it is and nothing later than the year it’s needed.</p>
         <ol class="sugg">${useful.map((g) => `<li><b>Move ${esc(g.name)}</b> ${g.delta > 0 ? 'later' : 'earlier'} by ${Math.abs(g.delta)} year${Math.abs(g.delta) === 1 ? '' : 's'} (FY${g.from.join(', FY')} → FY${g.to.join(', FY')}${g.needBy ? `; needed by FY${g.needBy}` : ''}):
@@ -1438,9 +1453,10 @@
       const k = HGRanking.build(rows, sid, { by: 'rank' }), below = k.items.length - k.line;
       const SG = HGSuggest.suggest(HGCapital.buildInputs(rows, sid), k.items, rows.initiatives), n = SG.suggestions.filter((g) => g.funds.length || g.gapChange < -0.5).length;
       const head = below > 0 ? `The money runs out at #${k.line + 1} of ${k.items.length} initiatives` : 'Every initiative fits in rank order';
-      const sub = below > 0 ? `${n ? `${n} way${n === 1 ? '' : 's'} to fit more found. ` : ''}See what falls below the line, what can wait, and what it would take to fund the rest.` : 'See the funding line, the year-by-year timing, and what it would take to add more.';
+      const more = k.fillIn ? k.fillIn.extra.length : 0;
+      const sub = below > 0 ? `${more ? `Filling in around the gaps funds ${more} more without delaying anything ranked higher. ` : ''}${n ? `${n} way${n === 1 ? '' : 's'} to fit more found. ` : ''}See what falls below the line, what can wait, and what it would take to fund the rest.` : 'See the funding line, the year-by-year timing, and what it would take to add more.';
       return `<div class="card rf-callout" data-rank-callout><span class="rf-ic">${icon('sliders', 20, 2)}</span><span class="rf-tx"><b>${head}</b><span>${sub}</span></span>
-        <a class="btn primary" href="#/d/${enc(slug)}/plan/ranking/${below > 0 && n ? 'fit' : 'list'}">Open Rank &amp; fund</a></div>`;
+        <a class="btn primary" href="#/d/${enc(slug)}/plan/ranking/${below > 0 && (n || more) ? 'fit' : 'list'}">Open Rank &amp; fund</a></div>`;
     } catch (e) { return ''; }
   }
   /* the four tools of Rank & fund, as big tabs: each a question a board asks */
@@ -1449,10 +1465,10 @@
     const T = [
       ['list', 'Where does the money run out?', below ? `Funding line at #${k.line + 1}; ${below} below it` : 'Everything fits in rank order', 'track'],
       ['years', 'When can each be paid for?', 'Year by year: what waits, and how long', 'clock'],
-      ['fit', 'How can we fit more?', nFit ? `${nFit} way${nFit === 1 ? '' : 's'} found` : 'Single moves that fund more', 'sliders'],
+      ['fit', 'How can we fit more?', k.fillIn && k.fillIn.extra.length ? `Fill in ${k.fillIn.extra.length} more${nFit ? `; ${nFit} move${nFit === 1 ? '' : 's'}` : ''}` : nFit ? `${nFit} way${nFit === 1 ? '' : 's'} found` : 'Fill in around the gaps, or move one', 'sliders'],
       ['goal', 'What would it take?', 'Fund one initiative by a year you pick', 'target'],
     ];
-    return `<nav class="tooltabs" aria-label="Rank & fund tools">${T.map(([id, q, sub, ic]) => `<a href="${base}${id}" class="${v === id ? 'on' : ''}" ${v === id ? 'aria-current="page"' : ''}><span class="tt-ic">${icon(ic, 18, 2)}</span><span><b>${q}</b><small>${esc(sub)}</small></span>${id === 'fit' && nFit ? `<span class="count">${nFit}</span>` : ''}</a>`).join('')}</nav>`;
+    return `<nav class="tooltabs" aria-label="Rank & fund tools">${T.map(([id, q, sub, ic]) => `<a href="${base}${id}" class="${v === id ? 'on' : ''}" ${v === id ? 'aria-current="page"' : ''}><span class="tt-ic">${icon(ic, 18, 2)}</span><span><b>${q}</b><small>${esc(sub)}</small></span>${id === 'fit' && (nFit || (k.fillIn && k.fillIn.extra.length)) ? `<span class="count">${nFit + (k.fillIn && k.fillIn.extra.length ? 1 : 0)}</span>` : ''}</a>`).join('')}</nav>`;
   }
   /* ---- goal seek: what would it take to fund one initiative by a year ---- */
   function goalHtml(g, k) {
@@ -1508,6 +1524,16 @@
     const ids = k.rankOrder.deferred.map((x) => enc(x.id)).join(',');
     for (const t of ['phase', 'recurring_cost', 'scenario_initiative']) await HG.db.removeAll(t, `scenario_id=eq.${nid}&initiative_id=in.(${ids})`);
     toast('Scenario made', `“${name}” keeps the ${k.line} initiatives above the line.`);
+    CAP.key = S.district.id; CAP.scenarioId = nid; go(`#/d/${enc(S.district.slug)}/money/capital`);
+  }
+  async function fillScenario() {
+    const k = RK.k, sc = RK.rows.scenarios.find((x) => x.id === RK.sid), fi = k.fillIn;
+    const name = (prompt('Name the new scenario', `${sc.name}: filled in around the gaps`) || '').trim(); if (!name) return;
+    const id = await HG.db.rpc('copy_scenario', { p_source: RK.sid, p_name: name.slice(0, 80) });
+    const nid = typeof id === 'string' ? id : (id && id.copy_scenario);
+    const ids = fi.skipped.map((x) => enc(x.id)).join(',');
+    if (ids) for (const t of ['phase', 'recurring_cost', 'scenario_initiative']) await HG.db.removeAll(t, `scenario_id=eq.${nid}&initiative_id=in.(${ids})`);
+    toast('Scenario made', `“${name}” keeps the ${fi.count} initiatives that fit when filling in around the gaps.`);
     CAP.key = S.district.id; CAP.scenarioId = nid; go(`#/d/${enc(S.district.slug)}/money/capital`);
   }
   const CMP = { key: null, ids: [], a: null, b: null };
@@ -4090,6 +4116,7 @@
     gl: ['Month-end general ledger (GL) export', 'The report your finance system produces when a month is closed: every account’s budget, activity for the year to date, encumbrances and ending balance. HighGround reads it for fund balances, budget against actual and spending on initiatives. It is not the check register: that is the list of individual bills paid, which HighGround uses only to raise questions about payments.'],
     encumbered: ['On order', 'Purchase orders and contracts already signed but not paid yet. Accounting reports call this “encumbered”.'],
     solvency: ['Solvency ratio', 'The General Fund’s cushion: unassigned and assigned fund balance divided by General Fund revenue (less AEA flowthrough). Many districts aim for 5–10%.'],
+    fill_in: ['Fill in around the gaps', 'Instead of stopping at the first initiative that doesn’t fit, HighGround skips it for now and keeps going down the ranked list, funding lower-ranked initiatives that fit. It never funds one that would stop a higher-ranked initiative from being paid for by the year it’s needed (or within a year, if no year is set). An initiative that can’t be paid for within that time even with nothing below it, because it needs a campaign, bond or grant, doesn’t hold the others up.'],
     likely_range: ['Likely range', 'How far off a forecast like this has been. HighGround ran its own forecast for 325 Iowa districts from their FY2020 and FY2021 audited figures and compared it with what they later reported to the state. Eight in ten landed inside the range: about ±6 points a year out, widening to about ±25 points five years out. The range is wide because each year’s small misses in revenue and spending add up in the balance. Use the middle line to compare choices; use the range before telling the board a year’s number.'],
     debt_timing: ['This year’s payment', 'Only matters when the balances are from partway through the year. “Still to pay” takes this year’s whole payment off the fund; “Already paid” takes none of it (the balance already reflects it); “Spread over the year” takes the share of the year that’s left.'],
     fund_rules: ['Fund rules', 'Iowa law limits what each capital fund can pay for. PPEL and V-PPEL can’t pay salaries, travel, supplies or routine maintenance (Iowa Code 298.3). SAVE is for school infrastructure, not personnel, and uses beyond tax relief must be covered by the district’s revenue purpose statement (Iowa Code 423F.3). HighGround refuses a fund the law doesn’t allow and lists charges to confirm. It’s a guide, not legal advice.'],
@@ -5004,6 +5031,7 @@
     async editProject(el) { openProjectEditor(el.dataset.id || null); },
     async rankMove(el) { await rankMove(el); },
     async rankScenario() { await rankScenario(); },
+    async fillScenario() { await fillScenario(); },
     async rankView(el) { go(`#/d/${enc(S.district.slug)}/plan/ranking/${el.dataset.v}`); },
     async goalFind() {
       const id = document.querySelector('[data-goal-id]').value, fy = document.querySelector('[data-goal-fy]').value; RK.goalId = id;

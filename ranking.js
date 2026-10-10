@@ -5,6 +5,8 @@
    count against those funds; they're reported separately.
    Flags: a lower-ranked initiative spending a fund in or before a year when a higher-ranked one runs that fund short.
    Fund in rank order: what the plan looks like with only the initiatives above the line.
+   Fill in around the gaps: keep walking past what doesn't fit, funding lower-ranked initiatives that do, without stopping any
+   higher-ranked one from being funded by the year it's needed (fillIn).
    Pure; tested by ranking_test.js. */
 (function (root, factory) {
   const E = root.HGEngine || (typeof require === 'function' ? require('./engine.js') : null);
@@ -101,11 +103,52 @@
     // fund in rank order: keep only what's above the line
     const kept = runWith(items.slice(0, line).map((x) => x.id));
     const deferred = items.slice(line);
+
+    /* fill in around the gaps: keep walking past an initiative that doesn't fit, funding lower-ranked ones that do, but never
+       one that would stop a higher-ranked initiative from being funded by the year it's needed. Each skipped initiative that could
+       still be funded within its allowed wait (up to its needed-by year, or one year if none is set) holds its place: a
+       lower-ranked one is funded only if every such initiative could still be funded within its wait afterwards. One that can't
+       be funded within its wait even with nothing below it (it needs a campaign, bond or other money) doesn't hold anything up. */
+    const movable = (ph) => ph.status !== 'done' && ph.status !== 'underway';
+    const shifted = (p, d) => Object.assign({}, p, { phases: p.phases.map((ph) => (movable(ph) ? Object.assign({}, ph, { year: ph.year + d }) : ph)) });
+    const runShift = (set, sid, d) => {
+      const keep = new Set(set);
+      const projects = inp.projects.filter((p) => keep.has(String(p.id))).map((p) => (d && String(p.id) === sid ? shifted(p, d) : p));
+      return E.compute(projects, Object.assign({}, L, { recur: (L.recur || []).filter((r) => keep.has(String(r.initiative_id))) }), cfg);
+    };
+    const fitsSet = (set, sid, d) => runShift(set, sid, d).overflow <= baseOver + 0.5;
+    const waitYears = (x) => {   // how many years this initiative may wait
+      const p = x.project; if (!p) return 0;
+      const mv = p.phases.filter(movable); if (!mv.length) return 0;
+      const room = cfg.n - 1 - Math.max(...mv.map((ph) => ph.year));
+      const allowed = x.needBy != null ? x.needBy - (cfg.start + Math.max(...p.phases.map((ph) => ph.year))) : 1;
+      return Math.max(0, Math.min(room, allowed));
+    };
+    const fitsWithin = (set, x) => { for (let d = 0; d <= waitYears(x); d++) if (fitsSet(set.concat(x.id), x.id, d)) return d; return -1; };
+    const fTaken = [], holding = [];
+    items.forEach((x) => {
+      if (fitsSet(fTaken.concat(x.id))) {
+        const blocks = holding.find((h) => fitsWithin(fTaken.concat(x.id), h) < 0);
+        if (!blocks) { fTaken.push(x.id); x.fill = { funded: true, extra: !x.above }; return; }
+        x.fill = { funded: false, reason: 'holding', for: { id: blocks.id, name: blocks.name, position: blocks.position, needBy: blocks.needBy } };
+        return;
+      }
+      const d = fitsWithin(fTaken, x);
+      x.fill = { funded: false, reason: d > 0 ? 'later' : d === 0 ? 'later' : 'other', delay: d, wait: waitYears(x) };
+      if (d >= 0) holding.push(x);
+    });
+    const leftAtEnd = (r) => { const m = r.res[r.res.length - 1]; return m ? CAP.reduce((a, b) => a + Math.max(0, m.avail[b] - m.spend[b]), 0) : 0; };
+    const fillRun = runWith(fTaken), fillSet = new Set(fTaken);
+    const fillIn = {
+      funded: fTaken.slice(), count: fTaken.length, extra: items.filter((x) => x.fill.extra), skipped: items.filter((x) => !fillSet.has(x.id)),
+      need: fillRun.need, gap: fillRun.gap, overflow: fillRun.overflow, left: leftAtEnd(fillRun), cost: items.filter((x) => fillSet.has(x.id)).reduce((a, x) => a + x.oneTime, 0),
+    };
     return {
       cfg, by, items, line, flags, baseOverflow: baseOver,
       current: { need: full.need, gap: full.gap, overflow: full.overflow },
       rankOrder: { need: kept.need, gap: kept.gap, overflow: kept.overflow, deferred, deferredCost: deferred.reduce((a, x) => a + x.oneTime, 0),
-                   deferredYearly: deferred.reduce((a, x) => a + x.yearly, 0) },
+                   deferredYearly: deferred.reduce((a, x) => a + x.yearly, 0), left: leftAtEnd(kept), count: line },
+      fillIn,
       aboveCost: items.slice(0, line).reduce((a, x) => a + x.oneTime, 0),
     };
   }

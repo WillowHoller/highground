@@ -760,6 +760,14 @@ async def main():
     await pg.click(".tooltabs a[href$='/fit']"); await pg.wait_for_timeout(900)
     sg=await pg.inner_text("[data-suggest]") if await pg.locator("[data-suggest]").count() else ""
     check("ranking: suggestions name a move and what it funds", "Move " in sg and "funds " in sg and "planned after the year" in sg and await pg.locator("[data-suggest] button[data-action=rankSuggest]").count()>0 and "/plan/ranking/fit" in pg.url, sg[:600])
+    fi=await pg.inner_text("[data-fillin]") if await pg.locator("[data-fillin]").count() else ""
+    check("fill in around the gaps: compared with strict rank order, with what's still waiting and why", "Strict rank order" in fi and "Fill in around the gaps" in fi and "Initiatives funded" in fi and "left unspent" in fi
+          and ("Still waiting" in fi or "Everything fits" in fi or "Nothing below the line" in fi), fi[:700])
+    if await pg.locator("[data-fillin] button[data-action=fillScenario]").count():
+        PROMPT["text"]="Filled in"; n0=len(calls); await pg.click("[data-fillin] button[data-action=fillScenario]"); await pg.wait_for_timeout(900); PROMPT["text"]=None
+        cp=[c for c in calls[n0:] if "/rpc/copy_scenario" in c[1]]; rm=[c for c in calls[n0:] if c[0]=="DELETE" and "scenario_id=eq.copied-scenario-id" in c[1]]
+        check("fill in around the gaps: becomes a new scenario without the initiatives still waiting", cp and json.loads(cp[0][2])["p_name"]=="Filled in" and len(rm)==3, str([c[1][:120] for c in calls[n0:]]))
+        await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking/fit"); await pg.wait_for_timeout(900)
     await pg.click(".tooltabs a[href$='/list']"); await pg.wait_for_timeout(800)
     await pg.select_option("select[data-rank-by]","need"); await pg.wait_for_timeout(800)
     first=(await pg.locator("table.ranktable tbody tr:not(.fline) td:nth-child(3)").first.inner_text()).strip()
