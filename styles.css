@@ -711,3 +711,29 @@ select.fmode{display:block;margin:4px 0 6px;height:30px;font-size:12.5px;border:
 .addrow + template + h3,.addrow + h3{margin-top:20px}
 /* the actual-cost box only matters once a phase is done */
 table.phases td:has(select[name=status] option[value=done]:not(:checked)) input[name=actual]{display:none}
+/* definitions open beside their "?" */
+.defpop{position:fixed;z-index:70;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 32px rgba(16,24,20,.18);padding:10px 12px 12px;font-size:13.5px;line-height:1.45}
+.defpop::before{content:"";position:absolute;left:var(--arrow,20px);width:10px;height:10px;background:var(--card);border:1px solid var(--border);transform:rotate(45deg)}
+.defpop.below::before{top:-6px;border-right:0;border-bottom:0}
+.defpop.above::before{bottom:-6px;border-left:0;border-top:0}
+.defpop .dp-h{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:4px}
+.defpop .dp-h b{font-size:14px}
+.defpop .dp-x{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:2px;border-radius:4px;display:grid;place-items:center}
+.defpop .dp-x:hover{background:var(--hover);color:var(--text)}
+.defpop p{margin:0;color:var(--text)}
+.defn[aria-expanded=true]{color:#fff;background:var(--action);border-color:var(--action)}
+@media print{.defpop{display:none}}
+/* focus areas: tick any that apply */
+.areas-field{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:500}
+.area-picks{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-weight:400}
+.apick{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:16px;background:#fff;font-size:13px;cursor:pointer}
+.apick input{margin:0}
+.apick:has(input:checked){border-color:var(--a-plan);background:#EEF3F8;color:#22394F}
+.area-picks input[name=area_new]{height:32px;min-width:240px;flex:1;max-width:320px;border:1px dashed var(--border);border-radius:16px;padding:0 12px;font-size:13px}
+td .areas{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+td .areas span{font-size:11.5px;color:var(--muted);background:#F3F1EB;border-radius:8px;padding:1px 7px}
+/* a field whose value can't be used: red outline and a plain message under it */
+.field.bad input{border-color:var(--gap);box-shadow:0 0 0 2px rgba(180,35,24,.12)}
+.ferr{font-size:12.5px;color:var(--gap);font-weight:500}
+tr.flash td{animation:rowflash 2.4s ease-out}
+@keyframes rowflash{0%,40%{background:#FFF3C9}100%{background:transparent}}

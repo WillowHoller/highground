@@ -12,7 +12,7 @@ check('Funds screen: all-funds callouts', P.pick(rows, 'funds').map((r) => r.mea
 check('Capital screen: SAVE and PPEL', P.pick(rows, 'capital').map((r) => r.measure_key).join() === 'bal|SAVE|ENDING');
 check('unflagged and detail rows never shown', !P.pick(rows, 'all').some((r) => !r.flag || r.grp === 'detail') && P.pick(rows, 'all').length === 5);
 const html = P.cardHtml(P.pick(rows, 'general'), { fy: 2025 });
-check('card: heading, sentence, source and year', /Compared with districts your size/.test(html) && html.includes('1.8× the average of 41') && html.includes('FY2025') && html.includes('High vs. peers'), html);
+check('card: heading, sentence, source and year', /Unusual vs\. districts your size/.test(html) && html.includes('1.8× the average of 41') && html.includes('FY2025') && html.includes('High vs. peers'), html);
 check('card: nothing unusual, nothing shown', P.cardHtml([], { fy: 2025 }) === '');
 check('card: text is escaped', !P.cardHtml([row('exp|General|<b>x</b>', 'high')], { fy: 1 }).includes('<b>x</b>'));
 check('overview line', P.overviewLine(rows) === '5 numbers stand out against similar Iowa districts in the state’s latest annual report' && P.overviewLine([]) === '');

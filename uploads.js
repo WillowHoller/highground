@@ -283,7 +283,7 @@
       let p = byName[key];
       if (!p) {
         p = { id: id++, life: null, cond: '', name: name.slice(0, 90), tier: tierKey(cell(c.pri)), pri: TIER_PRI[tierKey(cell(c.pri))] || '', est: !/^f|firm|bid|contract|actual/.test(conf) || mon.range,
-              area: cell(c.area).slice(0, 40), phases: [] };
+              area: cell(c.area).split(/\s*[,;]\s*/).filter(Boolean).join(', ').slice(0, 160), phases: [] };
         byName[key] = p; out.push(p);
       } else if (mon.range) p.est = true;
       const stRaw = cell(c.status).toLowerCase(), st = /complete|done|finished|closed/.test(stRaw) ? 'done' : /underway|progress|started|active/.test(stRaw) ? 'underway' : '';

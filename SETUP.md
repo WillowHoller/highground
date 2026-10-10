@@ -40,6 +40,7 @@ In the project: **SQL Editor → New query**. For each file below, copy everythi
 | 8e | `21_improvement_plan.sql` | The improvement plan reports: CSIP goal tags on priorities, the plan's name, saved plan versions |
 | 8f | `22_menu_logo.sql` | Lets a district show its logo alone at the top of the menu |
 | 8g | `23_fund_options.sql` | Lets a phase be paid from whichever of two or three funds has room |
+| 8h | `24_focus_areas.sql` | Lets an initiative belong to several focus areas |
 | 9 | `05_verify_setup.sql` | Checks the structure. **All 10 rows should say PASS.** |
 | 10 | `06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 18 rows should say PASS.** |
 

@@ -40,9 +40,11 @@
   function cardHtml(rows, meta) {
     if (!rows || !rows.length) return '';
     const m = meta || {};
-    return `<div class="card peers" data-peers><h3>Compared with ${esc(m.peer_group || (rows[0] && rows[0].peer_group) || 'similar districts')}</h3>
+    const grp = m.peer_group || (rows[0] && rows[0].peer_group) || 'similar districts';
+    return `<div class="card peers" data-peers><h3>Unusual vs. ${esc(grp)} <span class="count">${rows.length}</span></h3>
+      <p class="small">${rows.length === 1 ? 'One number is' : `${rows.length} numbers are`} far outside what ${esc(grp)} report: worth asking about, not necessarily a problem.</p>
       <ul>${rows.map((r) => `<li><span class="peer-tag peer-${esc(r.flag)}">${esc(FLAG[r.flag] || r.flag)}</span> <b>${esc(label(r))}</b>: ${esc(r.callout)}. <a href="#" data-action="peerDetail" data-key="${esc(r.measure_key)}">Details</a></li>`).join('')}</ul>
-      <p class="small muted">From the state’s Certified Annual Report data, FY${esc(m.fy)}${m.name ? ` (${esc(m.name)})` : ''}. Only numbers well outside the usual range are listed; each is a question to ask, not a finding. Per-pupil figures use certified enrollment.</p></div>`;
+      <p class="small muted">From the district’s Certified Annual Report to the state, FY${esc(m.fy)}. Per-pupil figures use certified enrollment.</p></div>`;
   }
 
   const num = (v) => (v == null || v === '' ? null : Number(v));
@@ -81,7 +83,7 @@
         <div class="scroll"><table class="data"><thead><tr><th></th><th class="num">This district</th><th class="num">Typical peer</th><th class="num">Difference</th><th></th></tr></thead><tbody>
         ${sub.map((x) => `<tr><td>${esc(partName(x))}</td><td class="num">${esc(fmtVal(x.value, x.unit))}</td><td class="num">${esc(fmtVal(x.peer_median, x.unit))}</td><td class="num">${esc(gap(x))}</td><td>${x.flag ? `<span class="peer-tag peer-${esc(x.flag)}">${esc(FLAG[x.flag])}</span>` : ''}</td></tr>`).join('')}
         </tbody></table></div>` : ''}
-      <p class="small muted">State Certified Annual Report data, FY${esc(m.fy)}${m.name ? ` (${esc(m.name)})` : ''}. Peers: ${esc(r.peer_group || 'districts the same size')}. Per pupil uses certified enrollment. A difference can have good reasons (a new building, a bus route, a grant), so treat it as a question, not a finding.</p></div>`;
+      <p class="small muted">From the district’s Certified Annual Report to the state, FY${esc(m.fy)}. Peers: ${esc(r.peer_group || 'districts the same size')}. Per pupil uses certified enrollment. A difference can have good reasons (a new building, a bus route, a grant), so treat it as a question, not a finding.</p></div>`;
   }
 
   /** one line for the Overview's "Needs attention" list, or '' */

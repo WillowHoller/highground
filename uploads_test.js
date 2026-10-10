@@ -71,5 +71,7 @@ for (const [k, d] of Object.entries(G.districts)) {
   }
 }
 check(`round trip through the spreadsheet: ${cases} cases`, diffs === 0, diffs + ' differences');
+const fa = U.parseProjects([['Project', 'FY', 'Estimate', 'Funding source', 'Focus area'], ['FFA shop', 'FY2028', '50000', 'PPEL', 'Academics; Staffing,  CTE']], 2027, 10);
+check('several focus areas in one cell are kept, comma-separated', fa.projects[0].area === 'Academics, Staffing, CTE', fa.projects[0].area);
 console.log(`upload tests: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
