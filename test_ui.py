@@ -746,13 +746,18 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(400)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking"); await pg.wait_for_timeout(900)
     t=await pg.inner_text("#view")
-    check("ranking: needed-by years shown, late ones flagged", "needed by FY2030" in t and "needed by FY2030 (planned later)" in t and "planned after the year" in t, t[:800])
+    check("ranking: needed-by years shown, late ones flagged", "needed by FY2030" in t and "needed by FY2030 (planned later)" in t, t[:800])
+    tabs=[x.strip() for x in await pg.locator(".tooltabs a b").all_inner_texts()]
+    check("rank & fund: four tools across the top, each a question", tabs==["Where does the money run out?","When can each be paid for?","How can we fit more?","What would it take?"], str(tabs))
+    await pg.click(".tooltabs a[href$='/fit']"); await pg.wait_for_timeout(900)
     sg=await pg.inner_text("[data-suggest]") if await pg.locator("[data-suggest]").count() else ""
-    check("ranking: suggestions name a move and what it funds", "Move " in sg and "funds " in sg and await pg.locator("[data-suggest] button[data-action=rankSuggest]").count()>0, sg[:600])
+    check("ranking: suggestions name a move and what it funds", "Move " in sg and "funds " in sg and "planned after the year" in sg and await pg.locator("[data-suggest] button[data-action=rankSuggest]").count()>0 and "/plan/ranking/fit" in pg.url, sg[:600])
+    await pg.click(".tooltabs a[href$='/list']"); await pg.wait_for_timeout(800)
     await pg.select_option("select[data-rank-by]","need"); await pg.wait_for_timeout(800)
     first=(await pg.locator("table.ranktable tbody tr:not(.fline) td:nth-child(3)").first.inner_text()).strip()
     check("ranking: ordered by when needed, a strategic item needed in FY2028 comes first", first.startswith("CTE welding"), first)
     await pg.select_option("select[data-rank-by]","rank"); await pg.wait_for_timeout(800)
+    await pg.click(".tooltabs a[href$='/fit']"); await pg.wait_for_timeout(800)
     PROMPT["text"]="Squeezed, with a move"; n0=len(calls)
     await pg.locator("[data-suggest] button[data-action=rankSuggest]").first.click(); await pg.wait_for_timeout(900); PROMPT["text"]=None
     cp=[c for c in calls[n0:] if "/rpc/copy_scenario" in c[1]]; pt=[c for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/phase?" in c[1]]
@@ -760,7 +765,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(300)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking"); await pg.wait_for_timeout(800)
     await pg.select_option("select[data-rank-sid]", next(x["id"] for x in TABLES["scenario"] if x["is_board_version"])); await pg.wait_for_timeout(600)
-    await pg.click("button[data-action=rankView][data-v=years]"); await pg.wait_for_timeout(900)
+    await pg.click(".tooltabs a[href$='/years']"); await pg.wait_for_timeout(900)
     t=await pg.inner_text("#view")
     check("year by year: everything fits if one initiative waits a year (the ranked list said the money runs out)", "Everything fits" in t and "Locker rooms renovation 1 year" in t and await pg.locator("svg.yrtimeline").count()==1 and "What changes" in t, t[:400])
     check("year by year: every mark explains itself on hover", await pg.locator("svg.yrtimeline rect title").count() >= 10)
@@ -769,7 +774,7 @@ async def main():
     await pg.click("button[data-action=rankSchedule]"); await pg.wait_for_timeout(900); PROMPT["text"]=None
     pt=[c for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/phase?" in c[1]]
     check("year by year: the timing becomes a new scenario", any("/rpc/copy_scenario" in c[1] for c in calls[n0:]) and len(pt)==1 and "fy=eq.2033" in pt[0][1] and json.loads(pt[0][2])=={"fy":2034}, str(pt))
-    await pg.click("button[data-action=rankView][data-v=list]"); await pg.wait_for_timeout(500)
+    await pg.click(".tooltabs a[href$='/goal']"); await pg.wait_for_timeout(700)
     lr=await pg.evaluate("[...document.querySelectorAll('select[data-goal-id] option')].find(o=>/below the line/.test(o.textContent)).value")
     await pg.select_option("select[data-goal-id]", lr); await pg.click("button[data-action=goalFind]"); await pg.wait_for_timeout(500)
     gr=await pg.inner_text("#goal-results")
@@ -778,6 +783,7 @@ async def main():
     await pg.locator("#goal-results button[data-action=goalApply]").first.click(); await pg.wait_for_timeout(900); PROMPT["text"]=None
     check("what would it take: an option becomes a new scenario", any("/rpc/copy_scenario" in c[1] for c in calls[n0:]) and any(c[0] in ("PATCH","POST") and ("/rest/v1/phase?" in c[1] or "scenario_initiative" in c[1]) for c in calls[n0:]))
     _set["save_receipts"]=_save0; _turf.pop("need_by_fy",None); _cte.pop("need_by_fy",None)
+    await pg.click(".tooltabs a[href$='/list']"); await pg.wait_for_timeout(800)
     await pg.screenshot(path=SHOTS+"/ranking.png",full_page=True)
     await pg.select_option("select[data-rank-sid]", _ph_sid); await pg.wait_for_timeout(600)
     check("ranking: unlocked scenario has move buttons", await pg.locator("button[data-action=rankMove]").count()>0)
@@ -795,6 +801,7 @@ async def main():
     check("ranking: ▲▼ aren't limited to one priority (only the last row can't move down)", btn_dn and not any(btn_dn[:-1]) and btn_dn[-1], str(btn_dn))
     n0=len(calls); await pg.select_option("select[data-rank-tier] >> nth=0", "strategic"); await pg.wait_for_timeout(600)
     check("ranking: changing a tier saves it on the initiative", any(c[0]=="PATCH" and "/rest/v1/initiative?" in c[1] and '"strategic"' in (c[2] or "") for c in calls[n0:]))
+    await pg.click(".tooltabs a[href$='/fit']"); await pg.wait_for_timeout(800)
     check("ranking: nothing to defer when everything fits", "Nothing needs deferring" in await pg.inner_text("#view") and await pg.locator("button[data-action=rankScenario]").count()==0)
     # starting numbers: checks
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(700)
@@ -1239,15 +1246,19 @@ async def main():
     check("settings overview: the setup banner shows progress", "of 8 done" in await pg.inner_text("#view"))
     await pg.click(".scard:has-text('Starting numbers')"); await pg.wait_for_timeout(500)
     check("settings overview: a card opens its setting", "/settings/setup" in pg.url)
-    # Initiatives has two views, List and Ranked; Ranking is no longer its own menu item
+    # Rank & fund is its own menu item under Plan, and Initiatives' "Ranked" view leads to it
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking"); await pg.wait_for_timeout(800)
     kids=[x.strip() for x in await pg.locator("nav.rail .grp[data-area=plan] .kids a").all_inner_texts()]
-    curk=await pg.locator("nav.rail .grp[data-area=plan] .kids a[aria-current=page]").all_inner_texts()
-    vs=[x.strip() for x in await pg.locator(".viewswitch a").all_inner_texts()]
-    check("initiatives: one screen with List and Ranked views; Ranking isn't a separate menu item", "Ranking" not in kids and curk==["Initiatives"] and vs==["List","Ranked"]
-          and "Initiatives" in await pg.inner_text("h1") and await pg.locator(".viewswitch a.on").inner_text()=="Ranked", str(kids)+str(curk)+str(vs))
-    await pg.click(".viewswitch a:has-text('List')"); await pg.wait_for_timeout(600)
-    check("initiatives: List goes back to the list", "/plan/initiatives" in pg.url)
+    curk=[x.strip() for x in await pg.locator("nav.rail .grp[data-area=plan] .kids a[aria-current=page]").all_inner_texts()]
+    check("rank & fund: its own item in the Plan menu, right after Initiatives", "Rank & fund" in kids and kids.index("Rank & fund")==kids.index("Initiatives")+1 and curk==["Rank & fund"]
+          and "Rank & fund" in await pg.inner_text("h1") and await pg.locator(".tooltabs a").count()==4, str(kids)+str(curk))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(600)
+    await pg.click(".viewswitch a:has-text('Ranked')"); await pg.wait_for_timeout(700)
+    check("initiatives: the Ranked view opens Rank & fund", "/plan/ranking" in pg.url)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pg.wait_for_timeout(800)
+    co=await pg.inner_text("[data-rank-callout]") if await pg.locator("[data-rank-callout]").count() else ""
+    check("rank & fund: Home calls it out with where the money runs out", ("money runs out at #" in co or "fits in rank order" in co) and "Open Rank & fund" in co, co)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking"); await pg.wait_for_timeout(900)
     # one scenario across Initiatives, Ranking, the capital plan and the General Fund, chosen at the top
     opts=await pg.evaluate("[...document.querySelector('[data-top-scenario]').options].map(o=>[o.value,o.text])")
     other=[o for o in opts if "board version" not in o[1]][0]

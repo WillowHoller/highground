@@ -129,6 +129,7 @@
     };
   };
 
+  let RENDER_N = 0;
   async function route() {
     const hash = location.hash || '';
     closeModal();   // a dialog never outlives its page (and the page underneath can scroll again)
@@ -173,7 +174,7 @@
       { id: 'priorities', label: 'Priorities', status: 'live', lede: 'The strategic plan: priorities and the outcomes behind them.', render: vPriorities },
       { id: 'community', label: 'Community input', status: 'live', lede: 'What the community told us, and where it shows up in the plan.', render: vCommunity },
       { id: 'initiatives', label: 'Initiatives', views: [['initiatives', 'List'], ['ranking', 'Ranked']], status: 'live', lede: 'Everything that costs money: projects, programs, hires. Switch to Ranked to force-rank them and see where the money runs out.', render: vInitiatives },
-      { id: 'ranking', label: 'Ranking', menu: false, parent: 'initiatives', status: 'live', lede: 'Force-rank initiatives and see where the money runs out.', render: vRanking },
+      { id: 'ranking', label: 'Rank & fund', status: 'live', lede: 'Put initiatives in order, see where the money runs out, and find ways to fit more.', render: vRanking },
       { id: 'scenarios', label: 'Scenarios', status: 'live', lede: 'Different ways to pay for the plan, side by side.', render: vScenarios },
     ] },
     { id: 'money', label: 'Money', icon: 'money', tabs: [
@@ -415,7 +416,9 @@
     const view = document.getElementById('view');
     ACT.before = null;
     PAGE.lead = null;
-    try { const html = await tab.render(ctx()); view.innerHTML = (PAGE.lead ? `<p class="lead">${PAGE.lead}</p>` : '') + html; stripHidden(view); fitTables(view); fillScenarioTop(ctx(), section, tab).catch(() => {}); focusMeasure(view); }
+    const myRender = ++RENDER_N;
+    try { const html = await tab.render(ctx()); if (myRender !== RENDER_N) return;   // a newer screen started while this one loaded: drop this one
+      view.innerHTML = (PAGE.lead ? `<p class="lead">${PAGE.lead}</p>` : '') + html; stripHidden(view); fitTables(view); fillScenarioTop(ctx(), section, tab).catch(() => {}); focusMeasure(view); }
     catch (err) {
       view.innerHTML = `<div class="notice error">${esc(err instanceof HG.NotBuiltError ? err.message : 'This screen couldn’t load: ' + (err.message || err))}</div>`;
       if (!(err instanceof HG.NotBuiltError)) console.error(err);
@@ -683,6 +686,7 @@
       ${setupCard(c, { rows, D, mem, latestRep })}
       <div class="grid tiles home-tiles">${overviewTiles(c, { tile, f, link, gap, cr, board, sb, pb, gl, D, on, off, pending, latestRep, mem, rows, regOpen })}
       </div>
+      ${c.plan && board && rows.settings ? rankCallout(d.slug, rows, board.id) : ''}
       <div class="card attn"><h3>Needs attention ${attention.length ? `<span class="count">${attention.length}</span>` : ''}</h3>${attention.length ? `<ul class="attn-list">${attention.map((x) => `<li data-area="${x.area}"><span class="sq">${icon(x.ic, 14, 2)}</span><span>${x.html}</span></li>`).join('')}</ul>` : '<p class="ok">Nothing needs attention right now.</p>'}</div>
       ${D.priorities.length ? `<div class="card"><h3>The strategic plan</h3><div class="prio-grid">${D.priorities.map((p, k) => { const pm = ms.filter((y) => y.m.priority_id === p.id), pon = pm.filter((y) => ['ontrack', 'met'].includes(y.x.state)).length, n = rows.initiatives.filter((i) => i.priority_id === p.id).length;
         return `<a class="prio" href="#/d/${enc(d.slug)}/plan/priorities"><span class="pn">${k + 1}</span><b>${esc(p.name)}</b>
@@ -718,7 +722,7 @@
     'track/measures': ['Each measure has a starting point, a target and a cadence; on track means at or ahead of a straight path to the target.', 'Record a result with “Record result”, or upload many at once.'],
     'plan/community': ['Add the community survey: how important each priority is, and the themes people raised.', 'The latest survey can appear on the public page as “What you told us”.'],
     'plan/initiatives': ['Everything that costs money, in one list: capital projects, programs, hires.', 'Filter by status; open one to change its cost, years, priority, owner or the year it’s needed by.'],
-    'plan/ranking': ['Your force rank: #1 is funded first, whatever its priority. Use ▲ ▼ or type a number to move one; “Start from priorities” is a starting point.', '“Year by year” shows when each initiative can be paid for: when a year is short, what can wait moves to the next year, never past its needed-by year.', '“Ways to fit more” lists single moves that fund more; “What would it take?” finds how to fund one initiative by a year you pick. Each can become a new scenario without touching the original.'],
+    'plan/ranking': ['Rank & fund has four tools across the top: where the money runs out, when each can be paid for, how to fit more, and what it would take to fund one initiative.', 'Your force rank: #1 is funded first, whatever its priority. Use ▲ ▼ or type a number to move one; “Start from priorities” is a starting point.', '“Year by year” shows when each initiative can be paid for: when a year is short, what can wait moves to the next year, never past its needed-by year.', '“Ways to fit more” lists single moves that fund more; “What would it take?” finds how to fund one initiative by a year you pick. Each can become a new scenario without touching the original.'],
     'plan/scenarios': ['Tick up to three scenarios to compare them side by side.', '“Why the gap differs” shows what each change between two scenarios does to the gap.'],
     'money/summary': ['Every fund from the board version: capital fund balances, what’s available against what’s committed, and the General Fund.', 'Open the folds for the year-by-year numbers.'],
     'money/general': ['A five-year General Fund forecast: solvency, spending authority and what a negotiated raise (the total package increase) costs.', 'Try the what-if levers; nothing is saved. The business office keeps the starting figures current; “Fill these in” uses the public sources listed below.'],
@@ -838,8 +842,8 @@
   }
   /* screens, and the features inside them, so “what-if” or “starting numbers” finds where they live */
   const FEATURES = [['What-if levers', 'money/capital', 'sliders growth inflation financing'], ['Projects by year', 'money/capital', 'cards table'], ['Leave projects out', 'money/capital', ''],
-    ['What it means for taxpayers', 'money/capital', 'tax home farmland acre levy'], ['Gap to close', 'money/capital', 'bond campaign'], ['Year by year funding', 'plan/ranking', 'schedule'],
-    ['Ranking (Initiatives, Ranked)', 'plan/ranking', 'force rank order funding line priority'], ['Ways to fit more', 'plan/ranking', 'suggestions'], ['What would it take?', 'plan/ranking', ''], ['Funding line', 'plan/ranking', 'force rank order'], ['Needed-by year', 'plan/initiatives', 'need by deadline'],
+    ['What it means for taxpayers', 'money/capital', 'tax home farmland acre levy'], ['Gap to close', 'money/capital', 'bond campaign'], ['Year by year funding', 'plan/ranking/years', 'schedule when paid'],
+    ['Rank & fund', 'plan/ranking', 'force rank order funding line priority ranked'], ['Ways to fit more', 'plan/ranking/fit', 'suggestions fit more'], ['What would it take?', 'plan/ranking/goal', 'goal seek'], ['Funding line', 'plan/ranking', 'force rank order'], ['Needed-by year', 'plan/initiatives', 'need by deadline'],
     ['Compare scenarios', 'plan/scenarios', 'why the gap differs'], ['Solvency ratio', 'money/general', 'unspent balance forecast settlement total package raise negotiations'], ['Guided setup', 'settings/setup', 'wizard getting set up'],
     ['Fill in from public data', 'settings/setup', 'state census enrollment valuations prefill'], ['Existing debt', 'settings/setup', 'GO bonds obligations'], ['Upload the month-end ledger', 'settings/uploads', 'gl excel csv budget balances'],
     ['Templates', 'settings/uploads', 'excel xlsx'], ['Improvement plan', 'share/plans', 'cip csip timelines'], ['Decision packets', 'share/board', ''], ['Public link', 'share/community', 'publish'],
@@ -1359,7 +1363,10 @@
       ? (outside.length ? `<b>Everything planned for SAVE, PPEL, V-PPEL and grants fits</b>, in rank order; ${[campTotal > 0.5 ? `${fmtK(campTotal)} waits on a campaign or bond` : '', boostTotal > 0.5 ? `${fmtK(boostTotal)} on boosters` : ''].filter(Boolean).join(' and ')}.`
         : `<b>Everything fits</b> within SAVE, PPEL, V-PPEL and grants, in rank order.`)
       : `<b>The money runs out at #${k.line + 1}.</b> The first ${k.line} initiative${k.line === 1 ? '' : 's'} (${fmtK(k.aboveCost)}) fit within SAVE, PPEL, V-PPEL and grants; ${k.items.length - k.line} fall below the line.`;
-    if (RK.view === 'years') return rankYearsHtml(c, rows, sc, k);
+    { const hv = location.hash.replace(/^#\/?/, '').split('/')[4]; RK.view = ['list', 'years', 'fit', 'goal'].includes(hv) ? hv : 'list'; }
+    const useful = SG.suggestions.filter((g) => g.funds.length || g.gapChange < -0.5);
+    const tabs = rankTabs(c, k, useful.length);
+    if (RK.view === 'years') return tabs + rankYearsHtml(c, rows, sc, k);
     const tierSel = (x) => c.plan ? `<select data-rank-tier="${esc(x.id)}" aria-label="Priority for ${esc(x.name)}">${HGRanking.TIERS.map((t) => `<option value="${t}" ${x.tier === t ? 'selected' : ''}>${TN[t]}</option>`).join('')}</select>${x.suggested ? '<br><span class="small muted">from the old High/Med/Low</span>' : ''}`
       : `${TN[x.tier]}${x.suggested ? ' <span class="small muted">(suggested)</span>' : ''}`;
     const canStep = (x, d) => { const j = k.items.indexOf(x) + d; return j >= 0 && j < k.items.length; };
@@ -1375,43 +1382,68 @@
       <td class="moves">${canMove && ranked ? `<button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="-1" ${canStep(x, -1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} up">▲</button><button type="button" class="btn small" data-action="rankMove" data-id="${esc(x.id)}" data-d="1" ${canStep(x, 1) ? '' : 'disabled'} aria-label="Move ${esc(x.name)} down">▼</button>` : ''}</td></tr>`;
     const body = k.items.map((x, j) => (j === k.line ? `<tr class="fline"><td colspan="8">Funding line: the money runs out here</td></tr>` : '') + row(x)).join('');
     const ro = k.rankOrder;
-    return `
-      <div class="row">
-        <label class="chip"><span class="small muted">Order by</span><select data-rank-by aria-label="Order by"><option value="rank" ${(RK.by || 'rank') === 'rank' ? 'selected' : ''}>Our rank</option><option value="need" ${RK.by === 'need' ? 'selected' : ''}>When needed, then our rank</option><option value="priority" ${RK.by === 'priority' ? 'selected' : ''}>Grouped by priority</option></select></label>
-        <div class="seg" role="group" aria-label="View"><button type="button" class="btn small ${(RK.view || 'list') === 'list' ? 'on' : ''}" data-action="rankView" data-v="list" aria-pressed="${(RK.view || 'list') === 'list'}">Ranked list</button><button type="button" class="btn small ${RK.view === 'years' ? 'on' : ''}" data-action="rankView" data-v="years" aria-pressed="${RK.view === 'years'}">Year by year</button></div>
-        ${canMove && ranked && RK.view !== 'years' ? '<button type="button" class="btn small" data-action="rankFromTiers">Start from priorities</button>' : ''}
-        <label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}${x.is_locked ? ' (locked)' : ''}</option>`).join('')}</select></label>
-      </div>
-      ${(() => { setLead(summary.replace(/<\/?b>/g, (m) => m)); return ''; })()}<div class="card">
-        ${outside.length ? `<p class="small">${k.line >= k.items.length ? 'Paid outside the levies' : 'Separately'}, ${[campTotal > 0.5 ? `<b>${fmtK(campTotal)}</b> depends on a campaign or bond` : '', boostTotal > 0.5 ? `<b>${fmtK(boostTotal)}</b> on boosters` : ''].filter(Boolean).join(' and ')}: ${outside.map((x) => `#${x.position} ${esc(x.name)}`).join(', ')}.</p>` : ''}
-        <p class="small muted">Priorities say why something matters: <b>must-have</b> (safety, law, failing systems), <b>strategic</b> (moves the strategic plan forward), <b>nice to have</b> (worth doing when money allows). The list is the district’s own force rank: #1 is funded first, whatever its priority. Use ▲ ▼ or type a new number to move one; “Start from priorities” orders the whole list by priority as a starting point.${sc.is_locked ? ' This scenario is locked, so its order can’t change; priorities can, because they belong to the initiative.' : ''}</p></div>
-      <div class="card"><div class="scroll"><table class="data ranktable"><thead><tr><th>#</th><th>Priority</th><th>Initiative</th><th>Years</th><th class="num">One-time</th><th class="num">Yearly</th><th>Funding line</th><th></th></tr></thead>
-        <tbody>${body}</tbody></table></div></div>
-      ${(() => {
-        const useful = SG.suggestions.filter((g) => g.funds.length || g.gapChange < -0.5);
-        const warn = [...SG.urgentBelow.map((x) => `<li class="gaptext">${esc(x.name)} is below the line but needed by FY${x.needBy}.</li>`), ...(SG.late.length ? [`<li>${SG.late.length} initiative${SG.late.length === 1 ? ' is' : 's are'} planned after the year ${SG.late.length === 1 ? 'it’s' : 'they’re'} needed (marked in the list).</li>`] : [])];
-        if (!useful.length && !warn.length) return '';
-        return `<div class="card" data-suggest><h3>Ways to fit more</h3>
-          ${warn.length ? `<ul>${warn.join('')}</ul>` : ''}
-          ${useful.length ? `<p class="small muted">Each is one change, tried against this scenario: the plan rerun with that initiative moved, keeping everything above the line where it is and nothing later than the year it’s needed.</p>
-          <ol class="sugg">${useful.map((g) => `<li><b>Move ${esc(g.name)}</b> ${g.delta > 0 ? 'later' : 'earlier'} by ${Math.abs(g.delta)} year${Math.abs(g.delta) === 1 ? '' : 's'} (FY${g.from.join(', FY')} → FY${g.to.join(', FY')}${g.needBy ? `; needed by FY${g.needBy}` : ''}):
-            ${g.funds.length ? `funds ${g.funds.map((f) => `<b>${esc(f.name)}</b>`).join(', ')}` : 'funds nothing new'}${g.gapChange < -0.5 ? `${g.funds.length ? ', and ' : ', but '}the gap falls by ${fmtK(-g.gapChange)}` : ''}.
-            ${c.plan ? ` <button type="button" class="btn small" data-action="rankSuggest" data-id="${esc(g.id)}">Make a scenario with this</button>` : ''}</li>`).join('')}</ol>` : ''}
-          <p class="small muted">Add the year each initiative is needed by in its editor; without one, a remaining life is used.</p></div>`; })()}
-      ${k.flags.length ? `<div class="card"><h3>Spent before a higher-ranked need</h3><ul class="flags">${k.flags.slice(0, 12).map((f) => `<li>${esc(f.text)}</li>`).join('')}</ul>
-        ${k.flags.length > 12 ? `<p class="small muted">and ${k.flags.length - 12} more.</p>` : ''}
-        <p class="small muted">Moving the lower-ranked item to a later year, or to another fund, usually fixes this.</p></div>` : ''}
-      <div class="card" data-goal><h3>What would it take?</h3>
-        <p class="small muted">Pick an initiative and the year it has to be done by. HighGround looks for the smallest change that funds it: ranking it higher, or moving one or two others, never past the year they’re needed by.</p>
-        <div class="inline-form"><label class="field">Initiative<select data-goal-id>${k.items.filter((x) => x.project).map((x) => `<option value="${esc(x.id)}" ${!x.above && !RK.goalId ? (RK.goalId = x.id, 'selected') : RK.goalId === x.id ? 'selected' : ''}>#${x.position} ${esc(x.name)}${x.above ? '' : ' (below the line)'}</option>`).join('')}</select></label>
-          <label class="field">Done by<select data-goal-fy><option value="">As planned</option>${k.cfg.years.map((fy) => `<option value="${fy}">FY${fy}</option>`).join('')}</select></label>
-          <button type="button" class="btn" data-action="goalFind">Find a way</button></div>
-        <div id="goal-results"></div></div>
+    const scenSel = `<label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (adopted plan)' : ''}${x.is_locked ? ' (locked)' : ''}</option>`).join('')}</select></label>`;
+    setLead(summary);
+    const fitCard = (() => {
+      const warn = [...SG.urgentBelow.map((x) => `<li class="gaptext">${esc(x.name)} is below the line but needed by FY${x.needBy}.</li>`), ...(SG.late.length ? [`<li>${SG.late.length} initiative${SG.late.length === 1 ? ' is' : 's are'} planned after the year ${SG.late.length === 1 ? 'it’s' : 'they’re'} needed (marked in the ranked list).</li>`] : [])];
+      return `<div class="card" data-suggest><h3>Ways to fit more</h3>
+        ${warn.length ? `<ul>${warn.join('')}</ul>` : ''}
+        ${useful.length ? `<p class="small muted">Each is one change, tried against this scenario: the plan rerun with that initiative moved, keeping everything above the line where it is and nothing later than the year it’s needed.</p>
+        <ol class="sugg">${useful.map((g) => `<li><b>Move ${esc(g.name)}</b> ${g.delta > 0 ? 'later' : 'earlier'} by ${Math.abs(g.delta)} year${Math.abs(g.delta) === 1 ? '' : 's'} (FY${g.from.join(', FY')} → FY${g.to.join(', FY')}${g.needBy ? `; needed by FY${g.needBy}` : ''}):
+          ${g.funds.length ? `funds ${g.funds.map((f) => `<b>${esc(f.name)}</b>`).join(', ')}` : 'funds nothing new'}${g.gapChange < -0.5 ? `${g.funds.length ? ', and ' : ', but '}the gap falls by ${fmtK(-g.gapChange)}` : ''}.
+          ${c.plan ? ` <button type="button" class="btn small" data-action="rankSuggest" data-id="${esc(g.id)}">Make a scenario with this</button>` : ''}</li>`).join('')}</ol>`
+        : `<p>No single move funds anything more right now.${k.line < k.items.length ? ' Try “What would it take?” for a particular initiative, or fund in rank order below.' : ''}</p>`}
+        <p class="small muted">Add the year each initiative is needed by in its editor; without one, a remaining life is used.</p></div>
       <div class="card"><h3>Fund in rank order</h3>
         ${ro.deferred.length ? `<p>Keep the ${k.line} initiatives above the line and defer the rest (${fmtK(ro.deferredCost)} one-time${ro.deferredYearly ? `, ${fmtK(ro.deferredYearly)} a year` : ''}): the gap goes from <b>${fmtK(k.current.gap)}</b> to <b>${fmtK(ro.gap)}</b>.</p>
           <p class="small">Deferred: ${ro.deferred.map((x) => esc(x.name)).join(', ')}.</p>
           ${c.plan ? '<button type="button" class="btn primary" data-action="rankScenario">Make a scenario with only what fits</button>' : ''}`
-        : `<p>Nothing needs deferring: every initiative fits in rank order.${outside.length ? ` The gap of ${fmtK(k.current.gap)} is the campaign or bond share above that isn’t paid for yet.` : ''}</p>`}</div>`;
+        : `<p>Nothing needs deferring: every initiative fits in rank order.${outside.length ? ` The gap of ${fmtK(k.current.gap)} is the campaign or bond share above that isn’t paid for yet.` : ''}</p>`}</div>
+      ${k.flags.length ? `<div class="card"><h3>Spent before a higher-ranked need</h3><ul class="flags">${k.flags.slice(0, 12).map((f) => `<li>${esc(f.text)}</li>`).join('')}</ul>
+        ${k.flags.length > 12 ? `<p class="small muted">and ${k.flags.length - 12} more.</p>` : ''}
+        <p class="small muted">Moving the lower-ranked item to a later year, or to another fund, usually fixes this.</p></div>` : ''}`;
+    })();
+    const goalCard = `<div class="card" data-goal><h3>What would it take?</h3>
+        <p class="small muted">Pick an initiative and the year it has to be done by. HighGround looks for the smallest change that funds it: ranking it higher, or moving one or two others, never past the year they’re needed by.</p>
+        <div class="inline-form"><label class="field">Initiative<select data-goal-id>${k.items.filter((x) => x.project).map((x) => `<option value="${esc(x.id)}" ${!x.above && !RK.goalId ? (RK.goalId = x.id, 'selected') : RK.goalId === x.id ? 'selected' : ''}>#${x.position} ${esc(x.name)}${x.above ? '' : ' (below the line)'}</option>`).join('')}</select></label>
+          <label class="field">Done by<select data-goal-fy><option value="">As planned</option>${k.cfg.years.map((fy) => `<option value="${fy}">FY${fy}</option>`).join('')}</select></label>
+          <button type="button" class="btn primary" data-action="goalFind">Find a way</button></div>
+        <div id="goal-results"></div></div>`;
+    if (RK.view === 'fit') return tabs + `<div class="row">${scenSel}</div>` + fitCard;
+    if (RK.view === 'goal') return tabs + `<div class="row">${scenSel}</div>` + goalCard;
+    return tabs + `
+      <div class="row">
+        <label class="chip"><span class="small muted">Order by</span><select data-rank-by aria-label="Order by"><option value="rank" ${(RK.by || 'rank') === 'rank' ? 'selected' : ''}>Our rank</option><option value="need" ${RK.by === 'need' ? 'selected' : ''}>When needed, then our rank</option><option value="priority" ${RK.by === 'priority' ? 'selected' : ''}>Grouped by priority</option></select></label>
+        ${canMove && ranked ? '<button type="button" class="btn small" data-action="rankFromTiers">Start from priorities</button>' : ''}
+        ${scenSel}
+      </div>
+      <div class="card">
+        ${outside.length ? `<p class="small">${k.line >= k.items.length ? 'Paid outside the levies' : 'Separately'}, ${[campTotal > 0.5 ? `<b>${fmtK(campTotal)}</b> depends on a campaign or bond` : '', boostTotal > 0.5 ? `<b>${fmtK(boostTotal)}</b> on boosters` : ''].filter(Boolean).join(' and ')}: ${outside.map((x) => `#${x.position} ${esc(x.name)}`).join(', ')}.</p>` : ''}
+        <p class="small muted">Priorities say why something matters: <b>must-have</b> (safety, law, failing systems), <b>strategic</b> (moves the strategic plan forward), <b>nice to have</b> (worth doing when money allows). The list is the district’s own force rank: #1 is funded first, whatever its priority. Use ▲ ▼ or type a new number to move one; “Start from priorities” orders the whole list by priority as a starting point.${sc.is_locked ? ' This scenario is locked, so its order can’t change; priorities can, because they belong to the initiative.' : ''}</p></div>
+      <div class="card"><div class="scroll"><table class="data ranktable"><thead><tr><th>#</th><th>Priority</th><th>Initiative</th><th>Years</th><th class="num">One-time</th><th class="num">Yearly</th><th>Funding line</th><th></th></tr></thead>
+        <tbody>${body}</tbody></table></div></div>`;
+  }
+  /* a call-out that sends people to Rank & fund from Home and the capital plan */
+  function rankCallout(slug, rows, sid) {
+    try {
+      const k = HGRanking.build(rows, sid, { by: 'rank' }), below = k.items.length - k.line;
+      const SG = HGSuggest.suggest(HGCapital.buildInputs(rows, sid), k.items, rows.initiatives), n = SG.suggestions.filter((g) => g.funds.length || g.gapChange < -0.5).length;
+      const head = below > 0 ? `The money runs out at #${k.line + 1} of ${k.items.length} initiatives` : 'Every initiative fits in rank order';
+      const sub = below > 0 ? `${n ? `${n} way${n === 1 ? '' : 's'} to fit more found. ` : ''}See what falls below the line, what can wait, and what it would take to fund the rest.` : 'See the funding line, the year-by-year timing, and what it would take to add more.';
+      return `<div class="card rf-callout" data-rank-callout><span class="rf-ic">${icon('sliders', 20, 2)}</span><span class="rf-tx"><b>${head}</b><span>${sub}</span></span>
+        <a class="btn primary" href="#/d/${enc(slug)}/plan/ranking/${below > 0 && n ? 'fit' : 'list'}">Open Rank &amp; fund</a></div>`;
+    } catch (e) { return ''; }
+  }
+  /* the four tools of Rank & fund, as big tabs: each a question a board asks */
+  function rankTabs(c, k, nFit) {
+    const v = RK.view || 'list', below = Math.max(0, k.items.length - k.line), base = `#/d/${enc(c.district.slug)}/plan/ranking/`;
+    const T = [
+      ['list', 'Where does the money run out?', below ? `Funding line at #${k.line + 1}; ${below} below it` : 'Everything fits in rank order', 'track'],
+      ['years', 'When can each be paid for?', 'Year by year: what waits, and how long', 'clock'],
+      ['fit', 'How can we fit more?', nFit ? `${nFit} way${nFit === 1 ? '' : 's'} found` : 'Single moves that fund more', 'sliders'],
+      ['goal', 'What would it take?', 'Fund one initiative by a year you pick', 'target'],
+    ];
+    return `<nav class="tooltabs" aria-label="Rank & fund tools">${T.map(([id, q, sub, ic]) => `<a href="${base}${id}" class="${v === id ? 'on' : ''}" ${v === id ? 'aria-current="page"' : ''}><span class="tt-ic">${icon(ic, 18, 2)}</span><span><b>${q}</b><small>${esc(sub)}</small></span>${id === 'fit' && nFit ? `<span class="count">${nFit}</span>` : ''}</a>`).join('')}</nav>`;
   }
   /* ---- goal seek: what would it take to fund one initiative by a year ---- */
   function goalHtml(g, k) {
@@ -1429,8 +1461,8 @@
     setLead(!waits.length && !short.length ? '<b>Every initiative fits in the year it’s planned</b>, paid from SAVE, PPEL, V-PPEL and grants.'
       : `${short.length ? `<b>${shortYrs.map((y) => `FY${y.fy}`).join(', ')} ${shortYrs.length === 1 ? 'is' : 'are'} short ${fmtK(shortYrs.reduce((a, y) => a + y.short, 0))}</b> even after moving what can wait` : '<b>Everything fits</b>'}${waits.length ? `${short.length ? ';' : ' if'} ${waits.length} initiative${waits.length === 1 ? ' waits' : 's wait'}: ${waits.map((x) => `${esc(x.name)} ${x.slip} year${x.slip === 1 ? '' : 's'}`).join(', ')}` : ''}.`);
     const sel = `<div class="row">
-        <label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}</option>`).join('')}</select></label>
-        <div class="seg" role="group" aria-label="View"><button type="button" class="btn small" data-action="rankView" data-v="list" aria-pressed="false">Ranked list</button><button type="button" class="btn small on" data-action="rankView" data-v="years" aria-pressed="true">Year by year</button></div></div>`;
+        <label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (adopted plan)' : ''}</option>`).join('')}</select></label>
+</div>`;
     return `${sel}
       <div class="card"><h3>When each can be paid for</h3>
         <p class="small muted">Going a year at a time: when the capital funds are short, the initiative that can best wait moves to the next year. That means the lowest in your rank, with room before the year it’s needed by. Nothing moves past its needed-by year, and nothing already underway moves. Campaign and booster projects are shown but don’t compete for levy money.</p>
@@ -2127,6 +2159,7 @@
       ${CAP.inputs.notes.length ? `<ul class="fineprint">${CAP.inputs.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
       <p class="lead" id="cap-lead">${capLeadHtml()}</p>
       <div id="cap-results">${capResultsHtml()}</div>
+      ${c.plan && capCompute().gap > 0.5 ? rankCallout(c.district.slug, rows, CAP.scenarioId) : ''}
       ${fold(c, 'What-if and financing', `<div class="cap-grid">
         <div class="card" id="cap-levers">${capLeversHtml()}</div>
         <div class="card" id="cap-fin">${capFinHtml()}</div>
@@ -4933,7 +4966,7 @@
     async editProject(el) { openProjectEditor(el.dataset.id || null); },
     async rankMove(el) { await rankMove(el); },
     async rankScenario() { await rankScenario(); },
-    async rankView(el) { RK.view = el.dataset.v; here(); },
+    async rankView(el) { go(`#/d/${enc(S.district.slug)}/plan/ranking/${el.dataset.v}`); },
     async goalFind() {
       const id = document.querySelector('[data-goal-id]').value, fy = document.querySelector('[data-goal-fy]').value; RK.goalId = id;
       RK.goal = HGSuggest.goalSeek(HGCapital.buildInputs(RK.rows, RK.sid), RK.k.items, RK.rows.initiatives, id, fy ? Number(fy) : null);
