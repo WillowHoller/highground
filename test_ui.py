@@ -50,7 +50,7 @@ TABLES["import_row"]=[]; TABLES["import_issue"]=[]
 for t in ["assumption_set","outcome","measure_value","survey","survey_result","recurring_cost","project_request","report_snapshot","budget_line"]: TABLES.setdefault(t,[])
 TABLES["initiative"]=TABLES["initiative"]+[{"id":"ini-ffa","district_id":"d1","name":"FFA program","type":"program","status":"approved","cost_confidence":"estimate"}]
 _bp=[p for p in TABLES["phase"] if p["scenario_id"]!=_ph_sid][0]; _bp["label"]="Unit ventilators"
-TABLES["recurring_cost"]=[{"id":"rc1","district_id":"d1","scenario_id":_ph_sid,"initiative_id":_init0,"kind":"supplies","fund":"ppel","first_fy":2028,"last_fy":None,"annual_amount":12000,"grows_with":"none"}]
+TABLES["recurring_cost"]=[{"id":"rc1","district_id":"d1","scenario_id":_ph_sid,"initiative_id":_init0,"kind":"contract","fund":"ppel","first_fy":2028,"last_fy":None,"annual_amount":12000,"grows_with":"none"}]
 TABLES["audit_log"]=[{"id":2,"district_id":"d1","table_name":"initiative","row_pk":"x","action":"update","actor":"u-admin","at":"2026-09-30T15:04:00Z",
    "old_row":{"name":"Gym floor","focus_area":"Facilities","updated_at":"a"},"new_row":{"name":"Gym floor","focus_area":"Activities","updated_at":"b"}},
   {"id":1,"district_id":"d1","table_name":"scenario","row_pk":"y","action":"insert","actor":"u-someone-else","at":"2026-09-30T14:00:00Z","old_row":None,"new_row":{"name":"Plan B"}}]
@@ -315,6 +315,8 @@ async def main():
     await pg.select_option("select[data-cap-scenario]",phased_id); await pg.wait_for_timeout(400)
     links=pg.locator(".ylist a[data-action=editProject]")
     check("unlocked scenario: projects open for editing", await links.count()>=15)
+    check("fund rules: a PPEL contract is listed for the business office to confirm, nothing is called illegal", await pg.locator("[data-fund-rules-check]").count()==1 and await pg.locator("[data-fund-rules]").count()==0
+          and "only in some cases" in await pg.text_content("[data-fund-rules-check]"), await pg.text_content("[data-fund-rules-check]") if await pg.locator("[data-fund-rules-check]").count() else "none")
     await pg.click(".ylist a:has-text('Middle school HVAC replacement')"); await pg.wait_for_timeout(300)
     check("editor: opens with the project's phases", await pg.locator("[data-modal] [data-phase-row]").count()==2 and await pg.input_value("[data-modal] input[name=name]")=="Middle school HVAC replacement")
     ab=await pg.evaluate("""(()=>{const t=document.querySelector('[data-modal] [data-phase-body]').closest('.scroll').getBoundingClientRect(),b=document.querySelector('[data-modal] [data-action=addPhaseRow]').getBoundingClientRect();return b.top-t.bottom})()""")
@@ -399,8 +401,14 @@ async def main():
     await pg.fill("[data-modal] input[name=name]","Library aide"); await pg.select_option("[data-modal] select[name=type]","staff")
     await pg.click("[data-modal] button[data-action=removePhaseRow]"); await pg.click("[data-modal] button[data-action=addYearlyRow]")
     yr=pg.locator("[data-modal] [data-yearly-row]").last
-    await yr.locator("select[name=y_kind]").select_option("salary"); await yr.locator("select[name=y_fund]").select_option("general")
+    await yr.locator("select[name=y_kind]").select_option("salary"); await yr.locator("select[name=y_fund]").select_option("ppel")
     await yr.locator("input[name=y_amount]").fill("32,000"); await yr.locator("select[name=y_first]").select_option("2028")
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
+    check("fund rules: a salary paid from PPEL is refused, with the law cited, and nothing is saved", "PPEL can’t be used to pay salaries (Iowa Code 298.3)" in await pg.inner_text("[data-modal] [data-form-errors]")
+          and not any(c[0] in ("POST","PATCH","DELETE") for c in calls[n0:]), await pg.inner_text("[data-modal] [data-form-errors]"))
+    await yr.locator("select[name=y_fund]").select_option("save"); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
+    check("fund rules: a staff initiative can't put phases or salaries on SAVE either", "SAVE can’t be used to pay salaries (Iowa Code 423F.3)" in await pg.inner_text("[data-modal] [data-form-errors]"))
+    await yr.locator("select[name=y_fund]").select_option("general")
     n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(800)
     ops=[c[1].split("?")[0].replace("/rest/v1/","") for c in calls[n0:] if c[0]=="POST"]
     rcp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/recurring_cost"]
@@ -1419,7 +1427,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(900); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view")
     kfmt=lambda v: "$%.2fM"%(v/1e6) if v>=1e6 else "$%dk"%round(v/1000)
-    check("all funds: year-by-year from the engine (forecast tables in compact dollars)", "SAVE" in t and kfmt(EXP["save27"]) in t and "Borrowing room" in t and "$4.59M" in t, kfmt(EXP["save27"]))
+    check("all funds: year-by-year from the engine (forecast tables in compact dollars)", "SAVE" in t and kfmt(EXP["save27"]) in t and "Borrowing room" in t and "$4.30M" in t, kfmt(EXP["save27"]))
     check("all funds: what each fund may pay for, with a caution", "423F" in t and "298.3" in t and "not legal advice" in t)
     await pg.screenshot(path=SHOTS+"/funds.png",full_page=True)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/reports/exports"); await pg.wait_for_timeout(500)

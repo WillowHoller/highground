@@ -20,14 +20,39 @@ check('unspent balance carries forward', near(y2.authority, 8310960 + 2040000 + 
 const G = F.forecast(gfi, Object.assign({}, a, { enroll: -0.05 }), [2027, 2028]).years[1];
 // formula: 950 × 8,310.96 = 7,895,412; guarantee floor 1.01 × 8,148,000 = 8,229,480
 check('budget guarantee: at least 101% of last year’s regular program', near(G.regular, 8229480) && near(G.guarantee, 8229480 - 7895412), G);
-check('FY2027 uses the enacted 2% even if the assumption differs', near(F.forecast(gfi, Object.assign({}, a, { ssa: 0.05 }), [2026, 2027]).years[1].dcpp, 8148 * 1.02, 1e-6));
+{ // the guarantee doesn't compound: year 3's floor is 101% of year 2's formula cost, not of year 2's guaranteed amount
+  const G3 = F.forecast(gfi, Object.assign({}, a, { enroll: -0.05 }), [2027, 2028, 2029]).years;
+  const f2 = 950 * 8310.96, f3 = 902.5 * (8310.96 * 1.02);   // FY2029 cost per pupil: 8,310.96 + 2% of the state cost per pupil (also 8,310.96)
+  check('budget guarantee does not compound (Iowa Code 257.14)', near(G3[2].regular, Math.max(f3, f2 * 1.01)) && G3[2].regular < G3[1].regular * 1.01 - 1, [G3[2].regular, f2 * 1.01]);
+  const off = F.forecast(Object.assign({}, gfi, { guarantee_optin: false }), Object.assign({}, a, { enroll: -0.05 }), [2027, 2028]).years[1];
+  check('budget guarantee is the board’s choice: off means formula only', near(off.regular, 7895412) && off.guarantee === 0);
+  const sp = F.forecast(Object.assign({}, gfi, { dcpp: 7988 }), Object.assign({}, a, { enroll: -0.05 }), [2026, 2027]);
+  check('FY2027 guarantee is marked as paid by state aid (SF 2201)', sp.years[1].guarantee > 0 && sp.years[1].guaranteeStatePaid && sp.flags.guaranteeStatePaid.includes(2027));
+}
+{ // FY2028 on: budget enrollment is the average of the October and January counts
+  const J = F.forecast(Object.assign({}, gfi, { jan_change: 0.02 }), a, [2027, 2028]).years;
+  check('from FY2028, budget enrollment averages the Oct and Jan counts', near(J[0].budgetEnrollment, 1000) && near(J[1].budgetEnrollment, 1010) && near(J[1].regular, 1010 * 8310.96));
+}
+{ // spending authority is the lesser of the authorized and certified budgets
+  const C = F.forecast(Object.assign({}, gfi, { certified_budget: 11000000 }), a, [2027, 2028]).years;
+  check('spending authority = the lesser of authorized and certified budget', near(C[0].authorized, 12148000) && near(C[0].authority, 11000000) && near(C[0].unspent, 2000000)
+    && near(C[1].certified, 11000000 * C[1].authorized / C[0].authorized), C.map((y) => [y.authorized, y.certified, y.authority]));
+}
+{ // the likely range around solvency
+  const B = F.forecast(gfi, a, [2027, 2028, 2029]).years;
+  check('solvency has a likely range from the history replay, wider each year out', B[0].solvencyLow === B[0].solvency && B[1].solvencyLow < B[1].solvency && B[1].solvencyHigh > B[1].solvency
+    && (B[2].solvencyHigh - B[2].solvencyLow) > (B[1].solvencyHigh - B[1].solvencyLow));
+}
+check('FY2027 uses the enacted increase ($160, 2%) even if the assumption differs', near(F.forecast(Object.assign({}, gfi, { dcpp: 7988 }), Object.assign({}, a, { ssa: 0.05 }), [2026, 2027]).years[1].dcpp, 8148, 1e-6));
+check('SSA adds dollars, not a percent: a district $200 above the state cost per pupil gets the same $160', near(F.forecast(Object.assign({}, gfi, { dcpp: 8188 }), a, [2026, 2027]).years[1].dcpp, 8348, 1e-6));
+check('SSA dollars when not enacted: state cost per pupil × SSA', near(F.forecast(Object.assign({}, gfi, { dcpp: 8348 }), a, [2027, 2028]).years[1].dcpp, 8348 + 8148 * 0.02, 1e-6));
 // flags: a district spending far more than it takes in
 const poor = F.forecast(Object.assign({}, gfi, { fund_balance: 200000, unspent: 100000, nonstaff: 5000000 }), a, [2027, 2028, 2029]);
 check('flags: deficits, low solvency, unspent balance below zero', poor.flags.deficit.length === 3 && poor.flags.lowSolvency.includes(2027) && poor.flags.negativeUnspent.includes(2028), poor.flags);
 check('plan’s yearly General Fund costs are added to spending', near(F.forecast(gfi, a, [2027, 2028], { 2028: 75500 }).years[1].spending, 9230000 + 75500));
 const T = F.forecast(Object.assign({}, gfi, { turnover_savings: 0.01 }), a, [2027, 2028]).years[1];
 check('turnover savings: salaries grow by settlement less turnover (3% − 1%)', near(T.staff, 100 * (50000 * 1.02 * 1.2 + 10500)), T.staff);
-check('enacted figures are recorded with their source date', F.RULES.scpp[2027] === 8148 && F.RULES.ssa[2027] === 0.02 && F.RULES.checked === '2026-10-01');
+check('enacted figures are recorded with their source date', F.RULES.scpp[2027] === 8148 && F.RULES.ssa[2027] === 0.02 && F.RULES.checked === '2026-10-10');
 // starting figures from a budget
 const b = F.fromBudget([{ fund_code: '10', account_type: 'revenue', budget: 12300000 }, { fund_code: '10', account_type: 'expenditure', object_code: '111', budget: 4820000 },
   { fund_code: '10', account_type: 'expenditure', object_code: '211', budget: 455000 }, { fund_code: '10', account_type: 'expenditure', object_code: '622', budget: 310000 }, { fund_code: '33', account_type: 'expenditure', object_code: '450', budget: 1 }]);

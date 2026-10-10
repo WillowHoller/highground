@@ -39,7 +39,7 @@
                 rate: n(s.ppel_rate, null), actualValuation: n(s.actual_valuation, null), goOutstanding: n(s.go_outstanding, null) },
         vppel: { status: s.vppel_status || 'none', annual: n(s.vppel_annual, 0), firstFY: n(s.vppel_first_fy, null), lastFY: n(s.vppel_last_fy, null) },
         grants: { avg: n(s.grants_avg, 0), yield: n(s.grants_yield, 0.75) },
-        debt: capDebts.map((d) => ({ name: d.name, fund: d.fund, annual: n(d.annual_payment, 0), lastFY: n(d.final_fy, null) })),
+        debt: capDebts.map((d) => ({ name: d.name, fund: d.fund, annual: n(d.annual_payment, 0), lastFY: n(d.final_fy, null), timing: d.first_year_timing || 'spread' })),
         inflation: n(s.construction_inflation, 0),
       },
       notes,
@@ -72,7 +72,7 @@
     const raw = [];
     byInit.forEach((ph, id) => {
       const i = INIT.get(id) || {};
-      raw.push({ id: id, name: i.name, pri: i.engine_priority || '', est: i.cost_confidence !== 'firm', area: i.focus_area || '',
+      raw.push({ id: id, name: i.name, type: i.type || 'capital', pri: i.engine_priority || '', est: i.cost_confidence !== 'firm', area: i.focus_area || '',
                  cond: COND[i.condition] || '', life: i.remaining_life, phases: ph });
     });
     return { projects: E.cleanList(raw, cfg), notes };
@@ -109,6 +109,14 @@
     const cfg = E.makeConfig(st.settings);
     const sc = (rows.scenarios || []).find((s) => s.id === scenarioId);
     const pr = projectsFromRows(rows.initiatives, rows.phases, rows.funding, scenarioId, cfg);
+    /* projects in the scenario's force-rank order (unranked last, in their earlier order): a phase that can use several
+       funds is offered them in this order, so a higher-ranked initiative chooses first (issue 6, 10 Oct 2026) */
+    const RANK = new Map((rows.scenario_initiative || []).filter((x) => x.scenario_id === scenarioId).map((x) => [String(x.initiative_id), n(x.rank, null)]));
+    if (RANK.size) {
+      const pos = new Map(pr.projects.map((p, k) => [p, k]));
+      const rk = (p) => (RANK.get(String(p.id)) == null ? Infinity : RANK.get(String(p.id)));
+      pr.projects.sort((a, b) => (rk(a) - rk(b)) || (pos.get(a) - pos.get(b)));
+    }
     const stored = leversFromRows(sc, rows.financing);
     // the scenario's assumption set fills any lever the scenario hasn't saved for itself
     const set = sc && sc.assumption_set_id ? (rows.assumption_sets || []).find((x) => x.id === sc.assumption_set_id) || null : null;
@@ -162,7 +170,7 @@
       ...(s.gf ? { gf_inputs: s.gf } : {}),
     });
     CAP_FUNDS.forEach((f) => out.fund_balance.push({ district_id: districtId, fund: f, as_of: s.balances.asOf, amount: s.balances[f] || 0, source: 'manual' }));
-    (s.debt || []).forEach((d) => out.debt_obligation.push({ district_id: districtId, name: d.name, fund: d.fund, annual_payment: d.annual, final_fy: d.lastFY }));
+    (s.debt || []).forEach((d) => out.debt_obligation.push({ district_id: districtId, name: d.name, fund: d.fund, annual_payment: d.annual, final_fy: d.lastFY, first_year_timing: d.timing || 'spread' }));
     const initId = new Map();
     demo.scenarios.forEach((sc) => sc.projects.forEach((p) => {
       if (initId.has(p.id)) return;

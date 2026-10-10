@@ -803,7 +803,7 @@
         { area: 'money', ic: 'money', cls: gap > 0.5 ? 'gap' : '', viz: cr && cr.need ? MINI.meter(cr.need - gap, cr.need, 'cov') : '' }),
       save: () => tile('SAVE balance ' + def('save'), sb ? f(Number(sb.amount)) : '—', sb ? 'as of ' + esc(day(sb.as_of)) + (cr ? ' · by year' : '') : '', { area: 'money', ic: 'money', viz: MINI.spark(bal('save')) }),
       ppel: () => tile('PPEL balance ' + def('ppel'), pb ? f(Number(pb.amount)) : '—', pb ? 'as of ' + esc(day(pb.as_of)) + (cr ? ' · by year' : '') : '', { area: 'money', ic: 'money', viz: MINI.spark(bal('ppel')) }),
-      solvency: () => { const g = board ? gfRun(rows, board.id) : null; if (!g) return ''; const ys = g.R.years; return tile('General Fund solvency ' + def('solvency'), pct1(ys[0].solvency), `${pct1(ys[ys.length - 1].solvency)} by FY${ys[ys.length - 1].fy} ${link('money/general', 'forecast')}`, { area: 'money', ic: 'calc', viz: MINI.spark(ys.map((y) => y.solvency), ys[ys.length - 1].solvency < 0.05 ? 'bad' : '') }); },
+      solvency: () => { const g = board ? gfRun(rows, board.id) : null; if (!g) return ''; const ys = g.R.years; return tile('General Fund solvency ' + def('solvency'), pct1(ys[0].solvency), `${pct1(ys[ys.length - 1].solvency)} by FY${ys[ys.length - 1].fy} (likely ${pct1(ys[ys.length - 1].solvencyLow)}–${pct1(ys[ys.length - 1].solvencyHigh)}) ${link('money/general', 'forecast')}`, { area: 'money', ic: 'calc', viz: MINI.spark(ys.map((y) => y.solvency), ys[ys.length - 1].solvency < 0.05 ? 'bad' : '') }); },
       ledger: () => tile('Ledger', gl ? 'Through ' + esc(day(gl.period_end).replace(/, \d{4}$/, '')) : 'None yet', gl ? `monthly GL · ${glMonths} of 12 months` : (c.finance ? link('settings/uploads', 'upload the month-end general ledger export') : ''), { area: 'track', ic: 'book', viz: gl ? MINI.months(glMonths) : '' }),
       nextClose: () => { if (!gl) return ''; const d0 = new Date(gl.period_end + 'T12:00:00'), nx = new Date(d0.getFullYear(), d0.getMonth() + 2, 0); return tile('Next month-end', esc(nx.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })), link('settings/uploads', 'upload when it closes'), { area: 'track', ic: 'clock' }); },
       register: () => tile('Check register', regOpen.length ? `${regOpen.length} open` : 'All answered', link('track/registers', regOpen.length ? 'answer questions' : 'open'), { area: 'track', ic: 'book' }),
@@ -1347,6 +1347,15 @@
     return `<div class="scroll"><svg class="yrtimeline" viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${Math.min(W, 900)}px" role="img" aria-label="Each initiative by year: when it was planned, when the capital funds can pay for it, and the year it is needed by">${grid}${head}${rows}</svg></div>
       <p class="small legend"><span><i style="background:#2F6B4F"></i>On time</span><span><i style="background:#B54708"></i>Waits (still by its needed-by year)</span><span><i style="background:#B42318"></i>Short that year</span><span><i style="background:#8A948F"></i>Campaign or boosters</span><span>○ planned year</span><span>│ needed by</span></p>`;
   }
+  /* Iowa fund rules: charges in a scenario that the law doesn't allow, or that need the business office to confirm */
+  function fundRulesNotice(inp) {
+    const issues = HGEngine.checkLegal(inp.projects, inp.levers);
+    if (!issues.length) return '';
+    const no = issues.filter((x) => x.level === 'no'), chk = issues.filter((x) => x.level !== 'no');
+    const li = (x) => `<li>${esc(x.name || 'An initiative')}${x.what === 'yearly' ? ' (yearly cost)' : ''}: ${esc(x.text)}</li>`;
+    return `${no.length ? `<div class="notice error" data-fund-rules><b>Fund rules: ${no.length} charge${no.length === 1 ? '' : 's'} the law doesn’t allow.</b> The plan still counts ${no.length === 1 ? 'it' : 'them'}, so the money shown may not really be available. Change the fund in the initiative’s editor.<ul>${no.slice(0, 8).map(li).join('')}</ul>${no.length > 8 ? `<p class="small">and ${no.length - 8} more.</p>` : ''}</div>` : ''}
+      ${chk.length ? `<details class="fold" data-fund-rules-check><summary>${chk.length} charge${chk.length === 1 ? '' : 's'} to confirm with the business office</summary><ul class="small">${chk.slice(0, 12).map(li).join('')}</ul></details>` : ''}`;
+  }
   async function vRanking(c) {
     const rows = await loadCapitalRows(c.district);
     RK.rows = rows;
@@ -1365,7 +1374,7 @@
       : `<b>The money runs out at #${k.line + 1}.</b> The first ${k.line} initiative${k.line === 1 ? '' : 's'} (${fmtK(k.aboveCost)}) fit within SAVE, PPEL, V-PPEL and grants; ${k.items.length - k.line} fall below the line.`;
     { const hv = location.hash.replace(/^#\/?/, '').split('/')[4]; RK.view = ['list', 'years', 'fit', 'goal'].includes(hv) ? hv : 'list'; }
     const useful = SG.suggestions.filter((g) => g.funds.length || g.gapChange < -0.5);
-    const tabs = rankTabs(c, k, useful.length);
+    const tabs = rankTabs(c, k, useful.length) + fundRulesNotice(HGCapital.buildInputs(rows, RK.sid));
     if (RK.view === 'years') return tabs + rankYearsHtml(c, rows, sc, k);
     const tierSel = (x) => c.plan ? `<select data-rank-tier="${esc(x.id)}" aria-label="Priority for ${esc(x.name)}">${HGRanking.TIERS.map((t) => `<option value="${t}" ${x.tier === t ? 'selected' : ''}>${TN[t]}</option>`).join('')}</select>${x.suggested ? '<br><span class="small muted">from the old High/Med/Low</span>' : ''}`
       : `${TN[x.tier]}${x.suggested ? ' <span class="small muted">(suggested)</span>' : ''}`;
@@ -1404,7 +1413,7 @@
         <p class="small muted">Moving the lower-ranked item to a later year, or to another fund, usually fixes this.</p></div>` : ''}`;
     })();
     const goalCard = `<div class="card" data-goal><h3>What would it take?</h3>
-        <p class="small muted">Pick an initiative and the year it has to be done by. HighGround looks for the smallest change that funds it: ranking it higher, or moving one or two others, never past the year they’re needed by.</p>
+        <p class="small muted">Pick an initiative and the year it has to be done by. HighGround looks for a small change that funds it: ranking it higher, or moving one or two others a few years, never past the year they’re needed by. It tries those moves only, so other changes may also work.</p>
         <div class="inline-form"><label class="field">Initiative<select data-goal-id>${k.items.filter((x) => x.project).map((x) => `<option value="${esc(x.id)}" ${!x.above && !RK.goalId ? (RK.goalId = x.id, 'selected') : RK.goalId === x.id ? 'selected' : ''}>#${x.position} ${esc(x.name)}${x.above ? '' : ' (below the line)'}</option>`).join('')}</select></label>
           <label class="field">Done by<select data-goal-fy><option value="">As planned</option>${k.cfg.years.map((fy) => `<option value="${fy}">FY${fy}</option>`).join('')}</select></label>
           <button type="button" class="btn primary" data-action="goalFind">Find a way</button></div>
@@ -1669,7 +1678,7 @@
     const gfr = gfRun(b.rows, sc.id), gy = gfr ? gfr.R.years : null;
     setLead(`${r.gap > 0.5 ? `The plan is <b>${fmtK(r.gap)}</b> short` : 'The capital plan is fully paid for'} over FY${cfg.start}–FY${cfg.start + cfg.n - 1}.`
       + (lowest ? ` ${esc(FUND_NAMES[lowest.k])} is at its lowest, ${fmtK(lowest.p.low)}, in FY${lowest.p.lowFY}.` : '')
-      + (gy ? ` General Fund solvency goes from ${pct1(gy[0].solvency)} to ${pct1(gy[gy.length - 1].solvency)} over five years.` : ''));
+      + (gy ? ` General Fund solvency goes from ${pct1(gy[0].solvency)} to ${pct1(gy[gy.length - 1].solvency)} over five years (likely range ${pct1(gy[gy.length - 1].solvencyLow)} to ${pct1(gy[gy.length - 1].solvencyHigh)}).` : ''));
     const detail = await vFunds(c);
     return `
       <p class="small muted">From <b>${esc(sc.name)}</b>${sc.is_board_version ? ', the board version' : ''}, FY${cfg.start}–FY${cfg.start + cfg.n - 1}. <a href="#/d/${enc(c.district.slug)}/money/capital">Open the capital plan</a></p>
@@ -1695,7 +1704,7 @@
       ${(() => { const g = gfRun(b.rows, sc.id); if (!g) return `<div class="card"><h3>General Fund</h3><p class="muted">Not set up yet. ${c.finance ? `<a href="#/d/${enc(c.district.slug)}/money/general">Enter the starting figures</a>.` : ''}</p></div>`;
         const ys = g.R.years, a1 = ys[0], z = ys[ys.length - 1], low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]);
         return `<div class="card"><h3>General Fund</h3><div class="grid tiles">
-          <div class="card tile-card"><div class="small muted">Solvency ratio</div><div class="stat">${pct1(a1.solvency)} → ${pct1(z.solvency)}</div><div class="small muted">lowest ${pct1(low.solvency)} in FY${low.fy}</div></div>
+          <div class="card tile-card"><div class="small muted">Solvency ratio</div><div class="stat">${pct1(a1.solvency)} → ${pct1(z.solvency)}</div><div class="small muted">lowest ${pct1(low.solvency)} in FY${low.fy}; FY${z.fy} likely ${pct1(z.solvencyLow)}–${pct1(z.solvencyHigh)}</div></div>
           <div class="card tile-card"><div class="small muted">Unspent balance ratio</div><div class="stat">${pct1(a1.unspentRatio)} → ${pct1(z.unspentRatio)}</div></div>
           <div class="card tile-card"><div class="small muted">Ending fund balance, FY${z.fy}</div><div class="stat">${fmtK(z.balance)}</div></div>
           <div class="card tile-card"><div class="small muted">Staff share of spending</div><div class="stat">${pct1(a1.staffShare)}</div></div></div>
@@ -1730,17 +1739,23 @@
   }
   const pct1 = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
   function gfChart(R) {
-    const ph = narrow(), fs = ph ? 13 : 11, ys = R.years, W = ph ? 400 : 1000, H = ph ? 230 : 240, pad = ph ? 36 : 40, n = ys.length;
-    const vals = ys.flatMap((y) => [y.solvency, y.unspentRatio]).filter((v) => v != null);
-    const lo = Math.min(0, ...vals), hi = Math.max(0.2, ...vals), X = (i) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2), Y = (v) => H - 24 - ((v - lo) / (hi - lo)) * (H - 40);
+    const ph = narrow(), fs = ph ? 13 : 11, ys = R.years, W = ph ? 400 : 1000, pad = ph ? 36 : 40, n = ys.length;
+    const vals = ys.flatMap((y) => [y.solvency, y.unspentRatio, y.solvencyLow, y.solvencyHigh]).filter((v) => v != null);
+    const lo = Math.min(0, ...vals), hi = Math.max(0.2, ...vals), H = (ph ? 230 : 240) + (hi - lo > 0.3 ? 100 : 0), X = (i) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2), Y = (v) => H - 24 - ((v - lo) / (hi - lo)) * (H - 40);
     const line = (k, color) => `<polyline fill="none" stroke="${color}" stroke-width="2.5" points="${ys.map((y, i) => `${X(i).toFixed(1)},${Y(y[k] || 0).toFixed(1)}`).join(' ')}"/>${ys.map((y, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(y[k] || 0).toFixed(1)}" r="3" fill="${color}"/>`).join('')}`;
     const band = `<rect x="${pad}" width="${W - pad * 2}" y="${Y(0.10).toFixed(1)}" height="${(Y(0.05) - Y(0.10)).toFixed(1)}" fill="#E6F0EA"><title>Solvency ratio target: 5–10%</title></rect>`
       + `<text x="${pad + 8}" y="${(Y(0.05) - 6).toFixed(1)}" font-size="${fs}" fill="#2F6B4F" opacity=".85">Solvency target 5–10%</text>`;
-    const grid = [0, 0.05, 0.10, 0.15, 0.20].filter((v) => v >= lo && v <= hi).map((v) => `<line x1="${pad}" x2="${W - pad}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${pad - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="${fs}" text-anchor="end" fill="#5A6660">${(v * 100).toFixed(0)}%</text>`).join('');
+    /* gridlines every 5 points, or every 10 when the likely range makes the chart tall */
+    const step = hi - lo > 0.3 ? 0.10 : 0.05, ticks = [];
+    for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) ticks.push(Math.round(v * 100) / 100);
+    const grid = ticks.map((v) => `<line x1="${pad}" x2="${W - pad}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${pad - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="${fs}" text-anchor="end" fill="#5A6660">${(v * 100).toFixed(0)}%</text>`).join('');
     const zero = lo < 0 ? `<line x1="${pad}" x2="${W - pad}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#B42318"/>` : '';
-    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Solvency ratio and unspent balance ratio by year">${band}${grid}${zero}${line('solvency', '#1E3A2F')}${line('unspentRatio', '#C9A24A')}
+    /* the likely range around the solvency forecast: how far forecasts like this landed from actual results (history replay) */
+    const rng = ys.some((y) => y.solvencyHigh != null && y.solvencyHigh !== y.solvency)
+      ? `<polygon points="${ys.map((y, i) => `${X(i).toFixed(1)},${Y(y.solvencyHigh == null ? y.solvency || 0 : y.solvencyHigh).toFixed(1)}`).concat(ys.map((y, i) => `${X(i).toFixed(1)},${Y(y.solvencyLow == null ? y.solvency || 0 : y.solvencyLow).toFixed(1)}`).reverse()).join(' ')}" fill="#1E3A2F" fill-opacity=".10"><title>Likely range of the solvency ratio</title></polygon>` : '';
+    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Solvency ratio, with its likely range, and unspent balance ratio by year">${band}${grid}${zero}${rng}${line('solvency', '#1E3A2F')}${line('unspentRatio', '#C9A24A')}
       ${ys.map((y, i) => (ph && n > 5 && i % 2 && i !== n - 1 ? '' : `<text x="${X(i).toFixed(1)}" y="${H - 6}" font-size="${fs}" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>`)).join('')}</svg></div>
-      <p class="small"><span style="color:#1E3A2F">●</span> Solvency ratio &nbsp; <span style="color:#C9A24A">●</span> Unspent balance ratio &nbsp; <span class="muted"><span style="display:inline-block;width:12px;height:9px;background:#E6F0EA;border:1px solid #CFE0D5;vertical-align:-1px"></span> the 5–10% solvency target many districts aim for (solvency line only)</span></p>`;
+      <p class="small"><span style="color:#1E3A2F">●</span> Solvency ratio &nbsp; <span style="display:inline-block;width:12px;height:9px;background:rgba(30,58,47,.12);vertical-align:-1px"></span> its likely range ${def('likely_range')} &nbsp; <span style="color:#C9A24A">●</span> Unspent balance ratio &nbsp; <span class="muted"><span style="display:inline-block;width:12px;height:9px;background:#E6F0EA;border:1px solid #CFE0D5;vertical-align:-1px"></span> the 5–10% solvency target many districts aim for (solvency line only)</span></p>`;
   }
   function gfResultsHtml(run) {
     const R = run.R, ys = R.years, first = ys[0], last = ys[ys.length - 1], f = HGReport.fmt, FL = R.flags;
@@ -1748,21 +1763,23 @@
     const ls = lowest('solvency'), lu = lowest('unspentRatio');
     const flags = [
       FL.negativeUnspent.length ? `<li class="gaptext">Spending passes spending authority in FY${FL.negativeUnspent.join(', FY')}. Iowa law requires a corrective plan; two years in a row brings state review.</li>` : '',
-      FL.lowSolvency.length ? `<li class="gaptext">Solvency falls below 5% in FY${FL.lowSolvency.join(', FY')}.</li>` : '',
+      FL.lowSolvencyLikely && FL.lowSolvencyLikely.length ? `<li class="gaptext">Solvency is likely to fall below 5% in FY${FL.lowSolvencyLikely.join(', FY')}: below it even at the top of the likely range.</li>`
+        : FL.lowSolvency.length ? `<li class="gaptext">Solvency falls below 5% in FY${FL.lowSolvency.join(', FY')} in this forecast; the likely range reaches back above 5%, so check the assumptions before acting on it.</li>` : '',
+      !FL.lowSolvency.length && FL.lowSolvencyPossible && FL.lowSolvencyPossible.length ? `<li>Solvency could fall below 5% by FY${FL.lowSolvencyPossible[0]} at the bottom of the likely range ${def('likely_range')}.</li>` : '',
       FL.lowUnspent.length && !FL.negativeUnspent.length ? `<li>The unspent balance ratio falls below 5% in FY${FL.lowUnspent.join(', FY')}.</li>` : '',
       FL.deficit.length ? `<li>Spending exceeds revenue in ${FL.deficit.length === ys.length ? 'every year' : 'FY' + FL.deficit.join(', FY')}.</li>` : '',
       FL.uabCap && FL.uabCap.length ? `<li>The 35% cap on carrying unspent balance forward (SF 2472) holds some back in FY${FL.uabCap.join(', FY')}: ${f(ys.filter((y) => y.uabLost > 0.5).reduce((t, y) => t + y.uabLost, 0))} doesn’t carry into spending authority. The School Budget Review Committee can approve more.</li>` : '',
-      FL.guarantee.length ? `<li>The 101% budget guarantee applies in FY${FL.guarantee.join(', FY')} (enrollment falls faster than funding grows).</li>` : '',
+      FL.guarantee.length ? `<li>The 101% budget guarantee applies in FY${FL.guarantee.join(', FY')} (enrollment falls faster than funding grows)${FL.guaranteeStatePaid && FL.guaranteeStatePaid.length ? `; for FY${FL.guaranteeStatePaid.join(', FY')} the state pays it from foundation aid instead of property tax (SF 2201)` : ''}. The board has to choose to use it each year, by May 15.</li>` : '',
       (run.already || []).length ? `<li>${run.already.map(esc).join(', ')}: ${run.already.length === 1 ? 'its' : 'their'} yearly General Fund cost started by FY${ys[0].fy} and the work is underway or done, so it may already be in the staff groups or other spending. If so, it’s counted twice: end the yearly cost before FY${ys[0].fy}, or take it out of the starting figures.</li>` : '',
     ].filter(Boolean);
     const extraYears = ys.filter((y) => y.extra > 0.5);
     const y2 = ys[1];
-    const leadTxt = `Solvency ${last.solvency < first.solvency ? 'slides' : 'rises'} from <b>${pct1(first.solvency)}</b> to <b>${pct1(last.solvency)}</b> over five years`
+    const leadTxt = `Solvency ${last.solvency < first.solvency ? 'slides' : 'rises'} from <b>${pct1(first.solvency)}</b> to <b>${pct1(last.solvency)}</b> over five years (likely range ${pct1(last.solvencyLow)} to ${pct1(last.solvencyHigh)})`
       + (FL.negativeUnspent.length ? `, and spending passes spending authority in FY${FL.negativeUnspent[0]}.` : FL.deficit.length === ys.length ? ', with spending above revenue every year.' : '.')
       + (y2 && y2.affordableSettlement != null ? ` Next year’s new money covers about a ${(y2.affordableSettlement * 100).toFixed(1)}% total package increase.` : '');
     return `<p class="lead">${leadTxt}</p>
       <div class="grid tiles">
-        <div class="card tile-card"><div class="small muted">Solvency ratio ${def('solvency')}</div><div class="stat">${pct1(first.solvency)} → ${pct1(last.solvency)}</div><div class="small muted">FY${first.fy} to FY${last.fy}; lowest ${pct1(ls.solvency)} in FY${ls.fy}</div></div>
+        <div class="card tile-card"><div class="small muted">Solvency ratio ${def('solvency')}</div><div class="stat">${pct1(first.solvency)} → ${pct1(last.solvency)}</div><div class="small muted">FY${first.fy} to FY${last.fy}; lowest ${pct1(ls.solvency)} in FY${ls.fy}. FY${last.fy} likely ${pct1(last.solvencyLow)}–${pct1(last.solvencyHigh)} ${def('likely_range')}</div></div>
         <div class="card tile-card"><div class="small muted">Unspent balance ratio ${def('unspent')}</div><div class="stat">${pct1(first.unspentRatio)} → ${pct1(last.unspentRatio)}</div><div class="small muted">lowest ${pct1(lu.unspentRatio)} in FY${lu.fy}</div></div>
         <div class="card tile-card"><div class="small muted">Ending fund balance, FY${last.fy}</div><div class="stat">${f(last.balance)}</div><div class="small muted">unassigned and assigned</div></div>
         <div class="card tile-card"><div class="small muted">Revenue vs. spending, FY${last.fy}</div><div class="stat">${f(last.net)}</div><div class="small muted">${last.net < 0 ? 'spending more than revenue' : 'revenue covers spending'}</div></div>
@@ -1777,12 +1794,12 @@
         ${[['Enrollment', (y) => Math.round(y.enrollment).toLocaleString('en-US')], ['District cost per pupil', (y) => '$' + Math.round(y.dcpp).toLocaleString('en-US')],
           ['Regular program', (y) => f(y.regular) + (y.guarantee > 0.5 ? '*' : '')], ['Other state formula funding', (y) => f(y.other)], ['Miscellaneous income', (y) => f(y.misc)], ['<b>Revenue</b>', (y) => `<b>${f(y.revenue)}</b>`],
           ['Staff (salaries, benefits, health)', (y) => f(y.staff)], ['Other spending', (y) => f(y.nonstaff)], ...(extraYears.length ? [['The plan’s yearly costs', (y) => (y.extra ? f(y.extra) : '')]] : []), ['<b>Spending</b>', (y) => `<b>${f(y.spending)}</b>`],
-          ['Revenue less spending', (y) => `<span class="${y.net < 0 ? 'gaptext' : ''}">${f(y.net)}</span>`], ['Ending fund balance', (y) => f(y.balance)], ['Solvency ratio', (y) => pct1(y.solvency)],
+          ['Revenue less spending', (y) => `<span class="${y.net < 0 ? 'gaptext' : ''}">${f(y.net)}</span>`], ['Ending fund balance', (y) => f(y.balance)], ['Solvency ratio', (y) => pct1(y.solvency)], ['Solvency, likely range', (y) => (y.solvencyLow === y.solvency ? '' : `<span class="small muted">${pct1(y.solvencyLow)} to ${pct1(y.solvencyHigh)}</span>`)],
           ['Unspent balance carried in (35% cap)', (y) => f(y.carried) + (y.uabLost > 0.5 ? ` <span class="small gaptext">−${f(y.uabLost)}</span>` : '')], ['Spending authority', (y) => f(y.authority)], ['Unspent balance', (y) => `<span class="${y.unspent < 0 ? 'gaptext' : ''}">${f(y.unspent)}</span>`], ['Unspent balance ratio', (y) => pct1(y.unspentRatio)], ['Staff share of spending', (y) => pct1(y.staffShare)],
         ].map(([l, fn]) => `<tr><td>${l}</td>${ys.map((y) => `<td class="num">${fn(y)}</td>`).join('')}</tr>`).join('')}
       </tbody></table></div>
-      ${FL.guarantee.length ? `<p class="small muted">* includes the 101% budget guarantee.${def('guarantee')}</p>` : ''}
-      <p class="small muted" style="margin-top:6px">Planning estimates, not the state’s official calculation. FY2027 uses the enacted 2% state supplemental aid ($8,148 state cost per pupil, SF 2201). Solvency = unassigned and assigned balance ÷ revenue less AEA flowthrough. Spending authority = regular program and other formula funding + miscellaneous income + last year’s unspent balance, up to 35% of the authorized budget two years earlier (SF 2472, from FY2027; years before FY${ys[0].fy} are estimated). Figures checked ${esc(day(HGGF.RULES.checked))}.</p></div></details>`;
+      ${FL.guarantee.length ? `<p class="small muted">* includes the 101% budget guarantee (101% of last year’s formula amount, not counting last year’s own guarantee).${def('guarantee')}</p>` : ''}
+      <p class="small muted" style="margin-top:6px">Planning estimates, not the state’s official calculation. FY2027 uses the enacted state supplemental aid ($160, 2%, to $8,148 state cost per pupil, SF 2201); state aid adds the same dollars per pupil to every district. From FY2028, enrollment for the formula averages the October and January counts. Solvency = unassigned and assigned balance ÷ revenue less AEA flowthrough. Spending authority = the lesser of the certified budget and regular program and other formula funding + miscellaneous income + last year’s unspent balance, up to 35% of authorized expenditures two years earlier (SF 2472, from FY2027; years before FY${ys[0].fy} are estimated). The likely range is how far forecasts like this landed from what 325 Iowa districts actually reported. Figures checked ${esc(day(HGGF.RULES.checked))}.</p></div></details>`;
   }
   async function vGeneralFund(c) {
     const [rows, peers] = await Promise.all([loadCapitalRows(c.district), peersCard(c, 'general')]);
@@ -1842,7 +1859,11 @@
         <label class="row small"><input type="checkbox" name="fte_follow_enrollment" ${g.fte_follow_enrollment ? 'checked' : ''}> Staff numbers follow enrollment</label></div>
       <div data-gf-roster-note></div>
       <div class="fgrid">${f('nonstaff', 'Other spending, $ a year', money2(g.nonstaff), 'Supplies, services, utilities, transportation and the rest')}${f('turnover_savings', 'Turnover savings, % a year', pc(g.turnover_savings), 'Experienced staff replaced by newer staff on lower pay')}</div>
-      <h3>Balances</h3><div class="fgrid">${f('fund_balance', 'Unassigned and assigned fund balance, $', money2(g.fund_balance), 'At the start of the plan')}${f('unspent', 'Unspent balance (spending authority), $', money2(g.unspent), 'From the Department of Management’s report')}</div>
+      <h3>Balances</h3><div class="fgrid">${f('fund_balance', 'Unassigned and assigned fund balance, $', money2(g.fund_balance), 'At the start of the plan')}${f('unspent', 'Unspent balance (spending authority), $', money2(g.unspent), 'From the Department of Management’s report')}
+        ${f('certified_budget', 'Certified General Fund budget, $ (optional)', money2(g.certified_budget), 'Spending authority is the lesser of this and the authorized budget')}</div>
+      <h3>State formula rules</h3><div class="fgrid">
+        <label class="field">Budget guarantee<select name="guarantee_optin"><option value="yes" ${g.guarantee_optin !== false ? 'selected' : ''}>The board uses it when enrollment falls</option><option value="no" ${g.guarantee_optin === false ? 'selected' : ''}>The board doesn’t use it</option></select><span class="hint">101% of last year’s regular program (Iowa Code 257.14); the board decides each year by May 15</span></label>
+        ${f('jan_change', 'January count vs October, % (from FY2028)', pc(g.jan_change || 0), 'From FY2028 the formula averages the October and January counts; 0 if you expect no change')}</div>
       <h3>Default assumptions</h3><p class="small muted">Used when a scenario’s assumption set leaves them blank.</p><div class="fgrid">
         ${f('a_ssa', 'State aid growth', pc(A.ssa))}${f('a_enroll', 'Enrollment change', pc(A.enroll))}${f('a_settle', 'Total package increase', pc(A.settle))}${f('a_health', 'Health insurance growth', pc(A.health), 'Your carrier’s renewal is the best guide; school renewals have run 7–10% lately')}${f('a_inflation', 'Other spending growth', pc(A.inflation))}</div>
       <div class="notice error" data-form-errors hidden></div>
@@ -1998,6 +2019,7 @@
       .filter((x) => x.fte || x.salary);
     const g = { enrollment: n(f.enrollment), dcpp: n(f.dcpp), other_formula: n(f.other_formula), misc_income: n(f.misc_income), misc_growth: p(f.misc_growth), aea_flowthrough: n(f.aea_flowthrough),
       nonstaff: n(f.nonstaff), turnover_savings: p(f.turnover_savings), fund_balance: n(f.fund_balance), unspent: n(f.unspent), fte_follow_enrollment: !!f.fte_follow_enrollment, staff,
+      certified_budget: f.certified_budget == null ? null : n(f.certified_budget), guarantee_optin: f.guarantee_optin !== 'no', jan_change: f.jan_change == null ? 0 : (p(f.jan_change) || 0),
       assume: { ssa: p(f.a_ssa), enroll: p(f.a_enroll), settle: p(f.a_settle), health: p(f.a_health), inflation: p(f.a_inflation) } };
     if (!(g.enrollment > 0)) errs.push('Enter certified enrollment.');
     if (!(g.dcpp > 0)) errs.push('Enter the district cost per pupil.');
@@ -2069,7 +2091,7 @@
       <p class="small muted">Year by year from <b>${esc(sc.name)}</b>${sc.is_board_version ? ', the board version' : ''}. <a href="#/d/${enc(c.district.slug)}/money/capital">Change it on the capital plan</a></p>
       ${funds.map(fundCard).join('')}
       <div class="card"><h3>Borrowing room</h3>
-        <p>SAVE revenue bonds: about <b>${fmtK(cap.pv)}</b>, based on the lowest year (FY${cap.fy}), 1.20 coverage, 20 years at 4.5%.</p>
+        <p>SAVE revenue bonds: about <b>${fmtK(cap.pv)}</b>, based on the lowest year (FY${cap.fy}): SAVE after ongoing commitments, covering all SAVE debt payments 1.20 times, 20 years at 4.5%. Coverage is set by the bond market, not by law; ask the district’s financial advisor.</p>
         <p>${go != null ? `General-obligation bonds: about <b>${fmtK(go)}</b> left under the debt limit (5% of actual valuation, less GO debt outstanding). A GO bond also needs 60% of voters.` : 'General-obligation limit: add the district’s actual (100%) valuation in Starting numbers to see it.'}</p></div>
       <p class="small muted">Fund rules are a plain-language guide, not legal advice. Confirm a specific use with the district’s attorney or the Iowa Department of Education.</p>`;
   }
@@ -2157,6 +2179,7 @@
       </div>
       ${CAP.sc.is_locked && (c.plan || c.finance) ? `<div class="notice">This scenario is locked, so it can’t be changed${c.admin ? '. Unlock it to edit.' : '. A district admin can unlock it.'} Copy it to try changes.</div>` : ''}
       ${CAP.inputs.notes.length ? `<ul class="fineprint">${CAP.inputs.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
+      ${fundRulesNotice(CAP.inputs)}
       <p class="lead" id="cap-lead">${capLeadHtml()}</p>
       <div id="cap-results">${capResultsHtml()}</div>
       ${c.plan && capCompute().gap > 0.5 ? rankCallout(c.district.slug, rows, CAP.scenarioId) : ''}
@@ -2852,6 +2875,12 @@
       if (last != null && last < first) errs.push(`Yearly cost ${k + 1}: it ends before it starts.`);
       return { kind: g('y_kind'), fund: g('y_fund'), amount, first, last, grows: g('y_grows') };
     });
+    /* Iowa fund rules: SAVE, PPEL and V-PPEL can't pay salaries, benefits, supplies or activities, or for staff, programs or curriculum */
+    const type = v('type') || 'capital';
+    phases.forEach((ph, k) => [...new Set(ph.funding.map((f) => f.b).concat(ph.options || []))].forEach((b) => {
+      const g = HGEngine.legality(b, { type }); if (g.level === 'no') errs.push(`Phase ${k + 1}: ${g.text} Choose another fund, or change the type if this is a building or equipment project.`);
+    }));
+    yearly.forEach((y, k) => { const g = HGEngine.legality(y.fund, { kind: y.kind }); if (g.level === 'no') errs.push(`Yearly cost ${k + 1}: ${g.text} Choose the General Fund, grants or another source.`); });
     if (ED.sid && form.dataset.id && inScen(ED.rows, ED.sid, form.dataset.id) && !phases.length && !yearly.length) errs.push('Add a one-time phase, a yearly cost, or both, or choose “Details only”.');
     if (phases.length > HGUploads.MAX_PH) errs.push(`An initiative can have at most ${HGUploads.MAX_PH} phases.`);
     const extra = {};
@@ -3597,7 +3626,7 @@
       <div class="card"><h3>What changed${ch.first ? '' : ` since ${esc(day(ch.since))}`}</h3><ul>${ch.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
       <div class="card"><h3>The capital plan</h3>
         <p>${esc(P.scenario.name)}, FY${P.plan.start}–FY${P.plan.start + P.plan.years - 1}: <b>${f(P.plan.need)}</b> of capital need; levies and grants pay <b>${f(P.plan.levyFunded)}</b>${P.plan.financed > 0.5 ? `, borrowing or gifts <b>${f(P.plan.financed)}</b>` : ''}; <b class="${P.plan.gap > 0.5 ? 'gaptext' : ''}">${f(P.plan.gap)}</b> left to close.</p>
-        ${P.gf ? `<p class="small"><b>General Fund:</b> solvency ${(P.gf.solvency * 100).toFixed(1)}% this year, lowest ${(P.gf.lowest * 100).toFixed(1)}% in FY${P.gf.lowestFY} on the five-year forecast; unspent balance ratio ${(P.gf.unspentRatio * 100).toFixed(1)}%.${P.gf.flags && P.gf.flags.negativeUnspent.length ? ` <span class="gaptext">Spending passes spending authority in FY${P.gf.flags.negativeUnspent.join(', FY')}.</span>` : ''}</p>` : ''}
+        ${P.gf ? `<p class="small"><b>General Fund:</b> solvency ${(P.gf.solvency * 100).toFixed(1)}% this year, lowest ${(P.gf.lowest * 100).toFixed(1)}% in FY${P.gf.lowestFY} on the five-year forecast${P.gf.lowestLow != null ? ` (likely range ${(P.gf.lowestLow * 100).toFixed(1)}% to ${(P.gf.lowestHigh * 100).toFixed(1)}%)` : ''}; unspent balance ratio ${(P.gf.unspentRatio * 100).toFixed(1)}%.${P.gf.flags && P.gf.flags.negativeUnspent.length ? ` <span class="gaptext">Spending passes spending authority in FY${P.gf.flags.negativeUnspent.join(', FY')}.</span>` : ''}</p>` : ''}
         ${P.tax ? `<p class="small">Added property tax at its highest (FY${P.tax.fy}): about <b>$${Math.round(P.tax.home).toLocaleString('en-US')} a year</b> for a $${Math.round(P.tax.homeValue).toLocaleString('en-US')} home.</p>` : ''}</div>
       ${(P.budget || []).length ? `<div class="card"><h3>Funds</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Balance</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">On order ${def('encumbered')}</th><th class="num">Spending forecast</th></tr></thead><tbody>
         ${P.budget.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${P.balances[x.key] ? f(P.balances[x.key].amount) : ''}</td><td class="num">${f(x.revenue.budget)}</td><td class="num">${f(x.revenue.actual)}</td><td class="num">${f(x.spending.budget)}</td><td class="num">${f(x.spending.actual)}</td><td class="num">${f(x.spending.encumbered)}</td><td class="num">${f(x.spending.forecast)}</td></tr>`).join('')}
@@ -3622,7 +3651,7 @@
     const batch = batches.find((b) => b.period_end <= date) || null;
     const amounts = batch ? await HG.db.selectAll('gl_amount', `select=account_id,batch_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${batch.id}`) : [];
     const g = gfRun(rows, board.id), ys = g ? g.R.years : null;
-    const gf = ys ? (() => { const low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]); return { solvency: ys[0].solvency, lowest: low.solvency, lowestFY: low.fy, unspentRatio: ys[0].unspentRatio, endBalance: ys[ys.length - 1].balance, endFY: ys[ys.length - 1].fy, flags: g.R.flags }; })() : null;
+    const gf = ys ? (() => { const low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]); return { solvency: ys[0].solvency, lowest: low.solvency, lowestFY: low.fy, lowestLow: low.solvencyLow, lowestHigh: low.solvencyHigh, unspentRatio: ys[0].unspentRatio, endBalance: ys[ys.length - 1].balance, endFY: ys[ys.length - 1].fy, flags: g.R.flags }; })() : null;
     const payload = HGReport.build({ district: d, rows, periodEnd: date, batch, accounts, amounts, batches: batch ? [batch] : [], balances, gf });
     const id = crypto.randomUUID();
     const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -4061,6 +4090,9 @@
     gl: ['Month-end general ledger (GL) export', 'The report your finance system produces when a month is closed: every account’s budget, activity for the year to date, encumbrances and ending balance. HighGround reads it for fund balances, budget against actual and spending on initiatives. It is not the check register: that is the list of individual bills paid, which HighGround uses only to raise questions about payments.'],
     encumbered: ['On order', 'Purchase orders and contracts already signed but not paid yet. Accounting reports call this “encumbered”.'],
     solvency: ['Solvency ratio', 'The General Fund’s cushion: unassigned and assigned fund balance divided by General Fund revenue (less AEA flowthrough). Many districts aim for 5–10%.'],
+    likely_range: ['Likely range', 'How far off a forecast like this has been. HighGround ran its own forecast for 325 Iowa districts from their FY2020 and FY2021 audited figures and compared it with what they later reported to the state. Eight in ten landed inside the range: about ±6 points a year out, widening to about ±25 points five years out. The range is wide because each year’s small misses in revenue and spending add up in the balance. Use the middle line to compare choices; use the range before telling the board a year’s number.'],
+    debt_timing: ['This year’s payment', 'Only matters when the balances are from partway through the year. “Still to pay” takes this year’s whole payment off the fund; “Already paid” takes none of it (the balance already reflects it); “Spread over the year” takes the share of the year that’s left.'],
+    fund_rules: ['Fund rules', 'Iowa law limits what each capital fund can pay for. PPEL and V-PPEL can’t pay salaries, travel, supplies or routine maintenance (Iowa Code 298.3). SAVE is for school infrastructure, not personnel, and uses beyond tax relief must be covered by the district’s revenue purpose statement (Iowa Code 423F.3). HighGround refuses a fund the law doesn’t allow and lists charges to confirm. It’s a guide, not legal advice.'],
     authority: ['Spending authority', 'The most a district may spend from the General Fund in a year: formula funding, plus miscellaneous income, plus the unspent balance carried forward (capped, see Unspent balance).'],
     unspent: ['Unspent balance', 'Spending authority not used in a year. From FY2027 (SF 2472), only part of it carries into next year’s authority: the lesser of the unspent balance and 35% of the authorized budget from two years earlier (FY2025’s for FY2027). The School Budget Review Committee can approve more on request. The forecast applies this cap. Spending more than the authority requires a corrective plan; two years in a row brings state review.'],
     guarantee: ['Budget guarantee', 'Iowa’s budget adjustment (Iowa Code 257.14): regular program funding of at least 101% of the year before’s. It isn’t a one-time cushion: it’s available every year, so with several years of falling enrollment a district can be on it year after year, each year 1% above the last. The board adopts a resolution by May 15 to use it, and the extra is normally paid by local property taxes (for FY2027 the state paid it instead, under SF 2201).'],
@@ -4331,7 +4363,9 @@
       <td><select name="debt_fund" ${dis} aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}" ${x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
       <td><input name="debt_annual" inputmode="decimal" value="${esc(moneyIn(x.annual_payment))}" ${dis} aria-label="Payment per year"></td>
       <td><input name="debt_final" inputmode="numeric" value="${esc(x.final_fy || '')}" ${dis} aria-label="Final fiscal year" placeholder="2033"></td>
+      <td><select name="debt_timing" ${dis} aria-label="This year’s payment">${[['spread', 'Spread over the year'], ['after', 'Still to pay'], ['before', 'Already paid']].map(([k, v]) => `<option value="${k}" ${(x.first_year_timing || 'spread') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
       <td>${c.finance ? '<button type="button" class="btn small danger" data-action="removeDebtRow">Remove</button>' : ''}</td></tr>`;
+    SETUP_DEBT_TIMING.has = debts.some((x) => 'first_year_timing' in x);
     return `
       ${c.finance ? '' : '<div class="notice">Only a business manager or admin can change these numbers.</div>'}
       ${(() => { setTimeout(() => { const sf = document.querySelector('form[data-form=saveSetup]'); if (sf) renderSetupChecks(sf); }, 0); return ''; })()}
@@ -4414,7 +4448,7 @@
 
         <div class="card"><h3>Existing debt</h3>
           <p class="small muted">Payments already committed. SAVE and PPEL payments come out of those funds; debt service levy payments don’t affect the capital plan.</p>
-          <div class="scroll"><table class="data debt"><thead><tr><th>Obligation</th><th>Paid from</th><th>Payment per year, $</th><th>Final fiscal year</th><th></th></tr></thead>
+          <div class="scroll"><table class="data debt"><thead><tr><th>Obligation</th><th>Paid from</th><th>Payment per year, $</th><th>Final fiscal year</th><th>This year’s payment ${def('debt_timing')}</th><th></th></tr></thead>
           <tbody data-debt-body>${debts.map(debtRow).join('')}</tbody></table></div>
           ${c.finance ? '<div style="margin-top:10px"><button type="button" class="btn small" data-action="addDebtRow">Add an obligation</button></div>' : ''}
           <template data-debt-template>${debtRow({ fund: 'save' })}</template></div>
@@ -4473,10 +4507,12 @@
       if (!name) errs.push(`Debt row ${i + 1}: give it a name.`);
       if (annual === null || isNaN(annual) || annual < 0) errs.push(`Debt row ${i + 1}: enter the payment per year.`);
       if (fy === null || isNaN(fy) || !Number.isInteger(fy) || fy < 2000 || fy > 2100) errs.push(`Debt row ${i + 1}: enter the final fiscal year, like 2033.`);
-      return { id: tr.dataset.id || null, name, fund: g('debt_fund'), annual_payment: annual, final_fy: fy };
+      const tm = tr.querySelector('[name=debt_timing]');
+      return { id: tr.dataset.id || null, name, fund: g('debt_fund'), annual_payment: annual, final_fy: fy, timing: tm ? tm.value : 'spread' };
     }).filter(Boolean);
     return { errs, asOf, settings, balances, debts };
   }
+  const SETUP_DEBT_TIMING = { has: false };
   async function saveSetup(form) {
     const box = form.querySelector('[data-setup-errors]');
     const r = readSetup(form);
@@ -4498,7 +4534,9 @@
     const keep = new Set(r.debts.filter((x) => x.id).map((x) => x.id));
     for (const x of existing) if (!keep.has(x.id)) await HG.db.remove('debt_obligation', `id=eq.${enc(x.id)}`);
     for (const x of r.debts) {
-      const row = { name: x.name, fund: x.fund, annual_payment: x.annual_payment, final_fy: x.final_fy };
+      const row = { name: x.name, fund: x.fund, annual_payment: x.annual_payment, final_fy: x.final_fy,
+        // part 25 adds the column; an older database still saves (the choice is sent once it's there, or when it isn't the default)
+        ...(SETUP_DEBT_TIMING.has || (x.timing && x.timing !== 'spread') ? { first_year_timing: x.timing || 'spread' } : {}) };
       if (x.id) await HG.db.update('debt_obligation', `id=eq.${enc(x.id)}`, row);
       else await HG.db.insert('debt_obligation', Object.assign({ district_id: d }, row));
     }

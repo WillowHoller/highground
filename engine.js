@@ -22,10 +22,60 @@
   const BUCKET_ALIAS = { bondp: 'save' };
   const PRI_LIST = ['High', 'Med', 'Low', '10-yr'];
 
-  /* SF 2472 (2026): share of SAVE cut from school infrastructure. LSA final fiscal note (15 Jul 2026)
-     statewide reductions ÷ FY2026 statewide SAVE of $652.7M. Held at the FY2031 level afterwards. */
-  const SF2472_CUT = { 2027: 0.060, 2028: 0.090, 2029: 0.110, 2030: 0.162 };
-  const sfCut = (fy) => (fy < 2027 ? 0 : SF2472_CUT[fy] != null ? SF2472_CUT[fy] : 0.186);
+  /* SF 2472 (2026): share of SAVE cut from school infrastructure. LSA final fiscal note (FN 1605287, 15 Jul 2026), Fig. 7:
+     statewide reductions of $38.9M, $58.6M, $71.7M, $105.5M, $121.5M for FY2027–FY2031, each divided by that year's
+     projected current-law school-infrastructure SAVE: FY2026 $652.7M grown at the note's sales-tax growth of 2.0%, 2.9%,
+     2.9%, 3.2%, 3.5% (FY2027–FY2031). Held at the FY2031 level afterwards. (Rule G7, checked 10 Oct 2026; the earlier
+     version divided by a flat FY2026 base and overstated the cut.) */
+  const SF2472_BASE = 652.7, SF2472_GROWTH = { 2027: 0.020, 2028: 0.029, 2029: 0.029, 2030: 0.032, 2031: 0.035 };
+  const SF2472_DOLLARS = { 2027: 38.9, 2028: 58.6, 2029: 71.7, 2030: 105.5, 2031: 121.5 };
+  const SF2472_CUT = (() => { const o = {}; let base = SF2472_BASE; for (let fy = 2027; fy <= 2031; fy++) { base *= 1 + SF2472_GROWTH[fy]; o[fy] = Math.round(SF2472_DOLLARS[fy] / base * 10000) / 10000; } return o; })();
+  const sfCut = (fy) => (fy < 2027 ? 0 : SF2472_CUT[fy] != null ? SF2472_CUT[fy] : SF2472_CUT[2031]);
+
+  /* Which fund may pay for what (Iowa law). 'no' = not allowed: the editor refuses it and the plan flags it.
+     'check' = allowed only in some cases: the plan flags it for the business office to confirm.
+     Sources: Iowa Code 298.3 (PPEL and V-PPEL uses; 298.3(4): not salaries, travel, supplies or maintenance),
+     423F.3 (SAVE: school infrastructure only, not personnel; uses beyond levy relief need a revenue purpose statement).
+     Grants, boosters and campaign money follow the donor's or grant's own terms. Rule C4, checked 10 Oct 2026. */
+  const CAPITAL_LAW = ['save', 'ppel', 'vppel'];
+  const LEGAL_YEARLY = {   // yearly-cost kind -> SAVE / PPEL / V-PPEL
+    salary: 'no', benefits: 'no', supplies: 'no', activities: 'no', contract: 'check', other: 'check',
+  };
+  const LEGAL_TYPE = {     // initiative type (one-time phases) -> SAVE / PPEL / V-PPEL
+    capital: 'ok', technology: 'check', program: 'check', other: 'check', staff: 'no', curriculum: 'no',   // a program's one-time costs may be a building or equipment
+  };
+  const WHY = {
+    salary: 'pay salaries', benefits: 'pay staff benefits', supplies: 'buy supplies', activities: 'pay for activities',
+    contract: 'pay contracts or subscriptions', other: 'pay this kind of yearly cost',
+    staff: 'pay for staff or hires', program: 'pay a program’s one-time costs', curriculum: 'buy curriculum', technology: 'buy technology', type_other: 'pay for this kind of initiative',
+  };
+  const FUND_LABEL = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL' };
+  const CITE = { save: 'Iowa Code 423F.3', ppel: 'Iowa Code 298.3', vppel: 'Iowa Code 298.3' };
+  /** 'ok' | 'check' | 'no' for a fund paying a yearly cost of `kind`, or one-time phases of an initiative of `type` */
+  function legality(fund, what) {
+    if (!CAPITAL_LAW.includes(fund)) return { level: 'ok' };
+    const level = what.kind != null ? (LEGAL_YEARLY[what.kind] || 'check') : (LEGAL_TYPE[what.type || 'capital'] || 'check');
+    if (level === 'ok') return { level, text: fund === 'save' ? 'SAVE uses must be covered by the district’s revenue purpose statement.' : '' };
+    const why = what.kind != null ? WHY[what.kind] || WHY.other : (what.type === 'other' ? WHY.type_other : WHY[what.type] || WHY.type_other);
+    const text = level === 'no'
+      ? `${FUND_LABEL[fund]} can’t be used to ${why} (${CITE[fund]}).`
+      : `${FUND_LABEL[fund]} can be used to ${why} only in some cases${what.kind == null ? ', such as buildings, sites and equipment' : ''} (${CITE[fund]}${fund === 'save' ? '; the revenue purpose statement must cover it' : ''}). Confirm with the business office.`;
+    return { level, text, cite: CITE[fund] };
+  }
+  /** every charge in a plan that the law doesn't allow ('no') or that needs checking ('check') */
+  function checkLegal(projects, L) {
+    const out = [];
+    (projects || []).forEach((p) => {
+      const funds = new Set();
+      p.phases.forEach((ph) => { ph.funding.forEach((f) => funds.add(f.b)); (ph.options || []).forEach((b) => funds.add(b)); });
+      funds.forEach((b) => { const g = legality(b, { type: p.type || 'capital' }); if (g.level !== 'ok') out.push({ level: g.level, fund: b, project: p.id, name: p.name, what: 'phase', text: g.text }); });
+    });
+    ((L && L.recur) || []).forEach((r) => {
+      const g = legality(r.fund, { kind: r.kind || 'other' });
+      if (g.level !== 'ok') out.push({ level: g.level, fund: r.fund, project: r.initiative_id, name: r.name || '', what: 'yearly', kind: r.kind, text: g.text });
+    });
+    return out.sort((a, b) => (a.level === b.level ? 0 : a.level === 'no' ? -1 : 1));
+  }
 
   const num = (v, d) => { const n = Number(v); return v === null || v === undefined || v === '' || !isFinite(n) ? d : n; };
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -74,7 +124,7 @@
       vppel: Object.assign(b.vppel, s.vppel || {}),
       grants: Object.assign(b.grants, s.grants || {}),
       debt: Array.isArray(s.debt) ? s.debt.map((d) => ({ name: String(d.name || 'Debt obligation'), fund: d.fund === 'ppel' ? 'ppel' : 'save',
-        annual: num(d.annual, 0), lastFY: num(d.lastFY, null) })) : [],
+        annual: num(d.annual, 0), lastFY: num(d.lastFY, null), timing: ['after', 'before'].includes(d.timing) ? d.timing : 'spread' })) : [],
       inflation: num(s.inflation, 0),
     };
     out.save.sf2472 = !(out.save.sf2472 === false || out.save.sf2472 === 'false');
@@ -101,7 +151,8 @@
       vStatus: v.status, vAnnual: num(v.annual, 0),
       vFirst: num(v.firstFY, start), vLast: num(v.lastFY, start + n - 1),
       grantAvg: num(s.grants.avg, 0),
-      debt: s.debt.map((d) => ({ fund: d.fund, annual: num(d.annual, 0), last: num(d.lastFY, start - 1) })),
+      /* a debt with no final year is treated as running to the end of the plan (it used to be dropped) */
+      debt: s.debt.map((d) => ({ fund: d.fund, annual: num(d.annual, 0), last: num(d.lastFY, start + n - 1), timing: d.timing || 'spread' })),
     };
   }
 
@@ -134,7 +185,7 @@
     return o;
   }
 
-  function cleanPhases(raw, cfg) {
+  function cleanPhases(raw, cfg, type) {
     const N = cfg.n;
     return (Array.isArray(raw) ? raw : []).map((ph) => {
       let f = Array.isArray(ph && ph.funding)
@@ -143,12 +194,18 @@
       f = merged.slice(0, 3);
       if (!f.length) f = [{ b: 'save', p: 100 }];
       const tot = f.reduce((a, x) => a + x.p, 0);
-      if (tot !== 100 && tot > 0) f.forEach((x) => { x.p = Math.round(x.p / tot * 100); });
+      if (tot !== 100 && tot > 0) {   // rescale to 100; rounding leftovers go to the largest share so the whole cost is charged
+        f.forEach((x) => { x.p = Math.round(x.p / tot * 100); });
+        const left = 100 - f.reduce((a, x) => a + x.p, 0);
+        if (left) f.reduce((m, x) => (x.p > m.p ? x : m), f[0]).p += left;
+      }
       if (tot === 0) f.forEach((x, i) => { x.p = i === 0 ? 100 : 0; });
       const o = { cost: Math.max(0, Number(ph && ph.cost) || 0), year: Math.max(0, Math.min(N - 1, Number(ph && ph.year) || 0)), funding: f };
       /* "whichever has room": two or three funds in order of preference; the phase is paid in full from one of them */
-      const opts = Array.isArray(ph && ph.options) ? [...new Set(ph.options.map((b) => BUCKET_ALIAS[b] || b).filter((b) => BUCKETS.includes(b)))].slice(0, 3) : [];
+      const opts = Array.isArray(ph && ph.options) ? [...new Set(ph.options.map((b) => BUCKET_ALIAS[b] || b).filter((b) => BUCKETS.includes(b)))]
+        .filter((b) => legality(b, { type: type || 'capital' }).level !== 'no').slice(0, 3) : [];   // never choose a fund the law doesn't allow
       if (opts.length > 1) { o.options = opts; o.funding = [{ b: opts[0], p: 100 }]; }
+      else if (opts.length === 1 && Array.isArray(ph && ph.options) && ph.options.length > 1) o.funding = [{ b: opts[0], p: 100 }];   // the only allowed choice left
       if (ph && (ph.status === 'underway' || ph.status === 'done')) o.status = ph.status;
       if (ph && ph.actual != null && ph.actual !== '' && isFinite(Number(ph.actual))) o.actual = Math.max(0, Number(ph.actual));
       if (ph && typeof ph.label === 'string' && ph.label.trim()) o.label = ph.label.trim().slice(0, 80);
@@ -156,15 +213,16 @@
     }).slice(0, 12);
   }
   function cleanProject(p, fallbackId, cfg) {
-    const phases = cleanPhases(p.phases, cfg);
+    const type = typeof p.type === 'string' && LEGAL_TYPE[p.type] ? p.type : 'capital';
+    const phases = cleanPhases(p.phases, cfg, type);
     return {
       id: p.id != null ? p.id : fallbackId,
-      name: (typeof p.name === 'string' && p.name.trim()) ? p.name.trim().slice(0, 90) : 'Untitled project',
+      name: (typeof p.name === 'string' && p.name.trim()) ? p.name.trim().slice(0, 90) : 'Untitled project', type,
       pri: PRI_LIST.includes(p.pri) ? p.pri : '', est: p.est !== false,
       area: typeof p.area === 'string' ? p.area.slice(0, 40) : '',
       cond: ['Good', 'Fair', 'Poor', 'Critical'].includes(p.cond) ? p.cond : '',
       life: (p.life === null || p.life === undefined || p.life === '' || !isFinite(Number(p.life))) ? null : Math.max(0, Math.round(Number(p.life))),
-      phases: phases.length ? phases : cleanPhases([{ cost: 0, year: 0 }], cfg),
+      phases: phases.length ? phases : cleanPhases([{ cost: 0, year: 0 }], cfg, type),
     };
   }
   const cleanList = (list, cfg) => (Array.isArray(list) ? list : []).filter((p) => p && !p.del).map((p, i) => cleanProject(p, 1000 + i, cfg));
@@ -174,6 +232,12 @@
   function debtIn(cfg, fund, y) {
     const fy = cfg.start + y;
     return cfg.debt.reduce((a, d) => a + (d.fund === fund && fy <= d.last ? d.annual : 0), 0);
+  }
+  /* existing debt still to pay in plan year y. Year 0 after a mid-year balance date: payments due after that date
+     ('after') count in full, payments already made ('before') not at all, 'spread' (the default) in proportion. */
+  function debtDue(cfg, fund, y) {
+    if (y !== 0 || cfg.f0 >= 1) return debtIn(cfg, fund, y);
+    return cfg.debt.reduce((a, d) => a + (d.fund === fund && cfg.start <= d.last ? d.annual * (d.timing === 'after' ? 1 : d.timing === 'before' ? 0 : cfg.f0) : 0), 0);
   }
   function sfFactor(cfg, fy, L) {
     if (!L.sf) return 1;
@@ -201,8 +265,8 @@
   /* net receipts landing in plan year y; year 0 is scaled to the part of the year after the balance date */
   function inflow(cfg, bucket, y, L) {
     const f = y === 0 ? cfg.f0 : 1;
-    if (bucket === 'save') return (cfg.saveInc * Math.pow(1 + L.sg, y) * sfFactor(cfg, cfg.start + y, L) - debtIn(cfg, 'save', y) - finPay(cfg, 'save', y, L) - cfg.saveOng - recurIn(cfg, 'save', y, L)) * f;
-    if (bucket === 'ppel') return (cfg.ppelInc * Math.pow(1 + L.pg, y) - cfg.ppelOng - debtIn(cfg, 'ppel', y) - finPay(cfg, 'ppel', y, L) - recurIn(cfg, 'ppel', y, L)) * f;
+    if (bucket === 'save') return (cfg.saveInc * Math.pow(1 + L.sg, y) * sfFactor(cfg, cfg.start + y, L) - finPay(cfg, 'save', y, L) - cfg.saveOng - recurIn(cfg, 'save', y, L)) * f - debtDue(cfg, 'save', y);
+    if (bucket === 'ppel') return (cfg.ppelInc * Math.pow(1 + L.pg, y) - cfg.ppelOng - finPay(cfg, 'ppel', y, L) - recurIn(cfg, 'ppel', y, L)) * f - debtDue(cfg, 'ppel', y);
     if (bucket === 'vppel') {
       const fy = cfg.start + y;
       return ((cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast) ? cfg.vAnnual : 0) * f - recurIn(cfg, 'vppel', y, L) * f;
@@ -213,6 +277,7 @@
   /* a completed phase with an actual cost counts at that cost, not the inflated estimate */
   const escalated = (ph, L) => (ph.status === 'done' && ph.actual != null ? ph.actual : ph.cost * Math.pow(1 + L.infl, ph.year));
   const zero = () => { const o = {}; BUCKETS.forEach((k) => { o[k] = 0; }); return o; };
+  const lexLess = (a, b) => { for (let j = 0; j < a.length; j++) if (a[j] !== b[j]) return a[j] < b[j]; return false; };
 
   function compute(projects, L, cfg) {
     const N = cfg.n;
@@ -221,6 +286,12 @@
     const spentByBucket = zero();
     let need = 0, finCarry = 0, financed = 0, unfunded = 0;
     const pick = new Map(), picks = [];
+    /* fixed-fund spending by year (phases without a choice), for the look-ahead when a phase can use several funds */
+    const fixedSpend = cfg.years.map(() => zero()), flexHeld = cfg.years.map(() => zero());
+    projects.forEach((p) => p.phases.forEach((ph) => {
+      if (ph.year < 0 || ph.year >= N || (ph.options && ph.options.length > 1)) return;
+      const c = escalated(ph, L); ph.funding.forEach((f) => { fixedSpend[ph.year][f.b] += c * f.p / 100; });
+    }));
     for (let y = 0; y < N; y++) {
       const spend = zero(), flex = [];
       projects.forEach((p) => p.phases.forEach((ph) => {
@@ -233,12 +304,45 @@
          for all of it; when none has room it goes to the one with the most room (and the shortfall counts in the gap).
          Boosters and campaign/bond have no yearly limit, so as a choice they always have room. */
       if (flex.length) {
-        const room = {}; CAP_ORDER.forEach((b) => { room[b] = carry[b] + inflow(cfg, b, y, L) - spend[b]; });
-        flex.forEach(([p, ph, c]) => {
-          let b = ph.options.find((o) => !CAP_ORDER.includes(o) || room[o] >= c - 0.5);
-          if (!b) b = ph.options.slice().sort((a, z) => room[z] - room[a])[0];
-          spend[b] += c; if (CAP_ORDER.includes(b)) room[b] -= c;
-          pick.set(ph, b); picks.push({ project: p.id, fy: cfg.start + y, b, first: b === ph.options[0], fits: !CAP_ORDER.includes(b) || room[b] >= -0.5 });
+        /* room this year, and "safe" room: what can be taken now without leaving a later year's fixed-fund phases short
+           (the lowest running balance from this year to the end of the plan, counting later fixed spending) */
+        const room = {}, safe = {};
+        CAP_ORDER.forEach((b) => {
+          room[b] = carry[b] + inflow(cfg, b, y, L) - spend[b];
+          let run = room[b], low = run;
+          for (let t = y + 1; t < N; t++) { run += inflow(cfg, b, t, L) - fixedSpend[t][b] - flexHeld[t][b]; if (run < low) low = run; }
+          safe[b] = Math.min(room[b], low);
+        });
+        const capital = (o) => CAP_ORDER.includes(o);
+        /* up to 8 such phases in a year: try every combination and keep the one that leaves the least short, now or in a later year
+           (the "safe" room), then the least short this year, then the earliest choices for the highest-ranked phases (list order).
+           More than 8: one at a time, in list order, each taking the first fund that has safe room, else room this year. */
+        let choice = null;
+        if (flex.length <= 8) {
+          const n = flex.length, idx = new Array(n).fill(0);
+          let best = null;
+          for (;;) {
+            const use = {}; CAP_ORDER.forEach((b) => { use[b] = 0; });
+            for (let k = 0; k < n; k++) { const b = flex[k][1].options[idx[k]]; if (capital(b)) use[b] += flex[k][2]; }
+            let shortSafe = 0, shortNow = 0;
+            CAP_ORDER.forEach((b) => { shortSafe += Math.max(0, use[b] - Math.max(0, safe[b])); shortNow += Math.max(0, use[b] - Math.max(0, room[b])); });
+            const key = [Math.round(shortSafe), Math.round(shortNow)].concat(idx);
+            if (!best || lexLess(key, best)) best = key;
+            let k = n - 1; while (k >= 0 && ++idx[k] >= flex[k][1].options.length) { idx[k] = 0; k--; }
+            if (k < 0) break;
+          }
+          choice = best.slice(2);
+        }
+        flex.forEach(([p, ph, c], k) => {
+          let b;
+          if (choice) b = ph.options[choice[k]];
+          else {
+            b = ph.options.find((o) => !capital(o) || safe[o] >= c - 0.5);                  // fits now and later
+            if (!b) b = ph.options.find((o) => capital(o) && room[o] >= c - 0.5);            // fits now only
+            if (!b) b = ph.options.slice().sort((a, z) => (capital(z) ? safe[z] : Infinity) - (capital(a) ? safe[a] : Infinity))[0];
+          }
+          spend[b] += c; if (capital(b)) { room[b] -= c; safe[b] -= c; }
+          pick.set(ph, b); picks.push({ project: p.id, fy: cfg.start + y, b, first: b === ph.options[0], fits: !capital(b) || room[b] >= -0.5 });
         });
       }
       for (const b of CAP_ORDER) {
@@ -258,15 +362,17 @@
     return { res, spentByBucket, need, overflow, levyFunded, financed, unfunded, finLeft: finCarry, gap: unfunded + overflow, pick, picks };
   }
 
-  /* SAVE revenue-bond room: the lowest future year's SAVE ÷ coverage, as a level payment, at present value.
-     Reproduces the planner exactly. Note: it divides receipts by the coverage BEFORE subtracting existing
-     SAVE debt, and ignores ongoing SAVE commitments; the spec says after. Kept as-is by decision (29 Sept 2026);
-     revisit before go-live (GO_LIVE.md). */
+  /* SAVE revenue-bond room: the level payment the lowest future year can carry, at present value. Two limits, the lower wins
+     (issue 13, 10 Oct 2026):
+       coverage   – SAVE receipts must cover ALL SAVE debt payments `cover` times: new ≤ receipts ÷ cover − existing payments;
+       cash       – receipts must still pay the ongoing SAVE commitments too: new ≤ receipts − ongoing − existing payments.
+     Coverage is a market assumption (often 1.20–1.25×), not set in statute (Iowa Code 423F.4). */
   function saveBondCapacity(cfg, L, rate, years, cover) {
     let low = Infinity, ly = 0;
     for (let y = 1; y < cfg.n; y++) {
       const L2 = Object.assign({}, L, { fin: (L.fin || []).filter((f) => f.repay !== 'save') });
-      const net = cfg.saveInc * Math.pow(1 + L2.sg, y) * sfFactor(cfg, cfg.start + y, L2) / cover - debtIn(cfg, 'save', y) - finPay(cfg, 'save', y, L2);
+      const rec = cfg.saveInc * Math.pow(1 + L2.sg, y) * sfFactor(cfg, cfg.start + y, L2), owed = debtIn(cfg, 'save', y) + finPay(cfg, 'save', y, L2);
+      const net = Math.min(rec / cover - owed, rec - cfg.saveOng - owed);
       if (net < low) { low = net; ly = y; }
     }
     const pay = Math.max(0, low);
@@ -282,9 +388,9 @@
   }
 
   return {
-    VERSION: '2026-10-01',
-    BUCKETS, BUCKET_NAMES, CAP_ORDER, PRI_LIST,
+    VERSION: '2026-10-10c',
+    BUCKETS, BUCKET_NAMES, CAP_ORDER, PRI_LIST, SF2472_CUT, LEGAL_YEARLY, LEGAL_TYPE,
     fyOfDate, firstYearFraction, normSettings, makeConfig, defaultLevers, leversOf, cleanFin,
-    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, debtIn, finPay, compute, pmt, sfCut, saveBondCapacity, goDebtRoom,
+    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, debtIn, debtDue, finPay, compute, pmt, sfCut, saveBondCapacity, goDebtRoom, legality, checkLegal,
   };
 });

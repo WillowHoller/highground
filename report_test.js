@@ -13,7 +13,7 @@ const amounts = (batch, scale) => P.lines.map((l, k) => ({ batch_id: batch, acco
 const aug = { id: 'aug', kind: 'gl_monthly', status: 'applied', period_end: '2026-08-31', fiscal_year: 2027 }, sep = { id: 'sep', kind: 'gl_monthly', status: 'applied', period_end: '2026-09-30', fiscal_year: 2027 };
 const balancesAug = R.fund_balance.concat([{ fund: 'save', as_of: '2026-08-31', amount: 1352000 }, { fund: 'ppel', as_of: '2026-08-31', amount: 801000 }]);
 const prev = Rp.build({ district: rows.district, rows, periodEnd: '2026-08-31', batch: aug, accounts, amounts: amounts('aug', 0.5), batches: [aug], balances: balancesAug });
-check('August report: dated, board version, plan figures', prev.periodEnd === '2026-08-31' && prev.fiscalYear === 2027 && prev.scenario.name === 'District baseline' && Math.abs(prev.plan.gap - 3018000) < 1000, prev.plan.gap);
+check('August report: dated, board version, plan figures', prev.periodEnd === '2026-08-31' && prev.fiscalYear === 2027 && prev.scenario.name === 'District baseline' && Math.abs(prev.plan.gap - 2918000) < 1000, prev.plan.gap);   // $3.018M before the SF 2472 cut was figured on projected SAVE (rule G7, 10 Oct 2026)
 check('first report says there is nothing to compare', Rp.changes(prev, null).first);
 // during September: the vestibules finished, CTE moved to approved, and the September ledger came in
 const vest = rows.phases.find((p) => p.scenario_id === R.scenario[0].id && p.initiative_id === nameId('Secure entry vestibules (two buildings)'));
