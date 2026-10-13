@@ -41,8 +41,10 @@ In the project: **SQL Editor → New query**. For each file below, copy everythi
 | 8f | `22_menu_logo.sql` | Lets a district show its logo alone at the top of the menu |
 | 8g | `23_fund_options.sql` | Lets a phase be paid from whichever of two or three funds has room |
 | 8h | `24_focus_areas.sql` | Lets an initiative belong to several focus areas |
+| 8i | `25_validation_fixes.sql` | Fixes from the 10 Oct 2026 validation |
+| 8j | `26_two_step.sql` | Two-step sign-in required, district by district (staff always). **Re-run it after adding any later part with new tables.** |
 | 9 | `05_verify_setup.sql` | Checks the structure. **All 10 rows should say PASS.** |
-| 10 | `06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 18 rows should say PASS.** |
+| 10 | `06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 21 rows should say PASS.** |
 
 If step 1–4 shows an error, stop and send Claude the full message. If 5 or 6 shows a FAIL or an error, send a screenshot of the result.
 
@@ -57,7 +59,9 @@ If step 1–4 shows an error, stop and send Claude the full message. If 5 or 6 s
 
 **Authentication → Sign In / Providers (general):** "Allow new users to sign up" **on**. Anyone can make an account, but an account alone sees nothing; only an invitation from a district admin (or you) opens a district.
 
-**Authentication → Multi-Factor:** enable **TOTP** (authenticator apps). The app will offer it; requiring it for admins comes later.
+**Authentication → Multi-Factor:** enable **TOTP** (authenticator apps). Part 26 makes it required for Willow Holler staff and for every district that has "Two-step sign-in: Required" (the default; demo districts start optional). Change it per district on the Willow Holler page.
+
+**Someone lost their phone:** Authentication → Users → the person → remove their MFA factor (or SQL: `delete from auth.mfa_factors where user_id = (select id from auth.users where email = 'them@district.org');`). At their next sign-in HighGround walks them through setting it up again. Check it's really them first (call them at a number you already have).
 
 **Authentication → URL Configuration:**
 - Site URL: the address the app will live at. Until it's hosted, use `https://highground.willowholler.com/` and change it later.

@@ -93,3 +93,9 @@ Business managers and admins upload registers and answer questions; every member
 |---|---|
 | rule_value | Iowa values by year (SF 2472 cuts, levy caps …), each marked verified / recalled / assumed with its source |
 | audit_log | Every change to key tables: who, when, before and after. Admins can read; nobody can edit |
+
+## Two-step sign-in (part 26)
+- `district.require_two_step` (default on; demo districts start off). Only Willow Holler staff can change it (trigger `guard_require_two_step`).
+- `two_step_required()`: true for staff and for anyone in a district that requires it. `two_step_ok()`: the session finished two-step sign-in (`aal2`) or doesn't need to.
+- Every table with row level security, plus uploaded files (`storage.objects`), has a **restrictive** policy "two-step sign-in" using `two_step_ok()`. It sits on top of the normal rules: a password-only session that should have done two-step sees and changes nothing. Anonymous visitors are unaffected.
+- **Adding a table later:** re-run `26_two_step.sql`, or the new table won't have the rule (its check 4 names any table that's missing it).

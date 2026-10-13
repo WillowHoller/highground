@@ -2,8 +2,8 @@
 import asyncio, json, re, urllib.parse, subprocess, time, os
 from playwright.async_api import async_playwright
 ROOT=os.path.dirname(os.path.abspath(__file__)); SB="https://test.supabase.co"; SHOTS=os.path.join(os.path.dirname(os.path.abspath(__file__)),"shots"); os.makedirs(SHOTS,exist_ok=True)
-D1={"id":"d1","slug":"ironwood-valley","name":"Ironwood Valley Community School District","short_name":"Ironwood Valley","state":"IA","county":"Fictional","brand_color":"#1F4E8C","is_demo":True,"public_link_enabled":True,"state_district_id":"7777"}
-D2={"id":"d2","slug":"cottonwood-ridge","name":"Cottonwood Ridge Community School District","short_name":"Cottonwood Ridge","state":"IA","county":None,"brand_color":"#7A4E2D","is_demo":True,"public_link_enabled":True}
+D1={"require_two_step":True,"id":"d1","slug":"ironwood-valley","name":"Ironwood Valley Community School District","short_name":"Ironwood Valley","state":"IA","county":"Fictional","brand_color":"#1F4E8C","is_demo":True,"public_link_enabled":True,"state_district_id":"7777"}
+D2={"require_two_step":False,"id":"d2","slug":"cottonwood-ridge","name":"Cottonwood Ridge Community School District","short_name":"Cottonwood Ridge","state":"IA","county":None,"brand_color":"#7A4E2D","is_demo":True,"public_link_enabled":True}
 USERS={"admin@example.test":("u-admin","Pat Admin",[("d1","admin"),("d2","viewer")],False),
        "viewer@example.test":("u-viewer","Val Viewer",[("d1","viewer")],False),
        "new@example.test":("u-new","Nia New",[],False),
@@ -12,7 +12,10 @@ USERS={"admin@example.test":("u-admin","Pat Admin",[("d1","admin"),("d2","viewer
        "mfa@example.test":("u-mfa","Mo Factor",[],False),
        "board@example.test":("u-board","Bo Board",[("d1","board")],False),
        "bm@example.test":("u-bm","Bea Manager",[("d1","business_manager")],False),
-       "sup@example.test":("u-sup","Sue Super",[("d1","superintendent")],False)}
+       "sup@example.test":("u-sup","Sue Super",[("d1","superintendent")],False),
+       "req@example.test":("u-req","Rae Required",[("d1","editor")],False)}
+REQ={"req@example.test"}      # two-step sign-in required for these (part 26)
+ENROLLED=set()                # required people who have finished setting it up
 PW="correct horse battery"
 TABLES={"initiative":[{"district_id":"d1","name":"Middle school HVAC","type":"capital","status":"approved","focus_area":"Facilities","tier":"must","cost_confidence":"firm","condition":"poor","id":"i1"}],
  "scenario":[{"district_id":"d1","id":"s1","name":"District baseline","is_board_version":True,"is_locked":True,"updated_at":"2026-09-23T12:00:00Z"}],
@@ -97,6 +100,7 @@ DBFAIL={"phase":False}
 def user_obj(email):
   u=USERS[email]; o={"id":u[0],"email":email,"user_metadata":{"full_name":u[1]}}
   if email=="mfa@example.test": o["factors"]=[{"id":"f9","status":"verified","factor_type":"totp"}]
+  if email in ENROLLED: o["factors"]=[{"id":"f1","status":"verified","factor_type":"totp"}]
   return o
 def email_of(uid): return next((e for e,u in USERS.items() if u[0]==uid),None)
 async def handler(route):
@@ -120,12 +124,14 @@ async def handler(route):
   if path.startswith("/auth/v1/factors/") and path.endswith("/verify"):
     b=json.loads(body)
     if b.get("code")!="123456" or b.get("challenge_id")!="ch1": return await ok({"code":"mfa_verification_failed","msg":"Invalid TOTP code entered"},422)
+    if em in REQ: ENROLLED.add(em)
     return await ok({"access_token":tok(uid,"aal2"),"refresh_token":"r2","expires_in":3600,"user":user_obj(em)})
   if path.startswith("/auth/v1/factors/") and req.method=="DELETE": return await ok({"id":path.split("/")[-1]})
   if path=="/functions/v1/send-invitation":
     b=json.loads(body)
     return await (ok({"error":"Email isn’t set up on the server yet."},500) if FN["fail"] else ok({"status":"sent","to":"x"}))
   if path=="/rest/v1/rpc/claim_my_access": return await route.fulfill(status=204,body="")
+  if path=="/rest/v1/rpc/two_step_required": return await ok(em in REQ)
   if path=="/rest/v1/rpc/set_phase_progress": return await ok(json.loads(body))
   if path=="/rest/v1/rpc/request_access": return await ok("sent")
   if path=="/auth/v1/user":
@@ -1525,6 +1531,28 @@ async def main():
     await pg.fill("input[name=code]","123456"); await pg.click("button[type=submit]"); await pg.wait_for_timeout(700)
     check("two-step: right code lets them in", "Welcome to HighGround" in await pg.inner_text("body"))
     await signout(pg); await pg.wait_for_timeout(300)
+    # two-step sign-in required (part 26): set up at first sign-in, before anything else opens
+    await pg.fill("input[name=email]","req@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(700)
+    t=await pg.inner_text("body")
+    check("required two-step: first sign-in walks them through setting it up", "Set up two-step sign-in" in t and "requires two-step sign-in" in t and await pg.locator("img[alt^='QR code']").count()==1 and "JBSWY3DPEHPK3PXP" in t, t[:200])
+    await pg.screenshot(path=SHOTS+"/two-step-setup.png")
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(600)
+    check("required two-step: nothing else opens until it's set up", "Set up two-step sign-in" in await pg.inner_text("body"))
+    await pg.fill("input[name=code]","000000"); await pg.click("button[type=submit]"); await pg.wait_for_timeout(500)
+    check("required two-step: a wrong code is explained", "That code didn’t work" in await pg.inner_text("#toasts") and "Set up two-step sign-in" in await pg.inner_text("body"))
+    await pg.fill("input[name=code]","123456"); await pg.click("button[type=submit]"); await pg.wait_for_timeout(900)
+    t=await pg.inner_text("body")
+    check("required two-step: the right code lets them in", "Set up two-step sign-in" not in t and "ironwood-valley" in pg.url, pg.url)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/account"); await pg.wait_for_timeout(600)
+    t=await pg.inner_text("#view")
+    check("required two-step: Account says it's required, offers a new phone, and can't be turned off",
+          "required for your account" in t and await pg.locator("button[data-action=mfaOn][data-replace]").count()==1 and await pg.locator("button[data-action=mfaOff]").count()==0, t[t.find("Two-step"):][:200])
+    await pg.click("button[data-action=mfaOn][data-replace]"); await pg.wait_for_timeout(400)
+    await pg.fill("[data-modal] input[name=code]","123456"); n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(700)
+    seq=[(c[0],c[1].split("?")[0]) for c in calls[n0:] if "/factors/" in c[1]]
+    check("required two-step: moving to a new phone checks the new code, then removes the old phone",
+          seq[-1]==("DELETE","/auth/v1/factors/f1") and ("POST","/auth/v1/factors/f1/verify") in seq and "Moved to the new phone" in await pg.inner_text("#toasts"), str(seq))
+    await signout(pg); await pg.wait_for_timeout(300)
     # staff with no districts yet
     await pg.fill("input[name=email]","empty.staff@example.test"); await pg.fill("input[name=password]",PW); await pg.click("button[type=submit]"); await pg.wait_for_timeout(600)
     t=await pg.inner_text("body")
@@ -1550,6 +1578,12 @@ async def main():
     ip=[c for c in calls if c[0]=="POST" and "/rest/v1/invitation" in c[1]]
     check("staff creates district and admin invite", dp and json.loads(dp[-1][2])["slug"]=="harvest-plains" and json.loads(ip[-1][2])=={"district_id":"d9","email":"boss@example.test","role":"admin"})
     check("staff sees Willow Holler page", "Added Harvest Plains" in await pg.inner_text("body"))
+    check("new demo districts start with two-step sign-in optional", json.loads(dp[-1][2]).get("require_two_step") is False, dp[-1][2])
+    cells=await pg.locator("button[data-action=toggleTwoStep]").all_inner_texts()
+    check("staff: each district shows whether two-step sign-in is required", cells==["Required","Optional"], str(cells))
+    n0=len(calls); await pg.click("tr:has-text('Ironwood Valley') button[data-action=toggleTwoStep]"); await pg.wait_for_timeout(600)
+    pt=[c for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/district?id=eq.d1" in c[1]]
+    check("staff: two-step sign-in can be made optional for a district", pt and json.loads(pt[0][2])=={"require_two_step":False} and "now optional" in await pg.inner_text("body"), str(pt))
     # deleting a district: a confirmation that names what goes, needs the link id typed, then removes it
     await pg.click("tr:has-text('Cottonwood Ridge') button[data-action=deleteDistrictAsk]"); await pg.wait_for_timeout(500)
     dm=await pg.inner_text("[data-modal]")

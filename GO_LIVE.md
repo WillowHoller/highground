@@ -23,7 +23,8 @@ Decisions deferred during the build, and launch tasks.
 - [ ] **Starting-number checks:** the statewide SAVE amount per student (FY2026 ≈ $1,358, in `app.js`, `SAVE_PER_STUDENT`) should be refreshed each year.
 - [ ] **Tax impact rules (tax.js), checked 1 Oct 2026.** Residential and farmland rollbacks (FY2027: 44.5345% and 59.4401%), the homestead credit to exemption change (SF 2472), and the 65+ exemption. Have a school-finance professional confirm the method, especially which taxable valuation a district's debt service levy uses (TIF increment), and **update the rollbacks every November** when the state issues its order.
 - [ ] **Recalled Iowa rules.** Confirm the values marked "recalled" in `04_iowa_rules.sql` (PPEL and V-PPEL rate caps, V-PPEL term, 60% referendum, 5% debt limit) with the Iowa DE or DOM, a bond counsel, or the School Finance Formula.
-- [ ] **Password minimum.** Set to 8 characters with all four character types. Revisit if districts ask, or once two-step sign-in is required.
+- [ ] **Password minimum.** Set to 8 characters with all four character types. Two-step sign-in is now required (part 26), so this is fine; revisit only if districts ask.
+- [ ] **Session timeout** *(after the Pro upgrade)*: Authentication → Sessions → inactivity timeout about 8 hours.
 
 ## Accounts and services
 
@@ -56,7 +57,7 @@ Decisions deferred during the build, and launch tasks.
 ## Product
 
 - [x] **Invitation emails working** (built 30 Sept 2026): `send-invitation` deployed, `POSTMARK_SERVER_TOKEN` secret set, a real invitation received outside willowholler.com after Postmark approval. *Function deployed and verified 30 Sept 2026. Postmark approved 8 Oct 2026: send one test invitation to an outside address to confirm.*
-- [ ] **Two-step sign-in required for admins.** Offered to everyone since 30 Sept 2026. Requiring it means database rules that check the session's assurance level (`aal2`) for admin actions; decide, then build.
+- [x] **Two-step sign-in required.** *Built 13 Oct 2026 (part 26):* required per district (on by default; demo districts start optional) and always for staff. Enforced by the database: a restrictive rule on every table means a password-only session sees nothing. Staff change it on the Willow Holler page. Re-run `26_two_step.sql` after any later part that adds tables.
 - [ ] **Email-domain allow-list reviewed** for each district: only the district's own domains, and the role is right.
 - [ ] **Setup screen, project upload, saving scenarios.** Phase 1 items still marked "Not built yet".
 - [ ] **Demo districts** clearly marked, and no real district's name next to invented numbers anywhere, including screenshots and the storyboard image.

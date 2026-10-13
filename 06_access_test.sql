@@ -1,5 +1,5 @@
 -- =====================================================================================
--- HighGround — access test. Run after setting up (01–16) in the SQL editor.
+-- HighGround — access test. Run after setting up (01–26) in the SQL editor.
 -- Creates two test districts and six test accounts (@example.test), acts as each one,
 -- records what was allowed or refused, then deletes everything it created.
 -- Every row of the result should say PASS. If the script stops with an error instead,
@@ -60,7 +60,7 @@ begin
     case when cnt = 1 then 'PASS' else 'FAIL' end, cnt || ' memberships');
 
   -- ---------- 4–6 editor ----------
-  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   select count(*) into cnt from public.initiative;
   execute 'reset role';
@@ -111,7 +111,7 @@ begin
     case when ok then 'PASS' else 'FAIL' end, msg);
 
   -- ---------- 8 viewer ----------
-  perform set_config('request.jwt.claims', json_build_object('sub', uv, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', uv, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   select count(*) into cnt from public.initiative;
   begin
@@ -124,7 +124,7 @@ begin
     case when ok and cnt = 1 then 'PASS' else 'FAIL' end, cnt || ' visible; ' || msg);
 
   -- ---------- 9 business manager: monthly GL import end to end ----------
-  perform set_config('request.jwt.claims', json_build_object('sub', ub, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ub, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   insert into public.import_batch (district_id, kind, period_end, fiscal_year, file_name, status)
     values (d1, 'gl_monthly', '2026-09-30', 2027, 'september.csv', 'review') returning id into b;
@@ -143,7 +143,7 @@ begin
     'SAVE balance ' || coalesce(amt::text, 'missing') || '; ' || cnt || ' current GL rows');
 
   -- ---------- 10–11 admin: unlock, publish ----------
-  perform set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   update public.scenario set is_locked = false where id = s_locked;
   get diagnostics cnt = row_count;
@@ -156,7 +156,7 @@ begin
     case when cnt = 1 and ok then 'PASS' else 'FAIL' end, cnt || ' unlocked; audit visible: ' || ok);
 
   -- ---------- 11 stranger ----------
-  perform set_config('request.jwt.claims', json_build_object('sub', ux, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ux, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   select count(*) into cnt from public.district_member where district_id = d1;
   select cnt + count(*) into cnt from public.gl_amount where district_id = d1;
@@ -182,7 +182,7 @@ begin
 
   -- ---------- 14–18 check registers and state peer data (part 16) ----------
   -- 14 business manager uploads two register months; September's questions are raised and one is answered
-  perform set_config('request.jwt.claims', json_build_object('sub', ub, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ub, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   insert into public.import_batch (district_id, kind, period_end, file_name, status)
     values (d1, 'check_register', '2026-08-31', 'august.csv', 'review') returning id into b_aug;
@@ -207,7 +207,7 @@ begin
     case when ok and cnt = 1 and cnt2 >= 3 then 'PASS' else 'FAIL' end, cnt2 || ' questions; ' || coalesce(j ->> 'by_rule', 'none'));
 
   -- 15 viewer reads the questions but cannot answer, upload, or run the check
-  perform set_config('request.jwt.claims', json_build_object('sub', uv, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', uv, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   select count(*) into cnt from public.register_flag where batch_id = b_sep;
   update public.register_flag set response = 'viewer edit' where batch_id = b_sep;
@@ -228,7 +228,7 @@ begin
     case when ok and cnt >= 3 and cnt2 = 0 then 'PASS' else 'FAIL' end, cnt || ' visible; ' || cnt2 || ' answered; ' || msg);
 
   -- 16 editor cannot start a register upload (financial uploads are business manager / admin)
-  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   begin
     insert into public.import_batch (district_id, kind, period_end) values (d1, 'check_register', '2026-10-31');
@@ -240,7 +240,7 @@ begin
     case when ok then 'PASS' else 'FAIL' end, msg);
 
   -- 17 stranger and anonymous visitor see no registers and no state data
-  perform set_config('request.jwt.claims', json_build_object('sub', ux, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ux, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   select count(*) into cnt from public.register_line where district_id = d1;
   select cnt + count(*) into cnt from public.register_flag where district_id = d1;
@@ -263,14 +263,14 @@ begin
   -- 18 admin links the district to a state district number and picks a peer; members get peer comparisons
   insert into public.ia_district (de_district, name) values ('zz01', 'Access Test State District One'), ('zz02', 'Access Test Peer')
     on conflict do nothing;
-  perform set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   update public.district set state_district_id = 'zz01' where id = d1;
   get diagnostics cnt = row_count;
   insert into public.district_peer (district_id, de_district) values (d1, 'zz02');
   perform * from public.ia_benchmark('zz01', 2025, 'Actual', 'custom', d1);
   execute 'reset role';
-  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated', 'aal', 'aal2')::text, true);
   execute 'set local role authenticated';
   begin
     insert into public.district_peer (district_id, de_district) values (d1, 'zz01');
@@ -283,6 +283,52 @@ begin
   update public.district set state_district_id = null where id = d1;
   delete from public.district_peer where district_id = d1;
   delete from public.ia_district where de_district in ('zz01', 'zz02');
+
+
+  -- ---------- 19–21 two-step sign-in (part 26) ----------
+  -- 19 district 1 requires it: the editor signed in with only a password (aal1) sees and changes nothing
+  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into cnt from public.initiative where district_id = d1;
+  select count(*) into cnt2 from public.district where id = d1;
+  ok := true; msg := cnt || ' initiatives, ' || cnt2 || ' districts visible';
+  begin
+    insert into public.initiative (district_id, name) values (d1, 'Sneaky roof');
+    ok := false; msg := msg || '; insert allowed';
+  exception when insufficient_privilege then msg := msg || '; insert refused';
+  end;
+  select to_jsonb(public.two_step_required()) into j;
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub', ue, 'role', 'authenticated', 'aal', 'aal2')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into cnt2 from public.initiative where district_id = d1;
+  execute 'reset role';
+  insert into hg_test_results values (19, 'Where two-step sign-in is required, a password-only session sees nothing; after the code it sees the district',
+    case when cnt = 0 and ok and cnt2 >= 1 and j = 'true'::jsonb then 'PASS' else 'FAIL' end, msg || '; after code ' || cnt2 || ' initiatives');
+
+  -- 20 district 2 doesn't require it (as for demos): its admin works with only a password
+  perform set_config('request.jwt.claims', '', true);
+  update public.district set require_two_step = false where id = d2;
+  perform set_config('request.jwt.claims', json_build_object('sub', ux, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into cnt from public.initiative where district_id = d2;
+  select to_jsonb(public.two_step_required()) into j;
+  execute 'reset role';
+  insert into hg_test_results values (20, 'Where it isn''t required, a password-only session works as before',
+    case when cnt >= 1 and j = 'false'::jsonb then 'PASS' else 'FAIL' end, cnt || ' initiatives visible; required ' || j::text);
+
+  -- 21 a district admin (even after two-step) can't turn the requirement off; only staff can
+  perform set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated', 'aal', 'aal2')::text, true);
+  execute 'set local role authenticated';
+  ok := false; msg := 'admin turned it off';
+  begin
+    update public.district set require_two_step = false where id = d1;
+  exception when insufficient_privilege then ok := true; msg := 'admin refused';
+  end;
+  execute 'reset role';
+  select to_jsonb(require_two_step) into j from public.district where id = d1;
+  insert into hg_test_results values (21, 'A district admin cannot turn off two-step sign-in',
+    case when ok and j = 'true'::jsonb then 'PASS' else 'FAIL' end, msg);
 
   -- ---------- clean up ----------
   perform set_config('request.jwt.claims', '', true);

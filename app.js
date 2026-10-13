@@ -99,6 +99,11 @@
     S.mfaFactor = verified.length && HG.auth.aal() !== 'aal2' ? verified[0].id : null;
     if (S.mfaFactor) { S.loaded = false; return; }
     try { await HG.db.rpc('claim_my_access'); } catch (e) { /* older database without part 7: carry on */ }
+    /* part 26: staff, and anyone in a district that requires it, must use two-step sign-in. The database
+       enforces it (a password-only session sees nothing); here we walk the person through setting it up. */
+    try { S.mfaRequired = (await HG.db.rpc('two_step_required')) === true; } catch (e) { S.mfaRequired = false; /* before part 26 */ }
+    S.mfaSetup = S.mfaRequired && !verified.length;
+    if (S.mfaSetup) { S.loaded = false; return; }
     /* menu_logo_only arrived with part 22; before it's run, read the district without it */
     const DCOLS = 'id,slug,name,short_name,state,county,brand_color,logo_path,is_demo,public_link_enabled,state_district_id';
     const memSel = (extra) => HG.db.select('district_member', `select=role,district:district_id(${DCOLS}${extra})&user_id=eq.${enc(u.id)}`);
@@ -145,6 +150,7 @@
       if (parts[0] === 'set-password') return renderSetPassword();
       await loadContext();
       if (S.mfaFactor) return renderTwoStep();
+      if (S.mfaSetup) return await renderTwoStepSetup();
       if (parts[0] === 'staff') return await renderStaff();
       if (parts[0] === 'd' && parts[1] && parts[2] === 'welcome') return await renderWizard(parts[1], parts[3]);
       if (parts[0] === 'd' && parts[1]) return await renderDistrict(parts[1], parts[2], parts[3]);
@@ -3977,6 +3983,8 @@
     const d = c.district;
     let dom = null;
     try { dom = (await HG.db.select('district', `select=allowed_domains,domain_role&id=eq.${d.id}`))[0] || null; } catch (e) { dom = null; }
+    let req2 = null;   // part 26
+    try { const r = (await HG.db.select('district', `select=require_two_step&id=eq.${d.id}`))[0]; req2 = r ? r.require_two_step : null; } catch (e) { req2 = null; }
     const dis = c.admin ? '' : 'disabled';
     let linked = null;
     if (d.state_district_id) { try { linked = (await HG.db.select('ia_district', `select=de_district,name,aea&de_district=eq.${enc(d.state_district_id)}`))[0] || null; } catch (e) { linked = null; } }
@@ -3997,6 +4005,7 @@
           ${d.is_demo && d.state_district_id ? `<div class="notice warn">This is a made-up demo district, but it’s linked to a real Iowa district’s state number, so its peer comparisons and filled-in figures are that district’s real numbers. Clear the number and save to unlink it.</div>` : ''}
           ${c.admin ? `<div class="inline-form"><label class="field">Find the number by name<input data-ia-q placeholder="for example, Ames" autocomplete="off"></label><button type="button" class="btn" data-action="iaSearch">Find</button></div><div data-ia-results></div>` : ''}
           <p class="small muted">Link id: <b>${esc(d.slug)}</b> (set when the district is created)</p>
+          ${req2 === null ? '' : `<p class="small muted">Two-step sign-in: <b>${req2 ? 'required for everyone in this district' : 'optional here'}</b>. ${c.staff ? 'Change it on the Willow Holler page.' : 'Willow Holler sets this; email support@willowholler.com to change it.'}</p>`}
           ${c.admin ? '<div><button class="btn primary" type="submit">Save changes</button></div>' : '<p class="small muted">Only a district admin can change these.</p>'}
         </form></div>
       <div class="card"><h3>Logo</h3>
@@ -4097,6 +4106,9 @@
         </form></div>
       <div class="card"><h3>Two-step sign-in</h3>${(() => {
         const on = ((S.user && S.user.factors) || []).find((x) => x.status === 'verified');
+        if (on && S.mfaRequired) return `<p><b>On, and required for your account.</b> After your password, HighGround asks for a code from your authenticator app.</p>
+            <div class="row"><button type="button" class="btn" data-action="mfaOn" data-replace="${esc(on.id)}">Move to a new phone</button></div>
+            <p class="small muted">Lost your phone? Email <a href="mailto:support@willowholler.com">support@willowholler.com</a> and we’ll reset it.</p>`;
         return on ? `<p><b>On.</b> After your password, HighGround asks for a code from your authenticator app.</p>
             <button type="button" class="btn danger" data-action="mfaOff" data-id="${esc(on.id)}">Turn it off</button>`
           : `<p>After your password, HighGround will also ask for a 6-digit code from an authenticator app on your phone (Google Authenticator, Microsoft Authenticator, 1Password and similar).</p>
@@ -4259,7 +4271,8 @@
   }
   async function renderStaff() {
     S.district = null; S.role = null;
-    const [rows, health] = await Promise.all([HG.db.select('district', 'select=id,slug,name,state,is_demo,public_link_enabled,logo_path,created_at&order=name'),
+    const SCOLS = 'id,slug,name,state,is_demo,public_link_enabled,logo_path,created_at';
+    const [rows, health] = await Promise.all([HG.db.select('district', `select=${SCOLS},require_two_step&order=name`).catch(() => HG.db.select('district', `select=${SCOLS}&order=name`)),
       HG.db.select('hg_health_run', 'select=ran_at,status,n_ok,n_warn,n_fail,checks,emailed&order=ran_at.desc&limit=14').catch(() => null)]);
     S.staffDistricts = rows;
     frame({ slug: null, sectionId: 'staff', body: `
@@ -4270,6 +4283,7 @@
         { label: 'District', html: (r) => `<a href="#/d/${enc(r.slug)}/home/today">${esc(r.name)}</a>` },
         { label: 'Link id', get: (r) => r.slug }, { label: 'State', get: (r) => r.state },
         { label: 'Demo', get: (r) => (r.is_demo ? 'Demo' : '') }, { label: 'Created', get: (r) => day(r.created_at) },
+        { label: 'Two-step sign-in', html: (r) => (r.require_two_step === undefined ? '' : `<button type="button" class="btn small" data-action="toggleTwoStep" data-id="${esc(r.id)}" data-on="${r.require_two_step ? 1 : 0}" title="${r.require_two_step ? 'Everyone in this district must use it. Click to make it optional.' : 'Optional here. Click to require it.'}">${r.require_two_step ? 'Required' : 'Optional'}</button>`) },
         { label: '', html: (r) => `<button type="button" class="btn small danger" data-action="deleteDistrictAsk" data-id="${esc(r.id)}">Delete…</button>` },
       ], rows, 'No districts yet. Add the first one below; start with a fictional demo district.')}</div>
       ${demoLoaderHtml(rows)}
@@ -4783,6 +4797,28 @@
         <button class="btn primary" type="submit">Continue</button></form>
       <div class="links"><a href="#" data-action="signOut">Sign out</a></div>`);
   }
+  /* a fresh authenticator-app factor, with any half-finished ones cleared away first */
+  async function newFactor() {
+    for (const f of ((S.user && S.user.factors) || []).filter((x) => x.status !== 'verified')) { try { await HG.auth.mfa.unenroll(f.id); } catch (e) { /* stale */ } }
+    const e = await HG.auth.mfa.enroll();
+    const qr = e.totp && e.totp.qr_code ? (String(e.totp.qr_code).startsWith('data:') ? e.totp.qr_code : 'data:image/svg+xml;utf8,' + encodeURIComponent(e.totp.qr_code)) : '';
+    return { id: e.id, qr, secret: (e.totp && e.totp.secret) || '' };
+  }
+  const factorSteps = (e) => `<p>1. In an authenticator app on your phone (Google Authenticator, Microsoft Authenticator, 1Password and similar), add an account by scanning this code.</p>
+        ${e.qr ? `<img src="${esc(e.qr)}" alt="QR code for your authenticator app" width="200" height="200" style="background:#fff;padding:8px;border:1px solid var(--border);border-radius:8px">` : ''}
+        <p class="small muted">Can’t scan? Enter this key instead: <code>${esc(e.secret)}</code></p>
+        <label class="field">2. Enter the 6-digit code it shows<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>`;
+  /* required but not set up yet: nothing else opens until it's done */
+  async function renderTwoStepSetup() {
+    const e = await newFactor();
+    authFrame(`<h1>Set up two-step sign-in</h1>
+      <p>HighGround requires two-step sign-in for your account. After your password, you’ll also enter a code from your phone. It takes about a minute, once.</p>
+      <form class="stack" data-form="twoStepSetup" data-id="${esc(e.id)}">
+        ${factorSteps(e)}
+        <button class="btn primary" type="submit">Turn it on and continue</button></form>
+      <p class="small muted">Lost your phone later? Email <a href="mailto:support@willowholler.com">support@willowholler.com</a> and we’ll reset it.</p>
+      <div class="links"><a href="#" data-action="signOut">Sign out</a></div>`);
+  }
   function renderSetPassword() {
     authFrame(`<h1>Choose a new password</h1>
       <form class="stack" data-form="setPassword">
@@ -5012,17 +5048,19 @@
       await HG.db.update('access_request', `id=eq.${enc(el.dataset.id)}`, { status: 'declined', decided_by: S.user.id, decided_at: new Date().toISOString() });
       toast('Declined'); here();
     },
-    async mfaOn() {
-      for (const f of ((S.user && S.user.factors) || []).filter((x) => x.status !== 'verified')) { try { await HG.auth.mfa.unenroll(f.id); } catch (e) { /* stale */ } }
-      const e = await HG.auth.mfa.enroll();
-      const qr = e.totp && e.totp.qr_code ? (String(e.totp.qr_code).startsWith('data:') ? e.totp.qr_code : 'data:image/svg+xml;utf8,' + encodeURIComponent(e.totp.qr_code)) : '';
-      modal(`<form class="stack" data-form="mfaConfirm" data-id="${esc(e.id)}">
-        <div class="row" style="justify-content:space-between"><h2 id="modal-title">Turn on two-step sign-in</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
-        <p>1. In your authenticator app, add an account by scanning this code.</p>
-        ${qr ? `<img src="${esc(qr)}" alt="QR code for your authenticator app" width="200" height="200" style="background:#fff;padding:8px;border:1px solid var(--border);border-radius:8px">` : ''}
-        <p class="small muted">Can’t scan? Enter this key instead: <code>${esc((e.totp && e.totp.secret) || '')}</code></p>
-        <label class="field">2. Enter the 6-digit code it shows<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
-        <div class="row"><button type="submit" class="btn primary">Turn it on</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
+    async mfaOn(el) {
+      const old = el && el.dataset.replace, e = await newFactor();
+      modal(`<form class="stack" data-form="mfaConfirm" data-id="${esc(e.id)}" ${old ? `data-replace="${esc(old)}"` : ''}>
+        <div class="row" style="justify-content:space-between"><h2 id="modal-title">${old ? 'Move two-step sign-in to a new phone' : 'Turn on two-step sign-in'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+        ${factorSteps(e)}
+        ${old ? '<p class="small muted">Once the new phone’s code works, the old phone stops working.</p>' : ''}
+        <div class="row"><button type="submit" class="btn primary">${old ? 'Switch to this phone' : 'Turn it on'}</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
+    },
+    async toggleTwoStep(el) {
+      const on = el.dataset.on === '1', d = (S.staffDistricts || []).find((x) => x.id === el.dataset.id) || {};
+      if (on && !confirm(`Make two-step sign-in optional for ${d.name || 'this district'}?${d.is_demo ? '' : ' This is a real district: its people could then sign in with only a password.'}`)) return;
+      await HG.db.update('district', `id=eq.${enc(el.dataset.id)}`, { require_two_step: !on });
+      flash = `Two-step sign-in is now ${on ? 'optional' : 'required'} for ${d.name || 'the district'}.`; renderStaff();
     },
     async mfaOff(el) {
       if (!confirm('Turn off two-step sign-in? Signing in will need only your password.')) return;
@@ -5161,7 +5199,17 @@
     async saveRecord(f, form) { await saveRecord(f, form); },
     async saveSet(f, form) { await saveSet(f, form); },
     async twoStep(f) { await HG.auth.mfa.verify(S.mfaFactor, f.code); S.mfaFactor = null; S.loaded = false; document.getElementById('toasts').innerHTML = ''; go('#/'); },
-    async mfaConfirm(f, form) { await HG.auth.mfa.verify(form.dataset.id, f.code); closeModal(); await loadContext(true); toast('Two-step sign-in is on', 'From now on you’ll enter a code after your password.'); here(); },
+    async mfaConfirm(f, form) {
+      await HG.auth.mfa.verify(form.dataset.id, f.code);
+      if (form.dataset.replace) { try { await HG.auth.mfa.unenroll(form.dataset.replace); } catch (e) { /* the new phone works either way */ } }
+      closeModal(); await loadContext(true);
+      toast(form.dataset.replace ? 'Moved to the new phone' : 'Two-step sign-in is on', form.dataset.replace ? 'Use the new phone’s code from now on.' : 'From now on you’ll enter a code after your password.'); here();
+    },
+    async twoStepSetup(f, form) {
+      await HG.auth.mfa.verify(form.dataset.id, f.code);
+      S.mfaSetup = false; S.loaded = false; document.getElementById('toasts').innerHTML = '';
+      go('#/', 'Two-step sign-in is on. Next time, enter the code from your phone after your password.');
+    },
     async requestAccess(f, form) {
       const r = await HG.db.rpc('request_access', { p_slug: f.slug.trim(), p_message: (f.message || '').trim() });
       if (r === 'member') { await loadContext(true); return go('#/'); }
@@ -5234,7 +5282,10 @@
       form.reset(); await sendInvite(inv.id, email); here();
     },
     async createDistrict(f) {
-      const [d] = await HG.db.insert('district', { name: f.name.trim(), short_name: f.short_name.trim() || null, slug: f.slug.trim(), is_demo: !!f.is_demo });
+      const row = { name: f.name.trim(), short_name: f.short_name.trim() || null, slug: f.slug.trim(), is_demo: !!f.is_demo };
+      // two-step sign-in required for real districts; demo districts start without it (part 26)
+      const [d] = await HG.db.insert('district', { ...row, require_two_step: !f.is_demo })
+        .catch((e) => { if (/require_two_step/.test(e.message)) return HG.db.insert('district', row); throw e; });
       if (f.admin_email && f.admin_email.trim()) {
         await HG.db.insert('invitation', { district_id: d.id, email: f.admin_email.trim().toLowerCase(), role: 'admin' });
       }
