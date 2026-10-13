@@ -107,7 +107,7 @@
       balances: { asOf: '', save: null, ppel: null, vppel: 0, grants: 0 },
       save: { receipts: null, ongoing: 0, trend: 0, sf2472: true, receiptsFY: null },
       ppel: { receipts: null, ongoing: 0, growth: 0.03, valuation: null, rate: null, actualValuation: null, goOutstanding: null },
-      vppel: { status: 'none', annual: 0, firstFY: null, lastFY: null },
+      vppel: { status: 'none', annual: 0, ongoing: 0, firstFY: null, lastFY: null },
       grants: { avg: 0, yield: 0.75 },
       debt: [],
       inflation: 0,
@@ -148,7 +148,7 @@
       open: { save: num(s.balances.save, 0), ppel: num(s.balances.ppel, 0), vppel: num(s.balances.vppel, 0), grants: num(s.balances.grants, 0) },
       saveInc: num(s.save.receipts, 0), saveOng: num(s.save.ongoing, 0), saveFY: num(s.save.receiptsFY, null),
       ppelInc: num(s.ppel.receipts, 0), ppelOng: num(s.ppel.ongoing, 0),
-      vStatus: v.status, vAnnual: num(v.annual, 0),
+      vStatus: v.status, vAnnual: num(v.annual, 0), vppelOng: num(v.ongoing, 0),
       vFirst: num(v.firstFY, start), vLast: num(v.lastFY, start + n - 1),
       grantAvg: num(s.grants.avg, 0),
       /* a debt with no final year is treated as running to the end of the plan (it used to be dropped) */
@@ -269,7 +269,8 @@
     if (bucket === 'ppel') return (cfg.ppelInc * Math.pow(1 + L.pg, y) - cfg.ppelOng - finPay(cfg, 'ppel', y, L) - recurIn(cfg, 'ppel', y, L)) * f - debtDue(cfg, 'ppel', y);
     if (bucket === 'vppel') {
       const fy = cfg.start + y;
-      return ((cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast) ? cfg.vAnnual : 0) * f - recurIn(cfg, 'vppel', y, L) * f;
+      /* ongoing V-PPEL commitments (devices, buses the ballot names) come out only in the years the levy is collected */
+      return ((cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast) ? cfg.vAnnual - (cfg.vppelOng || 0) : 0) * f - recurIn(cfg, 'vppel', y, L) * f;
     }
     if (bucket === 'grants') return (cfg.grantAvg * L.gy - recurIn(cfg, 'grants', y, L)) * f;
     return 0;
@@ -388,9 +389,9 @@
   }
 
   return {
-    VERSION: '2026-10-10c',
+    VERSION: '2026-10-13d',
     BUCKETS, BUCKET_NAMES, CAP_ORDER, PRI_LIST, SF2472_CUT, LEGAL_YEARLY, LEGAL_TYPE,
     fyOfDate, firstYearFraction, normSettings, makeConfig, defaultLevers, leversOf, cleanFin,
-    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, debtIn, debtDue, finPay, compute, pmt, sfCut, saveBondCapacity, goDebtRoom, legality, checkLegal,
+    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, debtIn, debtDue, finPay, inflow, compute, pmt, sfCut, saveBondCapacity, goDebtRoom, legality, checkLegal,
   };
 });

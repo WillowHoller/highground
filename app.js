@@ -589,7 +589,7 @@
       /* filled from the state's data without a field of their own here; all are on Settings → Starting numbers */
       const hiddenState = [['save_trend', pctOf(s0.save_trend)], ['ppel_growth', pctOf(s0.ppel_growth)], ['taxable_valuation', s0.taxable_valuation == null ? null : moneyIn(s0.taxable_valuation)],
         ['actual_valuation', s0.actual_valuation == null ? null : moneyIn(s0.actual_valuation)], ['save_ongoing', s0.save_ongoing ? moneyIn(s0.save_ongoing) : null],
-        ['ppel_ongoing', s0.ppel_ongoing ? moneyIn(s0.ppel_ongoing) : null], ['grants_avg', s0.grants_avg ? moneyIn(s0.grants_avg) : null],
+        ['ppel_ongoing', s0.ppel_ongoing ? moneyIn(s0.ppel_ongoing) : null], ['vppel_ongoing', s0.vppel_ongoing ? moneyIn(s0.vppel_ongoing) : null], ['grants_avg', s0.grants_avg ? moneyIn(s0.grants_avg) : null],
         ['tax_home_value', s0.tax_home_value ? moneyIn(s0.tax_home_value) : null], ['construction_inflation', pctOf(s0.construction_inflation)]]
         .map(([n, mine]) => [n, mine != null && mine !== '' ? mine : sv[n]]).filter(([, v]) => v != null && v !== '');
       const f = (n, l, v, h) => `<label class="field">${esc(l)}<input name="${n}" inputmode="decimal" value="${esc(v == null ? '' : v)}">${h ? `<span class="hint">${esc(h)}</span>` : ''}</label>`;
@@ -1937,6 +1937,45 @@
     const a = h[0], b = h[h.length - 1], g = Math.pow(Number(b.amount) / Number(a.amount), 1 / (b.fy - a.fy)) - 1;
     return { pct: Math.max(-0.1, Math.min(0.1, g)), from: a.fy, to: b.fy };
   }
+  /* ongoing commitments: typical shares of each fund's receipts, used for hints and checks (rules of thumb, not law) */
+  const ONGOING_TYPICAL = { save: { lo: 0.10, hi: 0.25, label: 'SAVE', uses: 'technology, equipment and recurring maintenance' },
+    ppel: { lo: 0.50, hi: 0.90, label: 'PPEL', uses: 'buses, devices, equipment and repairs' },
+    vppel: { lo: 0.20, hi: 0.60, label: 'V-PPEL', uses: 'whatever the ballot measure names, often devices or buses' } };
+  const pctWhole = (p) => `${Math.round(p * 100)}%`;
+  /**
+   * Ongoing SAVE / PPEL / V-PPEL spending from the state's annual reports: the last three years' average of each fund's spending,
+   * leaving out construction, debt and transfers (part 19). The annual report has one PPEL fund, so PPEL's figure is split between
+   * PPEL and V-PPEL by the two levy rates, like the balance and receipts. pct = the share of that fund's receipts.
+   * -> [{ fund, field, label, amount, pct, from, to }]
+   */
+  function ongoingFromState(st) {
+    const on = (st && st.more && st.more.car && st.more.car.ongoing) || {}, R2 = (st && st.receipts) || {}, sp = ppelSplit(st), out = [];
+    const lv = st && st.levy, reg = lv ? Number(lv.regular_ppel || 0) : 0, vot = lv ? Number(lv.voted_ppel || 0) : 0, share = vot > 0 && reg + vot > 0 ? vot / (reg + vot) : 0;
+    const add = (fund, amount, receipts, x) => out.push({ fund, field: fund + '_ongoing', label: ONGOING_TYPICAL[fund].label, amount: Math.round(Math.max(0, amount)),
+      pct: receipts > 0 ? Math.max(0, amount) / receipts : null, from: x.from_fy, to: x.to_fy });
+    if (on.save && on.save.recurring != null) add('save', Number(on.save.recurring), Number(R2.save), on.save);
+    if (on.ppel && on.ppel.recurring != null) {
+      const tot = Number(on.ppel.recurring);
+      add('ppel', tot * (1 - share), sp.regular == null ? null : Number(sp.regular), on.ppel);
+      if (share) add('vppel', tot * share, sp.voted == null ? null : Number(sp.voted), on.ppel);
+    }
+    return out;
+  }
+  /** "That's 16% of SAVE receipts; districts typically spend 10–25% …" for the hint under an ongoing field */
+  function ongoingHint(fund, ongoing, receipts) {
+    const T = ONGOING_TYPICAL[fund]; if (!T) return '';
+    const typ = `Typical: ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}% of ${T.label} receipts (${T.uses}).`;
+    if (!(receipts > 0) || ongoing == null || isNaN(ongoing)) return typ;
+    return `That’s ${pctWhole(ongoing / receipts)} of ${T.label} receipts. ${typ}`;
+  }
+  /** keep every ongoing field's hint in step with what's typed */
+  function updateOngoingHints(form) {
+    if (!form) return;
+    [['save', 'save_receipts'], ['ppel', 'ppel_receipts'], ['vppel', 'vppel_annual']].forEach(([k, rn]) => {
+      const h = form.querySelector(`[data-ongoing-hint="${k}"]`), oe = form.querySelector(`[name="${k}_ongoing"]`), re = form.querySelector(`[name="${rn}"]`);
+      if (h && oe) h.textContent = ongoingHint(k, toNum(oe.value), re ? toNum(re.value) : null);
+    });
+  }
   /**
    * The state's figures as Starting numbers form values: { values: {field: form text}, debts: [{fund, name, annual}], list: [[label, shown]] }.
    * Regular and voted PPEL share one fund in the annual report: receipts and the balance are split by the two levy rates.
@@ -1972,9 +2011,8 @@
       list.push([`Example home: the district’s median home value (Census Bureau, ${HV.acs_year - 4}–${HV.acs_year})`, '$' + o.tax_home_value]); }
     if (CI && CI.value != null) { const v = Math.max(0, Math.min(0.15, Number(CI.value))); o.construction_inflation = pctIn(v);
       list.push(['Construction inflation (school construction prices, last three years)', `${pctIn(v)}% a year`]); }
-    const on = (M.car && M.car.ongoing) || {};
-    ['save', 'ppel'].forEach((k) => { const x = on[k]; if (x && x.recurring != null) { o[k + '_ongoing'] = mi(Math.max(0, x.recurring));
-      list.push([`Ongoing ${k === 'save' ? 'SAVE' : 'PPEL'} spending (average FY${x.from_fy}–FY${x.to_fy}, leaving out construction and debt)`, '$' + mi(Math.max(0, x.recurring)) + ' a year']); } });
+    ongoingFromState(st).forEach((x) => { o[x.field] = mi(x.amount);
+      list.push([`Ongoing ${x.label} spending (average FY${x.from}–FY${x.to}, leaving out construction and debt)`, '$' + mi(x.amount) + ' a year' + (x.pct != null ? `, about ${pctWhole(x.pct)} of ${x.label} receipts` : '')]); });
     const ga = grantsAvg(M, grantYears || 5);
     if (ga) { o.grants_avg = mi(ga.avg); list.push([`Gifts and grants to the capital funds (average FY${ga.from}–FY${ga.to})`, '$' + mi(ga.avg) + ' a year']); }
     const dp = (M.car && M.car.debt_payments) || {}, DN = { save: ['save', 'SAVE revenue bonds'], ppel: ['ppel', 'PPEL leases or bonds'], debt: ['debt_levy', 'General-obligation bonds'] };
@@ -4328,6 +4366,13 @@
       const per = sr / en, ratio = per / SAVE_PER_STUDENT.amount;
       if (ratio < 0.8 || ratio > 1.2) warn.push(`SAVE receipts work out to $${Math.round(per).toLocaleString()} per student; SAVE is shared statewide at about $${SAVE_PER_STUDENT.amount.toLocaleString()} per student (FY${SAVE_PER_STUDENT.fy}). Check the receipts and the certified enrollment.`);
     }
+    /* ongoing commitments far from what districts usually spend: the funds look emptier or fuller than they are */
+    [['save', sr, 'save_ongoing'], ['ppel', pr, 'ppel_ongoing'], ['vppel', vst !== 'none' ? num('vppel_annual') : null, 'vppel_ongoing']].forEach(([k, rec, n]) => {
+      const T = ONGOING_TYPICAL[k], og = num(n); if (!(rec > 0) || og == null || isNaN(og)) return;
+      const p = og / rec;
+      if (p > 1) warn.push(`Ongoing ${T.label} commitments ($${Math.round(og).toLocaleString()}) are more than ${T.label} receipts. Check both figures.`);
+      else if (p < T.lo / 2) tip.push(`Ongoing ${T.label} commitments are ${pctWhole(p)} of receipts; districts typically spend ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}% on ${T.uses} every year. If these purchases aren’t listed as initiatives, the plan will show more ${T.label} money free than there really is.`);
+    });
     if (sr > 0 && !val('save_receipts_fy')) warn.push('Say which fiscal year the SAVE receipts are for. The SF 2472 reduction is scaled from that year; without it, HighGround assumes the year before the plan starts.');
     if (!form.querySelectorAll('[data-debt-body] [data-debt-row]').length) tip.push('No existing debt entered. If the district has SAVE revenue bonds, PPEL loans or lease-purchases, add them; otherwise the plan overstates what SAVE and PPEL can pay for.');
     const asOf = val('as_of');
@@ -4340,6 +4385,7 @@
     return { warn, tip };
   }
   function renderSetupChecks(form) {
+    updateOngoingHints(form);
     const box = form.querySelector('[data-setup-checks]'); if (!box) return;
     const { warn, tip } = setupChecks(form);
     box.hidden = !warn.length && !tip.length;
@@ -4374,8 +4420,7 @@
     if (V && V.actual) rows.push([`Actual (100%) valuation, FY${V.fiscal_year}`, Number(V.actual), s.actual_valuation]);
     if (V && V.growth != null) rows.push([`Taxable valuation growth a year, FY${V.fiscal_year - V.growth_years}–FY${V.fiscal_year}`, Number(V.growth), s.ppel_growth, pf]);
     if (tr) rows.push([`SAVE receipts trend a year, FY${tr.from}–FY${tr.to}`, tr.pct, s.save_trend, pf]);
-    if (on.save) rows.push([`Ongoing SAVE spending a year (average FY${on.save.from_fy}–FY${on.save.to_fy}, estimated)`, Math.max(0, Number(on.save.recurring)), s.save_ongoing]);
-    if (on.ppel) rows.push([`Ongoing PPEL spending a year (average FY${on.ppel.from_fy}–FY${on.ppel.to_fy}, estimated)`, Math.max(0, Number(on.ppel.recurring)), s.ppel_ongoing]);
+    ongoingFromState(st).forEach((x) => rows.push([`Ongoing ${x.label} spending a year (average FY${x.from}–FY${x.to}, estimated${x.pct != null ? `; about ${pctWhole(x.pct)} of receipts` : ''}${x.fund !== 'save' && on.ppel && ppelSplit(st).voted != null ? ', split by levy rates' : ''})`, x.amount, s[x.field]]));
     if (ga) rows.push([`Gifts and grants to the capital funds a year (average FY${ga.from}–FY${ga.to})`, ga.avg, s.grants_avg]);
     if (M.home_value && Number(M.home_value.median_value) > 0) rows.push([`Median home value (Census Bureau, ${M.home_value.acs_year - 4}–${M.home_value.acs_year})`, Number(M.home_value.median_value), s.tax_home_value]);
     if (M.construction_inflation && M.construction_inflation.value != null) rows.push(['School construction prices, yearly rise (last three years)', Number(M.construction_inflation.value), s.construction_inflation, pf]);
@@ -4399,6 +4444,10 @@
     const dis = c.finance ? '' : 'disabled';
     const f = (name, label, value, hint, kind) => `<label class="field">${esc(label)}
       <input name="${name}" ${kind === 'int' ? 'inputmode="numeric"' : 'inputmode="decimal"'} value="${esc(value)}" ${dis} autocomplete="off">${hint ? `<span class="hint">${esc(hint)}</span>` : ''}</label>`;
+    /* an ongoing-commitment field with a live "that's X% of receipts" hint (updateOngoingHints keeps it current) */
+    const fOng = (k, label, value, receipts, what) => `<label class="field">${esc(label)}
+      <input name="${k}_ongoing" inputmode="decimal" value="${esc(moneyIn(value || 0))}" ${dis} autocomplete="off" data-ongoing-input>
+      <span class="hint">${esc(what)} <span data-ongoing-hint="${k}">${esc(ongoingHint(k, Number(value || 0), Number(receipts) || null))}</span></span></label>`;
     const debtRow = (x) => `<tr data-debt-row data-id="${esc(x.id || '')}">
       <td><input name="debt_name" value="${esc(x.name || '')}" ${dis} aria-label="Obligation"></td>
       <td><select name="debt_fund" ${dis} aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}" ${x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
@@ -4460,13 +4509,13 @@
         <div class="card"><h3>SAVE (Secure an Advanced Vision for Education)</h3><div class="fgrid">
           ${f('save_receipts', 'SAVE receipts per year, $', moneyIn(s.save_receipts), 'A full year’s receipts, from the general ledger or the audit')}
           ${f('save_receipts_fy', 'Those receipts are for fiscal year', s.save_receipts_fy || '', 'For example 2026', 'int')}
-          ${f('save_ongoing', 'Ongoing SAVE commitments per year, $', moneyIn(s.save_ongoing || 0), 'Yearly costs already paid from SAVE, not debt')}
+          ${fOng('save', 'Ongoing SAVE commitments per year, $', s.save_ongoing, s.save_receipts, 'Yearly costs already paid from SAVE, not debt or building projects.')}
           ${f('save_trend', 'SAVE receipts trend, % a year', pctIn(s.save_trend || 0), 'Negative if receipts are falling')}
           <label class="row"><input type="checkbox" name="sf2472" ${s.sf2472 === false ? '' : 'checked'} ${dis}> Apply the SF 2472 SAVE reduction</label></div></div>
 
         <div class="card"><h3>PPEL (Physical Plant and Equipment Levy)</h3><div class="fgrid">
           ${f('ppel_receipts', 'PPEL receipts per year, $', moneyIn(s.ppel_receipts), 'From the certified budget or the general ledger')}
-          ${f('ppel_ongoing', 'Ongoing PPEL commitments per year, $', moneyIn(s.ppel_ongoing || 0))}
+          ${fOng('ppel', 'Ongoing PPEL commitments per year, $', s.ppel_ongoing, s.ppel_receipts, 'Yearly purchases already paid from PPEL, not debt or building projects.')}
           ${f('ppel_growth', 'Taxable valuation growth, % a year', pctIn(s.ppel_growth == null ? 0.03 : s.ppel_growth))}
           ${f('ppel_rate', 'PPEL rate, $ per $1,000', s.ppel_rate == null ? '' : s.ppel_rate, 'From the certified budget (Iowa Department of Management); used to check receipts')}
           ${f('taxable_valuation', 'Taxable valuation, $', moneyIn(s.taxable_valuation), 'For tax estimates: the valuation the county auditor certifies for the debt service levy')}
@@ -4480,6 +4529,7 @@
         <div class="card"><h3>V-PPEL (voter-approved PPEL)</h3><div class="fgrid">
           <label class="field">Status<select name="vppel_status" ${dis}>${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s.vppel_status || 'none') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           ${f('vppel_annual', 'V-PPEL receipts per year, $', moneyIn(s.vppel_annual))}
+          ${fOng('vppel', 'Ongoing V-PPEL commitments per year, $', s.vppel_ongoing, s.vppel_annual, 'Yearly purchases the vote pays for, taken out only in the years it’s collected.')}
           ${f('vppel_first_fy', 'First fiscal year', s.vppel_first_fy || '', '', 'int')}
           ${f('vppel_last_fy', 'Last fiscal year', s.vppel_last_fy || '', 'Up to 10 years after the first', 'int')}</div></div>
 
@@ -4526,6 +4576,7 @@
       go_outstanding: money('go_outstanding', 'General-obligation debt outstanding'),
       vppel_status: v('vppel_status') || 'none',
       vppel_annual: money('vppel_annual', 'V-PPEL receipts'),
+      vppel_ongoing: money('vppel_ongoing', 'Ongoing V-PPEL commitments') || 0,
       vppel_first_fy: intv('vppel_first_fy', 'V-PPEL first year', 2000, 2100),
       vppel_last_fy: intv('vppel_last_fy', 'V-PPEL last year', 2000, 2100),
       grants_avg: money('grants_avg', 'Average grants') || 0,

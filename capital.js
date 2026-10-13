@@ -37,7 +37,7 @@
         save: { receipts: n(s.save_receipts, null), ongoing: n(s.save_ongoing, 0), trend: n(s.save_trend, 0), sf2472: s.sf2472 !== false, receiptsFY: n(s.save_receipts_fy, null) },
         ppel: { receipts: n(s.ppel_receipts, null), ongoing: n(s.ppel_ongoing, 0), growth: n(s.ppel_growth, 0.03), valuation: n(s.taxable_valuation, null),
                 rate: n(s.ppel_rate, null), actualValuation: n(s.actual_valuation, null), goOutstanding: n(s.go_outstanding, null) },
-        vppel: { status: s.vppel_status || 'none', annual: n(s.vppel_annual, 0), firstFY: n(s.vppel_first_fy, null), lastFY: n(s.vppel_last_fy, null) },
+        vppel: { status: s.vppel_status || 'none', annual: n(s.vppel_annual, 0), ongoing: n(s.vppel_ongoing, 0), firstFY: n(s.vppel_first_fy, null), lastFY: n(s.vppel_last_fy, null) },
         grants: { avg: n(s.grants_avg, 0), yield: n(s.grants_yield, 0.75) },
         debt: capDebts.map((d) => ({ name: d.name, fund: d.fund, annual: n(d.annual_payment, 0), lastFY: n(d.final_fy, null), timing: d.first_year_timing || 'spread' })),
         inflation: n(s.construction_inflation, 0),
@@ -164,7 +164,7 @@
       save_receipts: s.save.receipts, save_receipts_fy: s.save.receiptsFY, save_ongoing: s.save.ongoing, save_trend: s.save.trend, sf2472: s.save.sf2472 !== false,
       ppel_receipts: s.ppel.receipts, ppel_ongoing: s.ppel.ongoing, ppel_growth: s.ppel.growth, ppel_rate: s.ppel.rate,
       taxable_valuation: s.ppel.valuation, actual_valuation: s.ppel.actualValuation, go_outstanding: s.ppel.goOutstanding,
-      vppel_status: s.vppel.status, vppel_annual: s.vppel.annual, vppel_first_fy: s.vppel.firstFY, vppel_last_fy: s.vppel.lastFY,
+      vppel_status: s.vppel.status, vppel_annual: s.vppel.annual, vppel_ongoing: s.vppel.ongoing || 0, vppel_first_fy: s.vppel.firstFY, vppel_last_fy: s.vppel.lastFY,
       grants_avg: s.grants.avg, grants_yield: s.grants.yield, construction_inflation: s.inflation,
       ...(s.tax ? { tax_home_value: s.tax.homeValue, ag_value_per_acre: s.tax.agPerAcre } : {}),
       ...(s.gf ? { gf_inputs: s.gf } : {}),
@@ -262,6 +262,7 @@
         out[b].debt += (E.debtIn(cfg, b, y) + E.finPay(cfg, b, y, L)) * f;
         out[b].ongoing += (b === 'save' ? cfg.saveOng : cfg.ppelOng) * f;
       });
+      if (out.vppel && cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast) out.vppel.ongoing += (cfg.vppelOng || 0) * f;
       CAP_FUNDS.forEach((b) => { out[b].yearly += E.recurIn(cfg, b, y, L) * f; });
     });
     return out;

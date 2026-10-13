@@ -17,7 +17,7 @@ Roles: **admin** (people, settings, publishing, unlocking), **business_manager**
 ## Plan inputs
 | Table | Holds |
 |---|---|
-| district_settings | The engine's settings: SAVE, PPEL, V-PPEL, grants, valuation, inflation, plan years |
+| district_settings | The engine's settings: SAVE, PPEL, V-PPEL, grants, valuation, inflation, plan years. Ongoing (non-project, non-debt) commitments: `save_ongoing`, `ppel_ongoing`, `vppel_ongoing` (part 27) |
 | fund_balance | Balances by fund and date: typed in, uploaded, or refreshed from a GL import |
 | debt_obligation | Existing SAVE / PPEL / debt-levy payments and final year |
 | assumption_set | Base / Conservative / Growth assumptions (capital now; general-fund fields ready for later) |

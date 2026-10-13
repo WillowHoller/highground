@@ -1700,8 +1700,16 @@ async def main():
     n1=len(calls); await pg.click("button[data-action=setupPrefill]"); await pg.wait_for_timeout(200)
     vals=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["as_of","bal_save","bal_ppel","enrollment","enrollment_year","save_receipts","save_receipts_fy","ppel_receipts","ppel_rate","vppel_status","vppel_annual"]]
     check("starting numbers: Fill in sets the form, nothing saved (PPEL balance split by the two rates)", vals==["2025-06-30","1,900,000","126,467","1188","2025-26","1,450,000","2025","102,754","0.33","active","417,246"] and not [c for c in calls[n1:] if c[0] in("POST","PATCH")], str(vals))
-    more=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["bal_vppel","taxable_valuation","actual_valuation","ppel_growth","save_trend","save_ongoing","ppel_ongoing","grants_avg","vppel_first_fy","vppel_last_fy"]]
-    check("starting numbers: Fill in also sets valuations, growth, SAVE trend, ongoing spending, grants (5 years) and the V-PPEL years", more==["513,533","727,000,000","1,250,000,000","3.1","2.77","180,000","95,000","46,000","2022","2031"], str(more))
+    more=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["bal_vppel","taxable_valuation","actual_valuation","ppel_growth","save_trend","save_ongoing","ppel_ongoing","vppel_ongoing","grants_avg","vppel_first_fy","vppel_last_fy"]]
+    check("starting numbers: Fill in also sets valuations, growth, SAVE trend, ongoing spending (PPEL's split by the two rates), grants (5 years) and the V-PPEL years", more==["513,533","727,000,000","1,250,000,000","3.1","2.77","180,000","18,772","76,228","46,000","2022","2031"], str(more))
+    hints=await pg.evaluate("Object.fromEntries([...document.querySelectorAll('form[data-form=saveSetup] [data-ongoing-hint]')].map(h=>[h.dataset.ongoingHint,h.textContent]))")
+    check("ongoing commitments: each field shows its share of receipts and the typical range", "12% of SAVE receipts" in hints.get("save","") and "10–25%" in hints.get("save","") and "18% of PPEL receipts" in hints.get("ppel","") and "18% of V-PPEL receipts" in hints.get("vppel",""), str(hints))
+    tips=await pg.inner_text("form[data-form=saveSetup] [data-setup-checks]")
+    check("ongoing commitments: a PPEL share far below what districts spend gets a second-look tip; SAVE in range doesn't", "Ongoing PPEL commitments are 18% of receipts" in tips and "Ongoing SAVE commitments are" not in tips, tips[:400])
+    await pg.fill("form[data-form=saveSetup] [name=save_ongoing]","290,000"); await pg.wait_for_timeout(100)
+    h2=await pg.inner_text("form[data-form=saveSetup] [data-ongoing-hint=save]")
+    check("ongoing commitments: the share updates as you type", "20% of SAVE receipts" in h2, h2)
+    await pg.fill("form[data-form=saveSetup] [name=save_ongoing]","180,000")
     dfunds=await pg.evaluate("[...document.querySelectorAll('form[data-form=saveSetup] [data-debt-body] [data-debt-row]')].map(tr=>tr.querySelector('[name=debt_fund]').value+':'+tr.querySelector('[name=debt_annual]').value)")
     check("starting numbers: debt payments from the annual report fill funds that have no row yet", dfunds.count("debt_levy:295,000")==1 and sum(1 for x in dfunds if x.startswith("save:"))>=1, str(dfunds))
     stt2=await pg.inner_text("[data-setup-state]")
