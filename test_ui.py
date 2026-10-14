@@ -1056,6 +1056,11 @@ async def main():
     check("decisions editor: for an initiative already in plans, “Details only” says its costs stay put (it doesn't take it out)", "leave its costs in" in o0 and "not in a plan yet" not in o0, o0)
     await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
     check("decisions editor: an unlocked scenario it's in offers “Take it out”", await pg.locator("[data-modal] button[data-action=removeProject]").count()==1 and "Take it out of" in await pg.inner_text("[data-modal] .ed-takeout"))
+    n0=len(calls); await pg.click("[data-modal] button[data-action=deleteInitiative]"); await pg.wait_for_timeout(700)
+    dl=[c for c in calls[n0:] if c[0]=="DELETE" and c[1].split("?")[0]=="/rest/v1/initiative"]
+    check("delete an initiative: after a confirmation, it's deleted everywhere (one call; the database removes its phases and costs)", len(dl)==1 and ("id=eq."+_init0) in urllib.parse.unquote(dl[0][1]) and "Deleted" in await pg.inner_text("#toasts"), str(dl))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(500)
+    await pg.click("a[data-action=editInitiative]:has-text('Middle school HVAC')"); await pg.wait_for_timeout(400)
     n0=len(calls); await pg.click("[data-modal] button[data-action=pkFromEditor]"); await pg.wait_for_timeout(1000)
     pk2=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/report_snapshot"]
     check("decision packet: one click from the initiative on Decisions", pk2 and pk2[0]["payload"]["initiative"]["name"]=="Middle school HVAC replacement" and "/share/board" in pg.url)

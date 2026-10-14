@@ -1347,10 +1347,18 @@
   }
   const RK = { key: null, sid: null };
   /* ---- the year-by-year funding line (schedule.js): who waits, by how long, and what's still short ---- */
+  /** years as short runs: [2027…2036] -> "FY2027–FY2036 (every year)", [2027, 2029, 2031] -> "FY2027, FY2029, FY2031", duplicates dropped */
+  function fyRuns(list) {
+    const ys = [...new Set((list || []).map(Number))].sort((a, b) => a - b); if (!ys.length) return '';
+    const runs = []; ys.forEach((y) => { const r = runs[runs.length - 1]; if (r && y === r[1] + 1) r[1] = y; else runs.push([y, y]); });
+    if (runs.length === 1 && runs[0][1] - runs[0][0] >= 2) return `FY${runs[0][0]}–FY${runs[0][1]} (every year)`;
+    const parts = runs.map(([a, b]) => (a === b ? `FY${a}` : `FY${a}–FY${b}`));
+    return parts.length > 3 ? `${parts.slice(0, 2).join(', ')} and ${parts.length - 2} more` : parts.join(', ');
+  }
   function yearsTimeline(S, cfg) {
-    const yrs = cfg.years, list = S.items, labelW = 250, colW = 64, rowH = 30, top = 44, W = labelW + yrs.length * colW + 10, H = top + list.length * rowH + 8;
+    const yrs = cfg.years, list = S.items, labelW = 360, colW = 64, rowH = 30, top = 44, W = labelW + yrs.length * colW + 10, H = top + list.length * rowH + 8;
     const X = (fy) => labelW + (fy - cfg.start) * colW + colW / 2;
-    const ST = { 'on time': ['#2F6B4F', 'On time'], later: ['#B54708', 'Waits'], short: ['#B42318', 'Short'], outside: ['#8A948F', 'Campaign or boosters'] };
+    const ST = { 'on time': ['#2F6B4F', 'On time'], later: ['#0891B2', 'Waits'], short: ['#B42318', 'Short'], outside: ['#6A4C93', 'Campaign or boosters'] };
     const head = yrs.map((fy, i) => { const y = S.years[i]; return `<text x="${X(fy)}" y="16" font-size="12" text-anchor="middle" fill="#5A6660">FY${String(fy).slice(2)}</text>
       ${y && y.short > 0.5 ? `<text x="${X(fy)}" y="32" font-size="11" text-anchor="middle" fill="#B42318" font-weight="600">−${esc(fmtK(y.short))}</text>` : ''}`; }).join('');
     const grid = yrs.map((fy) => `<line x1="${X(fy)}" x2="${X(fy)}" y1="${top - 6}" y2="${H - 4}" stroke="#EEEAE0"/>`).join('');
@@ -1361,11 +1369,12 @@
       const marks = x.scheduled.map((fy, k) => { const from = x.planned[k];
         return `${from !== fy ? `<line x1="${X(from)}" x2="${X(fy) - 9}" y1="${y}" y2="${y}" stroke="${color}" stroke-width="2" stroke-dasharray="3 3"/><circle cx="${X(from)}" cy="${y}" r="6" fill="#fff" stroke="${color}" stroke-width="2"><title>${esc(x.name)}: planned FY${from}</title></circle>` : ''}
           <rect x="${X(fy) - 9}" y="${y - 9}" width="18" height="18" rx="4" fill="${color}"><title>${esc(x.name)}: ${esc(word.toLowerCase())}, FY${fy}${from !== fy ? ` (planned FY${from})` : ''}${x.needBy ? `; needed by FY${x.needBy}` : ''}</title></rect>`; }).join('');
-      return `<text x="8" y="${y + 4}" font-size="13" fill="#1C2A24">${esc(x.name.length > 34 ? x.name.slice(0, 33) + '…' : x.name)}</text>
-        <text x="${labelW - 10}" y="${y + 4}" font-size="11" text-anchor="end" fill="${late ? '#B42318' : x.status === 'on time' || x.status === 'outside' ? '#5A6660' : color}">${x.status === 'short' ? 'short' : late ? 'after it’s needed' : x.status === 'later' ? `waits ${x.slip} yr${x.slip === 1 ? '' : 's'}` : ''}</text>${nb}${marks}`;
+      /* the name gets the left 240px, the status the 100px before the chart: they never overlap */
+      return `<text x="8" y="${y + 4}" font-size="13" fill="#1C2A24"><title>${esc(x.name)}</title>${esc(x.name.length > 31 ? x.name.slice(0, 30).trim() + '…' : x.name)}</text>
+        <text x="${labelW - 12}" y="${y + 4}" font-size="11" font-weight="600" text-anchor="end" fill="${late ? '#B42318' : x.status === 'on time' || x.status === 'outside' ? '#5A6660' : color}">${x.status === 'short' ? 'short' : late ? 'after it’s needed' : x.status === 'later' ? `waits ${x.slip} yr${x.slip === 1 ? '' : 's'}` : ''}</text>${nb}${marks}`;
     }).join('');
     return `<div class="scroll"><svg class="yrtimeline" viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${Math.min(W, 900)}px" role="img" aria-label="Each initiative by year: when it was planned, when the capital funds can pay for it, and the year it is needed by">${grid}${head}${rows}</svg></div>
-      <p class="small legend"><span><i style="background:#2F6B4F"></i>On time</span><span><i style="background:#B54708"></i>Waits (still by its needed-by year)</span><span><i style="background:#B42318"></i>Short that year</span><span><i style="background:#8A948F"></i>Campaign or boosters</span><span>○ planned year</span><span>│ needed by</span></p>`;
+      <p class="small legend"><span><i style="background:#2F6B4F"></i>On time</span><span><i style="background:#0891B2"></i>Waits (still by its needed-by year)</span><span><i style="background:#B42318"></i>Short that year</span><span><i style="background:#6A4C93"></i>Campaign or boosters</span><span>○ planned year</span><span>│ needed by</span></p>`;
   }
   /* Iowa fund rules: charges in a scenario that the law doesn't allow, or that need the business office to confirm */
   /* possibly counted twice: a repeating purchase charged to a fund that also has an ongoing commitment (HGCapital.routineOverlap) */
@@ -1402,9 +1411,19 @@
     const issues = HGEngine.checkLegal(inp.projects, inp.levers);
     if (!issues.length) return '';
     const no = issues.filter((x) => x.level === 'no'), chk = issues.filter((x) => x.level !== 'no');
-    const li = (x) => `<li>${esc(x.name || 'An initiative')}${x.what === 'yearly' ? ' (yearly cost)' : ''}: ${esc(x.text)}</li>`;
-    return `${no.length ? `<div class="notice error" data-fund-rules><b>Fund rules: ${no.length} charge${no.length === 1 ? '' : 's'} the law doesn’t allow.</b> The plan still counts ${no.length === 1 ? 'it' : 'them'}, so the money shown may not really be available. Change the fund in the initiative’s editor.<ul>${no.slice(0, 8).map(li).join('')}</ul>${no.length > 8 ? `<p class="small">and ${no.length - 8} more.</p>` : ''}</div>` : ''}
-      ${chk.length ? `<details class="fold" data-fund-rules-check><summary>${chk.length} charge${chk.length === 1 ? '' : 's'} to confirm with the business office</summary><ul class="small">${chk.slice(0, 12).map(li).join('')}</ul></details>` : ''}`;
+    /* one bullet per initiative and charge: a phase that may use PPEL or V-PPEL reads "PPEL and V-PPEL can …" once, not twice.
+       A yearly cost says which cost it is, so a building isn't mistaken for the contract that maintains it. */
+    const KIND_WORD = { contract: 'contract or subscription', other: 'yearly cost', salary: 'salary', benefits: 'benefits', supplies: 'supplies', activities: 'activities' };
+    const group = (list) => { const m = new Map(); list.forEach((x) => { const k = [x.project, x.what, x.kind || '', x.level].join('|'); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m.values()]; };
+    const li = (g) => {
+      const x = g[0], funds = [...new Set(g.map((y) => y.fund))], F = funds.map((b) => FUND_NAMES[b] || b), names = F.length > 1 ? F.slice(0, -1).join(', ') + ' and ' + F[F.length - 1] : F[0];
+      const sameCite = new Set(g.map((y) => y.text.match(/\(Iowa Code [^;)]+/) ? y.text.match(/\(Iowa Code [^;)]+/)[0] : '')).size === 1;
+      const text = funds.length > 1 && sameCite ? x.text.replace(new RegExp('^' + (FUND_NAMES[x.fund] || x.fund).replace('-', '\\-')), names) : g.map((y) => y.text).join(' ');
+      const what = x.what === 'yearly' ? ` — its ${x.amount ? fmtK(x.amount) + '-a-year ' : ''}${KIND_WORD[x.kind] || 'yearly cost'} paid from ${names} (a yearly cost, not the project itself)` : '';
+      return `<li><b>${esc(x.name || 'An initiative')}</b>${esc(what)}: ${esc(text)}</li>`;
+    };
+    return `${no.length ? `<div class="notice error" data-fund-rules><b>Fund rules: ${no.length} charge${no.length === 1 ? '' : 's'} the law doesn’t allow.</b> The plan still counts ${no.length === 1 ? 'it' : 'them'}, so the money shown may not really be available. Change the fund in the initiative’s editor.<ul>${group(no).slice(0, 8).map(li).join('')}</ul>${group(no).length > 8 ? `<p class="small">and ${group(no).length - 8} more.</p>` : ''}</div>` : ''}
+      ${chk.length ? `<details class="fold" data-fund-rules-check><summary>${group(chk).length} charge${group(chk).length === 1 ? '' : 's'} to confirm with the business office</summary><ul class="small">${group(chk).slice(0, 12).map(li).join('')}</ul></details>` : ''}`;
   }
   async function vRanking(c) {
     const rows = await loadCapitalRows(c.district);
@@ -1448,37 +1467,46 @@
     setLead(summary + (k.fillIn && k.fillIn.extra.length ? ` Filling in around the gaps funds <a href="#/d/${enc(c.district.slug)}/plan/ranking/fit">${k.fillIn.extra.length} more</a> without delaying anything ranked higher.` : ''));
     const fitCard = (() => {
       const warn = [...SG.urgentBelow.map((x) => `<li class="gaptext">${esc(x.name)} is below the line but needed by FY${x.needBy}.</li>`), ...(SG.late.length ? [`<li>${SG.late.length} initiative${SG.late.length === 1 ? ' is' : 's are'} planned after the year ${SG.late.length === 1 ? 'it’s' : 'they’re'} needed (marked in the ranked list).</li>`] : [])];
-      const fi = k.fillIn, ro2 = k.rankOrder;
+      const fi = k.fillIn, ro2 = k.rankOrder, n = k.items.length;
       const why = (x) => x.fill.reason === 'gf' ? `the General Fund can’t carry its yearly cost: ${gfWhy(x.fill.gf)}` : x.fill.reason === 'holding' ? `waits so #${x.fill.for.position} ${esc(x.fill.for.name)} can still be funded${x.fill.for.needBy ? ` by FY${x.fill.for.needBy}` : ''}`
         : x.fill.reason === 'later' ? (x.fill.delay > 0 ? `fits if moved ${x.fill.delay} year${x.fill.delay === 1 ? '' : 's'} later; everything below leaves room for it` : 'held: everything below leaves room for it')
         : 'needs other money (a campaign, bond or grant), or a later year than its needed-by year';
-      const fillCard = fi ? `<div class="card" data-fillin><h3>Fill in around the gaps ${def('fill_in')}</h3>
-        ${fi.extra.length ? `<p>Skip what doesn’t fit yet and keep going down the list: <b>${fi.count} of ${k.items.length}</b> initiatives are funded instead of ${ro2.count}, and nothing ranked higher is pushed past the year it’s needed.</p>`
-          : `<p>${k.line >= k.items.length ? 'Everything fits in rank order already.' : 'Nothing below the line can be funded without taking money a higher-ranked initiative needs by its year.'}</p>`}
-        <div class="scroll"><table class="data"><thead><tr><th></th><th class="num">Strict rank order</th><th class="num">Fill in around the gaps</th></tr></thead><tbody>
-          <tr><td>Initiatives funded</td><td class="num">${ro2.count}</td><td class="num"><b>${fi.count}</b></td></tr>
-          <tr><td>One-time cost funded</td><td class="num">${fmtK(k.aboveCost)}</td><td class="num"><b>${fmtK(fi.cost)}</b></td></tr>
-          <tr><td>SAVE, PPEL, V-PPEL and grants left unspent at the end of FY${k.cfg.start + k.cfg.n - 1}</td><td class="num">${fmtK(ro2.left)}</td><td class="num"><b>${fmtK(fi.left)}</b></td></tr>
-        </tbody></table></div>
-        ${fi.extra.length ? `<p class="small"><b>Also funded:</b> ${fi.extra.map((x) => `#${x.position} ${esc(x.name)}`).join(', ')}.</p>` : ''}
-        ${fi.skipped.length ? `<p class="small"><b>Still waiting:</b></p><ul class="small">${fi.skipped.map((x) => `<li>#${x.position} ${esc(x.name)}: ${why(x)}.</li>`).join('')}</ul>` : ''}
-        ${c.plan && fi.extra.length ? '<button type="button" class="btn primary" data-action="fillScenario">Make a scenario with this</button>' : ''}</div>` : '';
+      const WAIT = { gf: ['General Fund', 'wt-gf'], holding: ['Holding its place', 'wt-hold'], later: ['Fits later', 'wt-later'], other: ['Needs other money', 'wt-other'] };
+      /* strict rank order vs. filling in, as two bars of the same list */
+      const bar = (count, extra, label, sub) => `<div class="fi-row"><div class="fi-lab"><b>${label}</b><span class="small muted">${sub}</span></div>
+        <div class="fi-bar" role="img" aria-label="${count + extra} of ${n} funded"><i class="rk-seg rk-fits" style="width:${(count / Math.max(1, n) * 100).toFixed(2)}%"></i>${extra ? `<i class="rk-seg rk-fill" style="width:${(extra / Math.max(1, n) * 100).toFixed(2)}%"></i>` : ''}</div>
+        <div class="fi-num"><b>${count + extra}</b><span> of ${n}</span></div></div>`;
+      const fillCard = fi ? `<div class="card fi-card" data-fillin><div class="row" style="justify-content:space-between;align-items:baseline"><h3>Fill in around the gaps ${def('fill_in')}</h3>
+          ${c.plan && fi.extra.length ? '<button type="button" class="btn primary" data-action="fillScenario">Make a scenario with this</button>' : ''}</div>
+        ${fi.extra.length ? `<p class="fi-lead">Skip what doesn’t fit yet and keep going down the list: <b>+${fi.extra.length} initiative${fi.extra.length === 1 ? '' : 's'}</b>, and nothing ranked higher is pushed past the year it’s needed.</p>`
+          : `<p class="fi-lead">${k.line >= n ? 'Everything fits in rank order already.' : 'Nothing below the line can be funded without taking money a higher-ranked initiative needs by its year.'}</p>`}
+        ${bar(ro2.count, 0, 'Strict rank order', 'stop at the first that doesn’t fit')}
+        ${bar(ro2.count, fi.extra.length, 'Fill in around the gaps', 'skip it, keep going')}
+        <div class="fi-chips"><span class="fi-chip"><span>Initiatives funded</span><b>${ro2.count} → ${fi.count}</b></span>
+          <span class="fi-chip"><span>One-time cost funded</span><b>${fmtK(k.aboveCost)} → ${fmtK(fi.cost)}</b></span>
+          <span class="fi-chip"><span>SAVE, PPEL, V-PPEL and grants left unspent at the end of FY${k.cfg.start + k.cfg.n - 1}</span><b>${fmtK(ro2.left)} → ${fmtK(fi.left)}</b></span></div>
+        <table class="sr-only"><thead><tr><th></th><th>Strict rank order</th><th>Fill in around the gaps</th></tr></thead><tbody><tr><td>Initiatives funded</td><td>${ro2.count}</td><td>${fi.count}</td></tr></tbody></table>
+        ${fi.extra.length ? `<div class="fi-group"><div class="fi-gh">Also funded</div><div class="fi-cards">${fi.extra.map((x) => `<div class="fi-tile wt-funded"><span class="fi-pos">#${x.position}</span><b>${esc(x.name)}</b><span class="small">${fmtK(x.oneTime)}</span></div>`).join('')}</div></div>` : ''}
+        ${fi.skipped.length ? `<div class="fi-group"><div class="fi-gh">Still waiting</div><div class="fi-cards">${fi.skipped.map((x) => { const w = WAIT[x.fill.reason] || WAIT.other;
+            return `<div class="fi-tile ${w[1]}"><span class="fi-pos">#${x.position}</span><b>${esc(x.name)}</b><span class="fi-tag">${w[0]}</span><span class="small">${why(x)}.</span></div>`; }).join('')}</div></div>` : ''}</div>` : '';
+      const moveCard = (g) => `<li class="mv-card"><div class="mv-head"><span class="mv-ic">${icon('clock', 16, 2)}</span><b>Move ${esc(g.name)}</b> ${g.delta > 0 ? 'later' : 'earlier'} by ${Math.abs(g.delta)} year${Math.abs(g.delta) === 1 ? '' : 's'}</div>
+          <div class="mv-years"><span class="chg chg-from">FY${g.from.join(', FY')}</span><span class="mv-arrow">→</span><span class="chg chg-wait">FY${g.to.join(', FY')}</span>${g.needBy ? `<span class="small muted">needed by FY${g.needBy}</span>` : ''}</div>
+          <div class="mv-gets">${g.funds.length ? `funds ${g.funds.map((f) => `<span class="chg chg-fund">${esc(f.name)}</span>`).join(' ')}` : '<span class="small muted">funds nothing new</span>'}${g.gapChange < -0.5 ? ` <span class="chg chg-gap">gap −${fmtK(-g.gapChange)}</span>` : ''}</div>
+          ${c.plan ? `<button type="button" class="btn small" data-action="rankSuggest" data-id="${esc(g.id)}">Make a scenario with this</button>` : ''}</li>`;
       return fillCard + `<div class="card" data-suggest><h3>Ways to fit more</h3>
-        ${warn.length ? `<ul>${warn.join('')}</ul>` : ''}
+        ${warn.length ? `<ul class="fi-warn">${warn.join('')}</ul>` : ''}
         ${useful.length ? `<p class="small muted">Each is one change, tried against this scenario: the plan rerun with that initiative moved, keeping everything above the line where it is and nothing later than the year it’s needed.</p>
-        <ol class="sugg">${useful.map((g) => `<li><b>Move ${esc(g.name)}</b> ${g.delta > 0 ? 'later' : 'earlier'} by ${Math.abs(g.delta)} year${Math.abs(g.delta) === 1 ? '' : 's'} (FY${g.from.join(', FY')} → FY${g.to.join(', FY')}${g.needBy ? `; needed by FY${g.needBy}` : ''}):
-          ${g.funds.length ? `funds ${g.funds.map((f) => `<b>${esc(f.name)}</b>`).join(', ')}` : 'funds nothing new'}${g.gapChange < -0.5 ? `${g.funds.length ? ', and ' : ', but '}the gap falls by ${fmtK(-g.gapChange)}` : ''}.
-          ${c.plan ? ` <button type="button" class="btn small" data-action="rankSuggest" data-id="${esc(g.id)}">Make a scenario with this</button>` : ''}</li>`).join('')}</ol>`
-        : `<p>No single move funds anything more right now.${k.line < k.items.length ? ' Try “What would it take?” for a particular initiative, or fund in rank order below.' : ''}</p>`}
+        <ol class="sugg mv-grid">${useful.map(moveCard).join('')}</ol>`
+        : `<p>No single move funds anything more right now.${k.line < n ? ' Try “What would it take?” for a particular initiative, or fund in rank order below.' : ''}</p>`}
         <p class="small muted">Add the year each initiative is needed by in its editor; without one, a remaining life is used.</p></div>
       <div class="card"><h3>Fund in rank order</h3>
-        ${ro.deferred.length ? `<p>Keep the ${k.line} initiatives above the line and defer the rest (${fmtK(ro.deferredCost)} one-time${ro.deferredYearly ? `, ${fmtK(ro.deferredYearly)} a year` : ''}): the gap goes from <b>${fmtK(k.current.gap)}</b> to <b>${fmtK(ro.gap)}</b>.</p>
-          <p class="small">Deferred: ${ro.deferred.map((x) => esc(x.name)).join(', ')}.</p>
+        ${ro.deferred.length ? `<div class="fi-chips"><span class="fi-chip"><span>Keep</span><b>${k.line} above the line</b></span><span class="fi-chip"><span>Defer</span><b>${ro.deferred.length} · ${fmtK(ro.deferredCost)}${ro.deferredYearly ? ` + ${fmtK(ro.deferredYearly)}/yr` : ''}</b></span><span class="fi-chip"><span>Gap</span><b>${fmtK(k.current.gap)} → ${fmtK(ro.gap)}</b></span></div>
+          <p class="small">Keep the ${k.line} initiatives above the line and defer the rest: the gap goes from <b>${fmtK(k.current.gap)}</b> to <b>${fmtK(ro.gap)}</b>. Deferred: ${ro.deferred.map((x) => esc(x.name)).join(', ')}.</p>
           ${c.plan ? '<button type="button" class="btn primary" data-action="rankScenario">Make a scenario with only what fits</button>' : ''}`
         : `<p>Nothing needs deferring: every initiative fits in rank order.${outside.length ? ` The gap of ${fmtK(k.current.gap)} is the campaign or bond share above that isn’t paid for yet.` : ''}</p>`}</div>
-      ${k.flags.length ? `<div class="card"><h3>Spent before a higher-ranked need</h3><ul class="flags">${k.flags.slice(0, 12).map((f) => `<li>${esc(f.text)}</li>`).join('')}</ul>
+      ${k.flags.length ? `<details class="fold card"><summary><b>Spent before a higher-ranked need</b> · ${k.flags.length}</summary><ul class="flags">${k.flags.slice(0, 12).map((f) => `<li>${esc(f.text)}</li>`).join('')}</ul>
         ${k.flags.length > 12 ? `<p class="small muted">and ${k.flags.length - 12} more.</p>` : ''}
-        <p class="small muted">Moving the lower-ranked item to a later year, or to another fund, usually fixes this.</p></div>` : ''}`;
+        <p class="small muted">Moving the lower-ranked item to a later year, or to another fund, usually fixes this.</p></details>` : ''}`;
     })();
     const goalCard = `<div class="card" data-goal><h3>What would it take?</h3>
         <p class="small muted">Pick an initiative and the year it has to be done by. HighGround looks for a small change that funds it: ranking it higher, or moving one or two others a few years, never past the year they’re needed by. It tries those moves only, so other changes may also work.</p>
@@ -1578,9 +1606,10 @@
         <p class="small muted">Going a year at a time: when the capital funds are short, the initiative that can best wait moves to the next year. That means the lowest in your rank, with room before the year it’s needed by. Nothing moves past its needed-by year, and nothing already underway moves. Campaign and booster projects are shown but don’t compete for levy money.</p>
         ${yearsTimeline(S, cfg)}</div>
       ${waits.length || short.length ? `<div class="card"><h3>What changes</h3>${table([
-        { label: 'Initiative', get: (x) => x.name }, { label: 'Priority', get: (x) => HGRanking.TIER_NAME[x.tier] || '' },
-        { label: 'Planned', get: (x) => 'FY' + x.planned.join(', FY') }, { label: 'Paid for', html: (x) => x.status === 'short' ? '<span class="gaptext">short</span>' : 'FY' + x.scheduled.join(', FY') },
-        { label: 'Needed by', get: (x) => (x.needBy ? 'FY' + x.needBy : '') }], waits.concat(short), '')}
+        { label: 'Initiative', html: (x) => `<b>${esc(x.name)}</b><br><span class="small muted">${esc(HGRanking.TIER_NAME[x.tier] || '')}</span>` },
+        { label: 'Planned', get: (x) => fyRuns(x.planned) },
+        { label: 'Paid for', html: (x) => x.status === 'short' ? '<span class="chg chg-short">Short: money runs out</span>' : `<span class="chg chg-wait">${esc(fyRuns(x.scheduled))} · waits ${x.slip} yr${x.slip === 1 ? '' : 's'}</span>` },
+        { label: 'Needed by', get: (x) => (x.needBy ? 'FY' + x.needBy : '—') }], waits.concat(short), '')}
         ${c.plan && S.moves.length ? '<div class="row" style="margin-top:10px"><button type="button" class="btn primary" data-action="rankSchedule">Make a scenario with this timing</button><span class="small muted">The original scenario is unchanged.</span></div>' : ''}</div>` : ''}
       <p class="small muted">Add the year each initiative is needed by in its editor; without one, a capital project’s remaining life is used, and an initiative with neither can wait as long as needed.</p>`;
   }
@@ -3068,7 +3097,8 @@
       <div class="notice error" data-form-errors hidden></div>
       <div class="row"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>
         ${dec && pid ? `<button type="button" class="btn" data-action="pkFromEditor" data-id="${esc(pid)}">Decision packet</button>` : ''}
-        ${!dec && inThis ? '<span class="spacer" style="flex:1"></span><button type="button" class="btn danger" data-action="removeProject" data-id="' + esc(pid) + '">Remove from this scenario</button>' : ''}</div>
+        ${pid ? '<span class="spacer" style="flex:1"></span>' : ''}${!dec && inThis ? '<button type="button" class="btn danger" data-action="removeProject" data-id="' + esc(pid) + '">Remove from this scenario</button>' : ''}
+        ${pid ? `<button type="button" class="btn danger" data-action="deleteInitiative" data-id="${esc(pid)}" title="Delete it from every scenario and the initiatives list">Delete initiative</button>` : ''}</div>
     </form>`);
     updateEdDouble(document.querySelector('form[data-form=saveProject]'));
   }
@@ -3164,6 +3194,16 @@
       ? ` It isn’t in the adopted plan (“${adopted.name}”) yet${adopted.is_locked ? ': that plan is locked, so unlock it on the Capital plan, then add it there' : `: choose “${adopted.name}” under Apply to scenario to add it there`}.` : '';
     const stillIn = !sid && iid && ED.mode === 'decisions' ? rows.scenarios.filter((x) => inScen(rows, x.id, iid)) : [];
     closeModal(); toast('Saved', (sid ? `${r.name} in “${sc.name}”.${ED.sid === '__new' ? ' The adopted plan is unchanged.' : ''}` : r.name + (stillIn.length ? `. Its costs are unchanged, and it’s still in ${stillIn.map((x) => `“${x.name}”`).join(', ')}.` : '')) + notAdopted, notAdopted ? 'notbuilt' : undefined, notAdopted ? { sticky: true } : undefined); here();
+  }
+  /* delete an initiative everywhere: its phases, yearly costs and places in every scenario go with it (the database cascades);
+     ledger accounts and survey themes linked to it are kept, unlinked. A locked scenario protects it unless you're an admin. */
+  async function deleteInitiative(el) {
+    const rows = ED.rows, iid = el.dataset.id, i = rows.initiatives.find((x) => x.id === iid) || {}, name = i.name || 'this initiative';
+    const plans = rows.scenarios.filter((x) => inScen(rows, x.id, iid)), locked = plans.filter((x) => x.is_locked);
+    if (locked.length && !ctx().admin) throw new UserError(`${name} is in a locked scenario (${locked.map((x) => `“${x.name}”`).join(', ')}). Ask an admin to delete it, or take it out of the scenarios that can change.`);
+    if (!confirm(`Delete ${name}?\n\nIt comes off the initiatives list${plans.length ? ` and out of ${plans.length === 1 ? `“${plans[0].name}”` : `${plans.length} scenarios: ${plans.map((x) => x.name).join(', ')}`}` : ''}, with its phases and yearly costs. This can’t be undone.${plans.some((x) => x.is_board_version) ? '\n\nIt is in the adopted plan: the plan’s totals will change.' : ''}`)) return;
+    await HG.db.remove('initiative', `id=eq.${enc(iid)}`);
+    closeModal(); toast('Deleted', `${name} is gone from the initiatives list${plans.length ? ' and every scenario' : ''}.`); here();
   }
   async function removeProject(el) {
     const rows = ED.rows, iid = el.dataset.id, sid = ED.sid, sc = rows.scenarios.find((x) => x.id === sid);
@@ -5400,6 +5440,7 @@
     async editInitiative(el) { openDecisionEditor(el.dataset.id || null); },
     async iniStatus(el) { INI.status = el.dataset.v; here(); },
     async removeProject(el) { await removeProject(el); },
+    async deleteInitiative(el) { await deleteInitiative(el); },
     async addPhaseRow() { const t = document.querySelector('[data-phase-template]'); document.querySelector('[data-phase-body]').insertAdjacentHTML('beforeend', t.innerHTML); fitTables(document.querySelector('[data-modal]')); },
     async costsPhases(el) {   // from one simple cost to the full phases table, with a second row ready
       const box = el.closest('[data-costs]'); box.classList.remove('simple-phases');

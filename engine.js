@@ -72,7 +72,7 @@
     });
     ((L && L.recur) || []).forEach((r) => {
       const g = legality(r.fund, { kind: r.kind || 'other' });
-      if (g.level !== 'ok') out.push({ level: g.level, fund: r.fund, project: r.initiative_id, name: r.name || '', what: 'yearly', kind: r.kind, text: g.text });
+      if (g.level !== 'ok') out.push({ level: g.level, fund: r.fund, project: r.initiative_id, name: r.name || '', what: 'yearly', kind: r.kind, amount: r.amount, text: g.text });
     });
     return out.sort((a, b) => (a.level === b.level ? 0 : a.level === 'no' ? -1 : 1));
   }
