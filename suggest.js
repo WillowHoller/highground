@@ -25,14 +25,14 @@
   }
 
   /** the funding line for one set of projects: the same walk as the ranking (order = initiative ids, best first) */
-  function walk(projects, L, cfg, order) {
+  function walk(projects, L, cfg, order, stop) {
     const run = (ids) => {
       const keep = new Set(ids);
       return E.compute(projects.filter((p) => keep.has(String(p.id))), Object.assign({}, L, { recur: (L.recur || []).filter((r) => keep.has(String(r.initiative_id))) }), cfg);
     };
     const baseOver = run([]).overflow, taken = [];
     for (const id of order) {
-      if (run(taken.concat(id)).overflow > baseOver + 0.5) break;
+      if (run(taken.concat(id)).overflow > baseOver + 0.5 || (stop && stop(taken.concat(id)))) break;   // stop: the General Fund test (ranking's gfFails)
       taken.push(id);
     }
     return { above: new Set(taken), gap: E.compute(projects, L, cfg).gap };
@@ -48,7 +48,7 @@
     const o = Object.assign({ max: 5 }, opts || {}), cfg = inp.cfg, L = inp.levers;
     const order = items.map((x) => String(x.id)), byId = new Map(items.map((x) => [String(x.id), x]));
     const INIT = new Map((inits || []).map((i) => [String(i.id), i]));
-    const base = walk(inp.projects, L, cfg, order);
+    const base = walk(inp.projects, L, cfg, order, o.gfFails);
     const out = [];
     inp.projects.forEach((p, idx) => {
       const mv = p.phases.filter(movable); if (!mv.length) return;
@@ -58,7 +58,7 @@
         if (Math.min(...ys) < 0 || Math.max(...ys) > cfg.n - 1) return;
         if (d > 0 && nb != null && cfg.start + Math.max(...ys) > nb) return;   // never later than it's needed
         const projects = inp.projects.slice(); projects[idx] = shift(p, d);
-        const w = walk(projects, L, cfg, order);
+        const w = walk(projects, L, cfg, order, o.gfFails);
         const funds = order.filter((id) => w.above.has(id) && !base.above.has(id) && id !== String(p.id));
         const loses = order.filter((id) => base.above.has(id) && !w.above.has(id));
         const gapChange = w.gap - base.gap;
@@ -104,14 +104,14 @@
       notes.push(`Its phases move ${-d} year${d === -1 ? '' : 's'} earlier to finish by FY${byFY}.`);
     }
     const name = (id) => (byId.get(id) || {}).name || id;
-    const base = walk(projects, L, cfg, order);
+    const base = walk(projects, L, cfg, order, o.gfFails);
     if (base.above.has(tid)) return { possible: true, notes: notes.concat(notes.length ? ['With that, it fits as ranked.'] : ['It already fits, as ranked and as planned.']), options: [] };
     const out = [];
     // 1. rank it higher: the lowest position at which it's above the line
     const rest = order.filter((id) => id !== tid);
     for (let pos = rest.length; pos >= 0; pos--) {
       const ord = rest.slice(0, pos).concat(tid, rest.slice(pos));
-      const w = walk(projects, L, cfg, ord);
+      const w = walk(projects, L, cfg, ord, o.gfFails);
       if (w.above.has(tid)) {
         const drops = [...base.above].filter((id) => !w.above.has(id));
         out.push({ kind: 'rank', position: pos + 1, drops: drops.map((id) => ({ id, name: name(id) })), order: ord, score: 1e6 * drops.length });
@@ -128,7 +128,7 @@
         const ys = mv.map((ph) => ph.year + d);
         if (Math.min(...ys) < 0 || Math.max(...ys) > cfg.n - 1 || (d > 0 && nb != null && cfg.start + Math.max(...ys) > nb)) return;
         const pr = projects.slice(); pr[j] = shift(p, d);
-        const w = walk(pr, L, cfg, order), drops = [...base.above].filter((id) => !w.above.has(id));
+        const w = walk(pr, L, cfg, order, o.gfFails), drops = [...base.above].filter((id) => !w.above.has(id));
         const m = { id: String(p.id), name: name(String(p.id)), delta: d, from: mv.map((ph) => cfg.start + ph.year), to: ys.map((y) => cfg.start + y) };
         if (w.above.has(tid) && !drops.length) out.push({ kind: 'move', moves: [m], score: Math.abs(d) });
         else if (!drops.length) single.push({ m, j, p, d });   // harmless on its own: a candidate for pairing
@@ -141,7 +141,7 @@
         for (let b = a + 1; b < cand.length; b++) {
           if (cand[a].j === cand[b].j) continue;
           const pr = projects.slice(); pr[cand[a].j] = shift(cand[a].p, cand[a].d); pr[cand[b].j] = shift(cand[b].p, cand[b].d);
-          const w = walk(pr, L, cfg, order), drops = [...base.above].filter((id) => !w.above.has(id));
+          const w = walk(pr, L, cfg, order, o.gfFails), drops = [...base.above].filter((id) => !w.above.has(id));
           if (w.above.has(tid) && !drops.length) { out.push({ kind: 'pair', moves: [cand[a].m, cand[b].m], score: 100 + Math.abs(cand[a].d) + Math.abs(cand[b].d) }); break; }
         }
       }

@@ -105,9 +105,9 @@
       district: { name: '', short: '', enrollment: null },
       plan: { startFY: fyOfDate(todayIso || new Date().toISOString().slice(0, 10)), years: 10 },
       balances: { asOf: '', save: null, ppel: null, vppel: 0, grants: 0 },
-      save: { receipts: null, ongoing: 0, trend: 0, sf2472: true, receiptsFY: null },
-      ppel: { receipts: null, ongoing: 0, growth: 0.03, valuation: null, rate: null, actualValuation: null, goOutstanding: null },
-      vppel: { status: 'none', annual: 0, ongoing: 0, firstFY: null, lastFY: null },
+      save: { receipts: null, ongoing: 0, ongoingPct: null, trend: 0, sf2472: true, receiptsFY: null },
+      ppel: { receipts: null, ongoing: 0, ongoingPct: null, growth: 0.03, valuation: null, rate: null, actualValuation: null, goOutstanding: null },
+      vppel: { status: 'none', annual: 0, ongoing: 0, ongoingPct: null, firstFY: null, lastFY: null },
       grants: { avg: 0, yield: 0.75 },
       debt: [],
       inflation: 0,
@@ -135,6 +135,7 @@
     return out;
   }
 
+  const pctOf = (v) => Math.max(0, Math.min(1, num(v, 0)));
   /** Everything the math needs, derived once from the settings. */
   function makeConfig(settings, todayIso) {
     const s = normSettings(settings, todayIso);
@@ -149,6 +150,8 @@
       saveInc: num(s.save.receipts, 0), saveOng: num(s.save.ongoing, 0), saveFY: num(s.save.receiptsFY, null),
       ppelInc: num(s.ppel.receipts, 0), ppelOng: num(s.ppel.ongoing, 0),
       vStatus: v.status, vAnnual: num(v.annual, 0), vppelOng: num(v.ongoing, 0),
+      /* an ongoing commitment set as a share of each year's receipts (0-1) instead of dollars; 0 = dollars only */
+      saveOngPct: pctOf(s.save.ongoingPct), ppelOngPct: pctOf(s.ppel.ongoingPct), vppelOngPct: pctOf(v.ongoingPct),
       vFirst: num(v.firstFY, start), vLast: num(v.lastFY, start + n - 1),
       grantAvg: num(s.grants.avg, 0),
       /* a debt with no final year is treated as running to the end of the plan (it used to be dropped) */
@@ -262,15 +265,30 @@
     const fy = cfg.start + y;
     return (L.fin || []).reduce((a, f) => a + (f.fy === fy ? f.amount : 0), 0);
   }
+  /* a fund's receipts in plan year y, before anything comes out (V-PPEL: 0 in years it isn't collected) */
+  function receiptsIn(cfg, bucket, y, L) {
+    if (bucket === 'save') return cfg.saveInc * Math.pow(1 + L.sg, y) * sfFactor(cfg, cfg.start + y, L);
+    if (bucket === 'ppel') return cfg.ppelInc * Math.pow(1 + L.pg, y);
+    if (bucket === 'vppel') { const fy = cfg.start + y; return cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast ? cfg.vAnnual : 0; }
+    return 0;
+  }
+  /* ongoing commitments in plan year y: the dollar amount, plus any share of that year's receipts (so a percentage follows
+     receipts up or down: SF 2472's SAVE cut, valuation growth). V-PPEL's comes out only in the years it's collected. */
+  function ongoingIn(cfg, bucket, y, L) {
+    if (bucket === 'save') return cfg.saveOng + (cfg.saveOngPct ? cfg.saveOngPct * receiptsIn(cfg, 'save', y, L) : 0);
+    if (bucket === 'ppel') return cfg.ppelOng + (cfg.ppelOngPct ? cfg.ppelOngPct * receiptsIn(cfg, 'ppel', y, L) : 0);
+    if (bucket === 'vppel') { const r = receiptsIn(cfg, 'vppel', y, L); return r ? (cfg.vppelOng || 0) + (cfg.vppelOngPct || 0) * r : 0; }
+    return 0;
+  }
   /* net receipts landing in plan year y; year 0 is scaled to the part of the year after the balance date */
   function inflow(cfg, bucket, y, L) {
     const f = y === 0 ? cfg.f0 : 1;
-    if (bucket === 'save') return (cfg.saveInc * Math.pow(1 + L.sg, y) * sfFactor(cfg, cfg.start + y, L) - finPay(cfg, 'save', y, L) - cfg.saveOng - recurIn(cfg, 'save', y, L)) * f - debtDue(cfg, 'save', y);
-    if (bucket === 'ppel') return (cfg.ppelInc * Math.pow(1 + L.pg, y) - cfg.ppelOng - finPay(cfg, 'ppel', y, L) - recurIn(cfg, 'ppel', y, L)) * f - debtDue(cfg, 'ppel', y);
+    if (bucket === 'save') return (cfg.saveInc * Math.pow(1 + L.sg, y) * sfFactor(cfg, cfg.start + y, L) - finPay(cfg, 'save', y, L) - ongoingIn(cfg, 'save', y, L) - recurIn(cfg, 'save', y, L)) * f - debtDue(cfg, 'save', y);
+    if (bucket === 'ppel') return (cfg.ppelInc * Math.pow(1 + L.pg, y) - ongoingIn(cfg, 'ppel', y, L) - finPay(cfg, 'ppel', y, L) - recurIn(cfg, 'ppel', y, L)) * f - debtDue(cfg, 'ppel', y);
     if (bucket === 'vppel') {
-      const fy = cfg.start + y;
       /* ongoing V-PPEL commitments (devices, buses the ballot names) come out only in the years the levy is collected */
-      return ((cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast) ? cfg.vAnnual - (cfg.vppelOng || 0) : 0) * f - recurIn(cfg, 'vppel', y, L) * f;
+      const r = receiptsIn(cfg, 'vppel', y, L);
+      return (r ? r - ongoingIn(cfg, 'vppel', y, L) : 0) * f - recurIn(cfg, 'vppel', y, L) * f;
     }
     if (bucket === 'grants') return (cfg.grantAvg * L.gy - recurIn(cfg, 'grants', y, L)) * f;
     return 0;
@@ -373,7 +391,7 @@
     for (let y = 1; y < cfg.n; y++) {
       const L2 = Object.assign({}, L, { fin: (L.fin || []).filter((f) => f.repay !== 'save') });
       const rec = cfg.saveInc * Math.pow(1 + L2.sg, y) * sfFactor(cfg, cfg.start + y, L2), owed = debtIn(cfg, 'save', y) + finPay(cfg, 'save', y, L2);
-      const net = Math.min(rec / cover - owed, rec - cfg.saveOng - owed);
+      const net = Math.min(rec / cover - owed, rec - (cfg.saveOng + cfg.saveOngPct * rec) - owed);
       if (net < low) { low = net; ly = y; }
     }
     const pay = Math.max(0, low);
@@ -389,9 +407,9 @@
   }
 
   return {
-    VERSION: '2026-10-13d',
+    VERSION: '2026-10-14',
     BUCKETS, BUCKET_NAMES, CAP_ORDER, PRI_LIST, SF2472_CUT, LEGAL_YEARLY, LEGAL_TYPE,
     fyOfDate, firstYearFraction, normSettings, makeConfig, defaultLevers, leversOf, cleanFin,
-    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, debtIn, debtDue, finPay, inflow, compute, pmt, sfCut, saveBondCapacity, goDebtRoom, legality, checkLegal,
+    cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, receiptsIn, ongoingIn, debtIn, debtDue, finPay, inflow, compute, pmt, sfCut, saveBondCapacity, goDebtRoom, legality, checkLegal,
   };
 });

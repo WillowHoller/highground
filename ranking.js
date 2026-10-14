@@ -7,6 +7,10 @@
    Fund in rank order: what the plan looks like with only the initiatives above the line.
    Fill in around the gaps: keep walking past what doesn't fit, funding lower-ranked initiatives that do, without stopping any
    higher-ranked one from being funded by the year it's needed (fillIn).
+   The General Fund (opts.gf, when its forecast is set up): yearly General Fund costs, such as a new teacher or an FFA
+   advisor's salary, count against the five-year General Fund forecast. An initiative fits only if, with everything above it,
+   General Fund solvency stays at or above 5% (or no lower than it already is without anything planned) and spending stays within
+   spending authority, in every forecast year. Its costs count in every year from its first to its last, with their growth.
    Pure; tested by ranking_test.js. */
 (function (root, factory) {
   const E = root.HGEngine || (typeof require === 'function' ? require('./engine.js') : null);
@@ -21,6 +25,7 @@
   const FROM_PRIORITY = { High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' };
   const CAP = ['save', 'ppel', 'vppel', 'grants'];
   const FUND = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'grants' };
+  const GF_FLOOR = 0.05;   // the low end of the solvency target many Iowa districts aim for (5-10%)
 
   /** The tier to use: the one set on the initiative, or one suggested from its High/Med/Low priority. */
   function tierOf(init) {
@@ -43,10 +48,15 @@
       const share = (b) => (p ? p.phases.reduce((a, ph) => a + ph.cost * ph.funding.filter((f) => f.b === b).reduce((s, f) => s + f.p, 0) / 100, 0) : 0);
       const camp = share('camp'), boost = share('boost'), outside = camp + boost;
       const capitalYearly = (L.recur || []).filter((r) => String(r.initiative_id) === id && CAP.includes(r.fund)).reduce((a, r) => a + r.amount, 0);
-      const yearly = (L.recur || []).filter((r) => String(r.initiative_id) === id).reduce((a, r) => a + r.amount, 0);
+      const mine = (L.recur || []).filter((r) => String(r.initiative_id) === id), oneYear = (r) => r.last != null && r.last === r.first;
+      /* a "yearly" cost that runs one year only is a one-time cost paid from that fund (a start-up cost from the General Fund, say) */
+      const yearly = mine.filter((r) => !oneYear(r)).reduce((a, r) => a + r.amount, 0);
+      const oneTimeOther = mine.filter(oneYear).reduce((a, r) => a + r.amount, 0);
+      const gfYearly = mine.filter((r) => r.fund === 'general' && !oneYear(r)).reduce((a, r) => a + r.amount, 0);
+      const gfAny = mine.some((r) => r.fund === 'general');
       const years = p ? [...new Set(p.phases.map((ph) => cfg.start + ph.year))] : [];
       const needBy = init.need_by_fy != null && init.need_by_fy !== '' ? Number(init.need_by_fy) : init.remaining_life != null && init.remaining_life !== '' && p ? cfg.start + Number(init.remaining_life) : null;
-      return { id, name: init.name, tier: t.tier, needBy, suggested: t.suggested, rank: RANK.has(id) ? RANK.get(id) : null, oneTime, outside, camp, boost, yearly, years, project: p,
+      return { id, name: init.name, tier: t.tier, needBy, suggested: t.suggested, rank: RANK.has(id) ? RANK.get(id) : null, oneTime, oneTimeOther, outside, camp, boost, yearly, gfYearly, gfAny, years, project: p,
                outsideOnly: oneTime > 0.5 && oneTime - outside < 0.5 && capitalYearly < 0.5 };
     });
     const byPriority = (a, b) => (TIERS.indexOf(a.tier) - TIERS.indexOf(b.tier)) || ((a.rank == null ? 1e9 : a.rank) - (b.rank == null ? 1e9 : b.rank)) || a.name.localeCompare(b.name);
@@ -65,17 +75,47 @@
     };
     const base = runWith([]);
     const baseOver = base.overflow;   // existing debt or commitments can leave a fund short even with nothing planned
+
+    /* the General Fund: opts.gf(keep) -> forecast years [{fy, solvency, unspent}] with only the yearly General Fund costs of
+       the initiatives in `keep`. Only initiatives with General Fund costs change it, so a set is keyed by those alone. */
+    const gfIds = new Set(items.filter((x) => x.gfAny).map((x) => x.id));
+    const gfOn = !!(opts && typeof opts.gf === 'function') && gfIds.size > 0;
+    const gfCache = new Map();
+    const gfRun = (set) => {
+      const key = set.filter((id) => gfIds.has(id)).sort().join('|');
+      if (!gfCache.has(key)) gfCache.set(key, opts.gf(new Set(set.map(String))) || []);
+      return gfCache.get(key);
+    };
+    const gfBase = gfOn ? gfRun([]) : [];
+    /* null if the General Fund stays healthy; otherwise the first year it doesn't: solvency under 5% (or under where it already is),
+       or spending over spending authority */
+    const gfFail = (set) => {
+      if (!gfOn || !set.some((id) => gfIds.has(id))) return null;
+      const ys = gfRun(set);
+      for (let j = 0; j < ys.length; j++) {
+        const y = ys[j], b = gfBase[j] || {};
+        const floor = b.solvency == null ? GF_FLOOR : Math.min(GF_FLOOR, b.solvency);
+        if (y.solvency != null && y.solvency < floor - 1e-9) return { fy: y.fy, why: 'solvency', solvency: y.solvency, floor };
+        const uFloor = b.unspent == null ? 0 : Math.min(0, b.unspent);
+        if (y.unspent != null && y.unspent < uFloor - 0.5) return { fy: y.fy, why: 'authority', unspent: y.unspent };
+      }
+      return null;
+    };
+    const capFits = (set) => runWith(set).overflow <= baseOver + 0.5;
+
     let line = items.length, taken = [];
     for (let k = 0; k < items.length; k++) {
-      const r = runWith(taken.concat(items[k].id));
+      const set = taken.concat(items[k].id), r = runWith(set);
       items[k].overflowWith = r.overflow;
-      if (r.overflow > baseOver + 0.5) { line = k; break; }
+      const g = gfFail(set);
+      if (r.overflow > baseOver + 0.5 || g) { line = k; items[k].stop = r.overflow > baseOver + 0.5 ? 'capital' : 'gf'; if (g) items[k].gfFail = g; break; }
       taken.push(items[k].id);
     }
     // below the line: does each still fit on its own in what's left?
     for (let k = line; k < items.length; k++) {
-      const r = runWith(taken.concat(items[k].id));
-      items[k].fitsAlone = r.overflow <= baseOver + 0.5;
+      const set = taken.concat(items[k].id), g = gfFail(set);
+      items[k].fitsAlone = capFits(set) && !g;
+      if (g) items[k].gfFail = g;
       items[k].above = false;
     }
     items.slice(0, line).forEach((x) => { x.above = true; });
@@ -116,7 +156,7 @@
       const projects = inp.projects.filter((p) => keep.has(String(p.id))).map((p) => (d && String(p.id) === sid ? shifted(p, d) : p));
       return E.compute(projects, Object.assign({}, L, { recur: (L.recur || []).filter((r) => keep.has(String(r.initiative_id))) }), cfg);
     };
-    const fitsSet = (set, sid, d) => runShift(set, sid, d).overflow <= baseOver + 0.5;
+    const fitsSet = (set, sid, d) => runShift(set, sid, d).overflow <= baseOver + 0.5 && !gfFail(set);
     const waitYears = (x) => {   // how many years this initiative may wait
       const p = x.project; if (!p) return 0;
       const mv = p.phases.filter(movable); if (!mv.length) return 0;
@@ -125,6 +165,7 @@
       return Math.max(0, Math.min(room, allowed));
     };
     const fitsWithin = (set, x) => { for (let d = 0; d <= waitYears(x); d++) if (fitsSet(set.concat(x.id), x.id, d)) return d; return -1; };
+    const capFitsShift = (set, x) => { for (let d = 0; d <= waitYears(x); d++) if (runShift(set, x.id, d).overflow <= baseOver + 0.5) return true; return false; };
     const fTaken = [], holding = [];
     items.forEach((x) => {
       if (fitsSet(fTaken.concat(x.id))) {
@@ -133,6 +174,8 @@
         x.fill = { funded: false, reason: 'holding', for: { id: blocks.id, name: blocks.name, position: blocks.position, needBy: blocks.needBy } };
         return;
       }
+      const g = gfFail(fTaken.concat(x.id));
+      if (g && capFitsShift(fTaken.concat(x.id), x)) { x.fill = { funded: false, reason: 'gf', gf: g }; return; }   // only the General Fund stops it
       const d = fitsWithin(fTaken, x);
       x.fill = { funded: false, reason: d > 0 ? 'later' : d === 0 ? 'later' : 'other', delay: d, wait: waitYears(x) };
       if (d >= 0) holding.push(x);
@@ -145,6 +188,8 @@
     };
     return {
       cfg, by, items, line, flags, baseOverflow: baseOver,
+      gf: gfOn ? { years: gfBase.map((y) => y.fy), floor: GF_FLOOR, base: gfBase, funded: gfRun(items.slice(0, line).map((x) => x.id)) } : null,
+      gfFails: (set) => !!gfFail(set.map(String)),   // for Ways to fit more and What would it take (suggest.js), so they use the same line
       current: { need: full.need, gap: full.gap, overflow: full.overflow },
       rankOrder: { need: kept.need, gap: kept.gap, overflow: kept.overflow, deferred, deferredCost: deferred.reduce((a, x) => a + x.oneTime, 0),
                    deferredYearly: deferred.reduce((a, x) => a + x.yearly, 0), left: leftAtEnd(kept), count: line },
@@ -153,5 +198,5 @@
     };
   }
 
-  return { build, tierOf, TIERS, TIER_NAME, FROM_PRIORITY };
+  return { build, tierOf, TIERS, TIER_NAME, FROM_PRIORITY, GF_FLOOR };
 });

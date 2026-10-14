@@ -392,20 +392,40 @@ async def main():
     ops=[c[1].split("?")[0].replace("/rest/v1/","") for c in calls[n0:] if c[0]=="POST"]
     newph=json.loads(next(c[2] for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase"))
     check("add a project: new project joins this scenario", ops==["initiative","scenario_initiative","phase","phase_funding"] and newph[0]["fy"]==2029 and newph[0]["scenario_id"]==phased_id, str(ops))
+    # 14 Oct: a repeating purchase on a fund that has an ongoing commitment is flagged as it's typed
+    await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
+    await pg.fill("[data-modal] input[name=name]","Bus replacement")
+    row=pg.locator("[data-modal] [data-phase-row]").first
+    await row.locator("select[name=fy]").select_option("2028"); await row.locator("select[name=src]").select_option("ppel"); await row.locator("input[name=cost]").fill("120000")
+    check("may be counted twice: nothing flagged for one year", await pg.locator("[data-modal] [data-ed-double-warn]").count()==0)
+    check("new initiative: one cost, year and fund to start; phase names, extra funds and yearly costs only on request",
+          await pg.locator("[data-modal] [data-costs].simple-phases.no-yearly").count()==1 and not await row.locator("input[name=label]").is_visible()
+          and not await row.locator("button[data-action=addFund]").is_visible() and not await pg.locator("[data-modal] .yearly-block").is_visible()
+          and await pg.locator("[data-modal] button[data-action=costsPhases]").is_visible() and await pg.locator("[data-modal] button[data-action=costsRecurring]").first.is_visible())
+    await pg.click("[data-modal] button[data-action=costsPhases]"); await pg.wait_for_timeout(100)
+    check("new initiative: “Split into phases or funds” opens the full table with a second row", await pg.locator("[data-modal] [data-phase-row]").count()==2 and await row.locator("input[name=label]").is_visible() and await row.locator("button[data-action=addFund]").is_visible())
+    row2=pg.locator("[data-modal] [data-phase-row]").nth(1)
+    await row2.locator("select[name=fy]").select_option("2030"); await row2.locator("select[name=src]").select_option("ppel"); await row2.locator("input[name=cost]").fill("125000"); await pg.wait_for_timeout(150)
+    dw=await pg.inner_text("[data-modal] [data-ed-double-warn]") if await pg.locator("[data-modal] [data-ed-double-warn]").count() else ""
+    check("may be counted twice: buses in two years on PPEL, which has an ongoing amount, are flagged in the editor as they're typed", "counted twice" in dw and "PPEL" in dw and "FY2028, FY2030" in dw and "ongoing" in dw, dw)
+    cv=await pg.input_value("[data-modal] [data-phase-row] >> nth=1 >> input[name=cost]")
+    check("costs get thousands commas as they're typed", cv=="125,000", cv)
+    await pg.click("[data-modal] button[data-action=closeModal] >> nth=0"); await pg.wait_for_timeout(200)
     # picker: add an existing initiative that isn't in this scenario
     await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
     check("picker: existing initiatives not in this scenario are offered", await pg.locator("[data-modal] select[data-pick-init] option", has_text="FFA program").count()==1)
     await pg.select_option("[data-modal] select[data-pick-init]","ini-ffa"); await pg.wait_for_timeout(300)
     check("picker: choosing one fills in its details", await pg.input_value("[data-modal] input[name=name]")=="FFA program" and "Add to this scenario" in await pg.inner_text("[data-modal] h2"))
     row=pg.locator("[data-modal] [data-phase-row]").first
-    await row.locator("input[name=label]").fill("Shop buildout"); await row.locator("input[name=cost]").fill("150000")
+    await row.locator("input[name=cost]").fill("150000")
     n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(800)
     ops=[(c[0],c[1].split("?")[0].replace("/rest/v1/","")) for c in calls[n0:] if c[0] in ("POST","PATCH")]
     check("picker: saving adds it to the scenario without a duplicate", ("PATCH","initiative") in ops and ("POST","scenario_initiative") in ops and ("POST","initiative") not in ops, str(ops))
     # Phase 2B: yearly costs and programs without phases
     await pg.click("button[data-action=editProject][data-id='']"); await pg.wait_for_timeout(300)
     await pg.fill("[data-modal] input[name=name]","Library aide"); await pg.select_option("[data-modal] select[name=type]","staff")
-    await pg.click("[data-modal] button[data-action=removePhaseRow]"); await pg.click("[data-modal] button[data-action=addYearlyRow]")
+    await pg.click("[data-modal] button[data-action=costsRecurring] >> nth=0")
+    check("new initiative: “Add a yearly (recurring) cost” opens the yearly costs with a row ready", await pg.locator("[data-modal] .yearly-block").is_visible() and await pg.locator("[data-modal] [data-yearly-row]").count()==1)
     yr=pg.locator("[data-modal] [data-yearly-row]").last
     await yr.locator("select[name=y_kind]").select_option("salary"); await yr.locator("select[name=y_fund]").select_option("ppel")
     await yr.locator("input[name=y_amount]").fill("32,000"); await yr.locator("select[name=y_first]").select_option("2028")
@@ -461,7 +481,7 @@ async def main():
     check("publish: the note survives ticking and unticking", await pg.input_value("textarea[data-pub-note]")=="The board adopts the plan in October. Thank you for the survey responses.")
     await pg.click("button[data-action=previewPublic]"); await pg.wait_for_timeout(600)
     pv=await pg.inner_text("[data-modal]")
-    check("publish: preview shows exactly what the public will see", "Preview: what the public will see" in pv and "The board adopts the plan in October" in pv and "Capital plan:" in pv)
+    check("publish: preview shows exactly what the public will see", "Preview: what the public will see" in pv and "The board adopts the plan in October" in pv and "Capital plan" in pv)
     await pg.click("[data-modal] button[data-action=closeModal] >> nth=0"); await pg.wait_for_timeout(200)
     for i in appr: i["status"]="proposed"
     n0=len(calls); await pg.click("button[data-action=publishBoard]"); await pg.wait_for_timeout(700)
@@ -695,15 +715,17 @@ async def main():
     check("initiatives: filter by status, and approved-but-not-planned is flagged", "FFA program" in t and "Middle school HVAC" not in t and "Approved, but not in the adopted plan" in t)
     await pg.click("a[data-action=editInitiative]:has-text('FFA program')"); await pg.wait_for_timeout(300)
     m=await pg.inner_text("[data-modal]")
-    check("decisions editor: same details, costs optional", "Not in a plan yet" in m and "Apply to scenario" in m and await pg.locator("[data-modal] [data-phase-row]").count()==0)
+    check("decisions editor: an idea in no scenario yet can have costs straight away, going into a scenario that can change", "Not in a plan yet" in m and "Apply to scenario" in m
+          and await pg.locator("[data-modal] [data-phase-row]").count()==1 and await pg.input_value("[data-modal] select[data-ed-scenario]")==_ph_sid and "Details only" in m)
     locked=await pg.locator("[data-modal] select[data-ed-scenario] option[disabled]").count()
     check("decisions editor: locked scenarios listed but can't be picked", locked==1 and "(locked)" in await pg.locator("[data-modal] select[data-ed-scenario] option[disabled]").inner_text())
     await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
+    await pg.click("[data-modal] button[data-action=costsPhases]"); await pg.wait_for_timeout(100)
     row=pg.locator("[data-modal] [data-phase-row]").first
     await row.locator("input[name=label]").fill("Chapter start-up fees"); await row.locator("input[name=cost]").fill("5000")
     await pg.check("[data-modal] .apick:has-text('Academics') input"); await pg.check("[data-modal] .apick:has-text('Staffing') input")
     await row.locator("button[data-action=addFund]").click()
-    await pg.click("[data-modal] button[data-action=addYearlyRow]")
+    await pg.click("[data-modal] [data-costs] .when-full button[data-action=costsRecurring]")
     yr=pg.locator("[data-modal] [data-yearly-row]").last
     await yr.locator("input[name=y_amount]").fill("65,000"); await yr.locator("select[name=y_first]").select_option("2028")
     n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(900)
@@ -811,8 +833,13 @@ async def main():
     check("ranking: unlocked scenario has move buttons", await pg.locator("button[data-action=rankMove]").count()>0)
     first_down=pg.locator("button[data-action=rankMove][data-d='1']").first
     moved_id=await first_down.get_attribute("data-id")
-    n0=len(calls); await first_down.click(); await pg.wait_for_timeout(600)
+    n0=len(calls); await first_down.click(); await pg.wait_for_timeout(150)
+    nm=await pg.locator("table.ranktable tbody tr:not(.fline) >> nth=1 >> button[data-action=rankMove]").first.get_attribute("data-id")
+    check("ranking: ▲ ▼ move the row at once, without reloading or saving yet", nm==moved_id and not [c for c in calls[n0:] if "scenario_initiative" in c[1]] and await pg.locator("[data-rank-pending]").count()==1, nm)
+    await pg.locator(f"button[data-action=rankMove][data-id='{moved_id}'][data-d='1']").click(); await pg.wait_for_timeout(100)
+    await pg.locator(f"button[data-action=rankMove][data-id='{moved_id}'][data-d='-1']").click(); await pg.wait_for_timeout(1700)
     up=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "/rest/v1/scenario_initiative?on_conflict=" in c[1]]
+    check("ranking: three quick clicks save once, after the clicking stops", len(up)==1, len(up))
     check("ranking: moving saves the new order for the scenario", up and up[0][1]["initiative_id"]==moved_id and up[0][0]["rank"]==1 and up[0][1]["rank"]==2 and all(r["scenario_id"]==_ph_sid for r in up[0]), str(up[0][:2]) if up else "none")
     rows_before=await pg.locator("input[data-rank-to]").count()
     last=pg.locator("input[data-rank-to]").nth(rows_before-1); last_id=await last.get_attribute("data-rank-to")
@@ -1025,6 +1052,10 @@ async def main():
     TABLES["report_snapshot"]=[]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(600)
     await pg.click("a[data-action=editInitiative]:has-text('Middle school HVAC')"); await pg.wait_for_timeout(400)
+    o0=await pg.locator("[data-modal] select[data-ed-scenario] option[value='']").inner_text()
+    check("decisions editor: for an initiative already in plans, “Details only” says its costs stay put (it doesn't take it out)", "leave its costs in" in o0 and "not in a plan yet" not in o0, o0)
+    await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
+    check("decisions editor: an unlocked scenario it's in offers “Take it out”", await pg.locator("[data-modal] button[data-action=removeProject]").count()==1 and "Take it out of" in await pg.inner_text("[data-modal] .ed-takeout"))
     n0=len(calls); await pg.click("[data-modal] button[data-action=pkFromEditor]"); await pg.wait_for_timeout(1000)
     pk2=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/report_snapshot"]
     check("decision packet: one click from the initiative on Decisions", pk2 and pk2[0]["payload"]["initiative"]["name"]=="Middle school HVAC replacement" and "/share/board" in pg.url)
@@ -1503,7 +1534,7 @@ async def main():
     check("logo: only images are accepted", "Use a PNG, JPEG or WebP image" in await pg.inner_text("#toasts"))
     D1["logo_path"]="d1/logo-1.png"
     await pg.goto("http://localhost:8765/#/p/ironwood-valley"); await pg.wait_for_timeout(700)
-    check("logo: shown on the public board page", await pg.locator("img.pub-dlogo-lg[src*='/storage/v1/object/public/district-public/d1/logo-1.png']").count()==1)
+    check("logo: shown on the public board page", await pg.locator("img.pub-dlogo[src*='/storage/v1/object/public/district-public/d1/logo-1.png']").count()==1)
     del D1["logo_path"]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/activity"); await pg.wait_for_timeout(500)
     t=await pg.inner_text("#view")
@@ -1600,8 +1631,13 @@ async def main():
     n0=len(calls); await pg.click("button[data-action=loadDemo]"); await pg.wait_for_timeout(900)
     posts=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="POST"]
     locks=[c for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1] and "is_locked" in (c[2] or "")]
-    want=["district_settings","fund_balance","debt_obligation","initiative","scenario","scenario_initiative","phase","phase_funding"]
+    want=["district_settings","fund_balance","debt_obligation","initiative","scenario","scenario_initiative","phase","phase_funding","import_batch","gl_account","gl_amount","apply_import","apply_import","apply_import"]
     check("staff loads demo data in dependency order, then locks the baseline", posts==want and len(locks)==1, str(posts))
+    ap=[c for c in calls[n0:] if "/rpc/apply_import" in c[1]]; bts=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/import_batch"]
+    ga=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/gl_account"]
+    check("demo data: a July–September month-end ledger goes in and is applied, so Budget vs. actual has figures (no balance-sheet accounts)",
+          len(ap)==3 and bts and [b["period_end"] for b in bts[0]]==["2026-07-31","2026-08-31","2026-09-30"] and all(b["status"]=="uploaded" for b in bts[0])
+          and ga and all(a["maps_to"] in ("revenue","expense","initiative") for a in ga[0]) and "Demo ledger not loaded" not in await pg.inner_text("#toasts"), str(bts)[:300])
     # reset a demo district to Bridger Hollow
     await pg.goto("http://localhost:8765/#/staff"); await pg.wait_for_timeout(600)
     check("staff: Bridger Hollow is offered first", (await pg.locator("select[data-demo-set] option").first.inner_text()).startswith("Bridger Hollow Community School District (925 students)"))
@@ -1736,6 +1772,46 @@ async def main():
     await pg.click("button[data-action=gfFromState]"); await pg.wait_for_timeout(1200)
     check("starting numbers: the General Fund figures go to the General Fund setup", "/money/general" in pg.url and await pg.input_value("form[data-form=saveGf] [name=fund_balance]")=="2,250,000", pg.url)
     await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(200)
+    # 14 Oct: an empty ongoing amount drops in from the state's three-year average; commas as you type; a share of receipts instead of dollars
+    _ds0=[dict(x) for x in TABLES["district_settings"]]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(900)
+    vv=await pg.input_value("form[data-form=saveSetup] [name=vppel_ongoing]")
+    est=await pg.inner_text("[data-ongoing-est=vppel]") if await pg.locator("[data-ongoing-est=vppel]").count() else ""
+    check("ongoing: an empty V-PPEL amount drops in from the state's average without typing, marked; a saved SAVE amount is kept", vv=="76,228" and await pg.locator("form[data-form=saveSetup] [name=vppel_ongoing].prefilled").count()==1
+          and "FY2023–FY2025" in est and await pg.locator("[data-ongoing-est=save]").count()==0 and await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="250,000", vv+" | "+est)
+    await pg.fill("form[data-form=saveSetup] [name=save_ongoing]",""); await pg.type("form[data-form=saveSetup] [name=save_ongoing]","1234567")
+    check("ongoing: commas go in as you type", await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="1,234,567")
+    await pg.fill("form[data-form=saveSetup] [name=save_receipts]","1,000,000"); await pg.fill("form[data-form=saveSetup] [name=save_ongoing]","120,000")
+    await pg.select_option("form[data-form=saveSetup] [name=save_ongoing_mode]","pct"); await pg.wait_for_timeout(150)
+    pv=await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]"); ph=await pg.inner_text("form[data-form=saveSetup] [data-ongoing-hint=save]")
+    check("ongoing: switching to a share of receipts converts the amount ($120,000 of $1,000,000 = 12%) and the hint follows", pv=="12" and "$120,000 a year at today’s receipts" in ph and "rises or falls" in ph, pv+" | "+ph)
+    await pg.fill("form[data-form=saveSetup] [name=save_ongoing]","10"); await pg.wait_for_timeout(100)
+    check("ongoing: a share isn't given commas", await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="10")
+    n0=len(calls); await pg.click("form[data-form=saveSetup] button[type=submit]"); await pg.wait_for_timeout(800)
+    sv=[json.loads(c[2])[0] for c in calls[n0:] if c[0]=="POST" and "/rest/v1/district_settings?on_conflict=district_id" in c[1]]
+    check("ongoing: a share saves as a fraction, with the dollar amount 0; the dropped-in V-PPEL amount saves too", sv and sv[0].get("save_ongoing_pct")==0.1 and sv[0].get("save_ongoing")==0 and sv[0].get("vppel_ongoing")==76228 and sv[0].get("ppel_ongoing_pct") is None, str(sv)[:500])
+    if sv: TABLES["district_settings"][0].update(sv[0])   # the simulated database doesn't keep what's posted
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(900)
+    check("ongoing: the share comes back as a share", await pg.input_value("form[data-form=saveSetup] [name=save_ongoing_mode]")=="pct" and await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="10")
+    # put it back the way the later tests expect
+    TABLES["district_settings"][:]=[dict(x) for x in _ds0]
+    # 14 Oct: Rank & fund tests the General Fund too; the capital plan flags repeating purchases that may be in the ongoing amounts
+    _bsid=next(x["id"] for x in TABLES["scenario"] if x["is_board_version"])
+    TABLES["recurring_cost"].append({"id":"rc-gf-big","district_id":"d1","scenario_id":_bsid,"initiative_id":_init0,"kind":"salary","fund":"general","first_fy":2028,"last_fy":None,"annual_amount":4000000,"grows_with":"settlement"})
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking/list"); await pg.wait_for_timeout(1000)
+    await pg.select_option("select[data-rank-sid]", _bsid); await pg.wait_for_timeout(900)
+    t=await pg.inner_text("#view"); lead=await pg.inner_text(".lead") if await pg.locator(".lead").count() else ""
+    check("rank & fund: a General Fund cost the General Fund can't carry stops the line there, and says why", "Below the line: General Fund" in t and "stops at the General Fund" in lead and ("solvency would fall" in t or "spending authority" in t)
+          and "SAVE, PPEL, V-PPEL, grants and the General Fund" in lead, lead[:400])
+    check("rank & fund: the yearly column says it's General Fund money; the list explains the General Fund test", "General Fund" in await pg.inner_text("table.ranktable") and "count against the" in t and "solvency stays at or above 5%" in t, t[:900])
+    TABLES["recurring_cost"][:]=[r for r in TABLES["recurring_cost"] if r["id"]!="rc-gf-big"]
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await pg.wait_for_timeout(900)
+    dc=await pg.inner_text("[data-double-count]") if await pg.locator("[data-double-count]").count() else ""
+    check("capital plan: repeating bus and device purchases on PPEL are flagged against PPEL's ongoing amount", "may be counted twice" in dc and "Bus fleet replacement" in dc and "PPEL also has $40k a year of ongoing commitments" in dc and "Roof" not in dc, dc[:600])
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/general"); await pg.wait_for_timeout(600)
     await pg.click("button[data-action=gfEdit]"); await pg.wait_for_timeout(700)
     gst=await pg.inner_text("[data-gf-state]")
@@ -1882,7 +1958,8 @@ async def main():
     authed=[c for c in calls[n0:] if "/rest/v1/" in c[1] and "rpc/public_publication" not in c[1]]
     check("public link: plan shows with no account ($5.35M)", "Ironwood Valley" in t and "$5.35M" in t and "Sign in" in t and "Sign out" not in t, t[:200])
     check("public link: only the public function is called", not authed, str(authed[:2]))
-    check("public link: branded, with the community note", "The board adopts the plan in October" in await pub.inner_text("body") and await pub.locator(".pubhead .pub-mono, .pubhead .pub-dlogo-lg").count()==1)
+    check("public link: branded, with the community note", "The board adopts the plan in October" in await pub.inner_text("body") and await pub.locator(".pub-top .pub-mono, .pub-top .pub-dlogo").count()==1
+      and "Willow Holler" not in await pub.inner_text("body") and await pub.locator(".pub-top img.logo-img").count()==0)
     check("public link: nothing to edit or publish", await pub.locator("[data-notbuilt], [data-action=publishBoard], form").count()==0)
     check("public link: no what-if tag before a lever moves", await pub.locator(".whatif-tag").count()==0)
     await pub.click("input[data-lever=sf]"); await pub.wait_for_timeout(200)

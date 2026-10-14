@@ -34,10 +34,10 @@
         district: { name: district ? district.name : '', short: district ? district.short_name : '', enrollment: n(s.enrollment, null) },
         plan: Object.assign({ years: n(s.plan_years, 10) }, s.plan_start_fy != null ? { startFY: n(s.plan_start_fy, undefined) } : {}),
         balances: { asOf: asOf, save: bal('save'), ppel: bal('ppel'), vppel: bal('vppel'), grants: bal('grants') },
-        save: { receipts: n(s.save_receipts, null), ongoing: n(s.save_ongoing, 0), trend: n(s.save_trend, 0), sf2472: s.sf2472 !== false, receiptsFY: n(s.save_receipts_fy, null) },
-        ppel: { receipts: n(s.ppel_receipts, null), ongoing: n(s.ppel_ongoing, 0), growth: n(s.ppel_growth, 0.03), valuation: n(s.taxable_valuation, null),
+        save: { receipts: n(s.save_receipts, null), ongoing: s.save_ongoing_pct != null ? 0 : n(s.save_ongoing, 0), ongoingPct: n(s.save_ongoing_pct, null), trend: n(s.save_trend, 0), sf2472: s.sf2472 !== false, receiptsFY: n(s.save_receipts_fy, null) },
+        ppel: { receipts: n(s.ppel_receipts, null), ongoing: s.ppel_ongoing_pct != null ? 0 : n(s.ppel_ongoing, 0), ongoingPct: n(s.ppel_ongoing_pct, null), growth: n(s.ppel_growth, 0.03), valuation: n(s.taxable_valuation, null),
                 rate: n(s.ppel_rate, null), actualValuation: n(s.actual_valuation, null), goOutstanding: n(s.go_outstanding, null) },
-        vppel: { status: s.vppel_status || 'none', annual: n(s.vppel_annual, 0), ongoing: n(s.vppel_ongoing, 0), firstFY: n(s.vppel_first_fy, null), lastFY: n(s.vppel_last_fy, null) },
+        vppel: { status: s.vppel_status || 'none', annual: n(s.vppel_annual, 0), ongoing: s.vppel_ongoing_pct != null ? 0 : n(s.vppel_ongoing, 0), ongoingPct: n(s.vppel_ongoing_pct, null), firstFY: n(s.vppel_first_fy, null), lastFY: n(s.vppel_last_fy, null) },
         grants: { avg: n(s.grants_avg, 0), yield: n(s.grants_yield, 0.75) },
         debt: capDebts.map((d) => ({ name: d.name, fund: d.fund, annual: n(d.annual_payment, 0), lastFY: n(d.final_fy, null), timing: d.first_year_timing || 'spread' })),
         inflation: n(s.construction_inflation, 0),
@@ -164,6 +164,8 @@
       save_receipts: s.save.receipts, save_receipts_fy: s.save.receiptsFY, save_ongoing: s.save.ongoing, save_trend: s.save.trend, sf2472: s.save.sf2472 !== false,
       ppel_receipts: s.ppel.receipts, ppel_ongoing: s.ppel.ongoing, ppel_growth: s.ppel.growth, ppel_rate: s.ppel.rate,
       taxable_valuation: s.ppel.valuation, actual_valuation: s.ppel.actualValuation, go_outstanding: s.ppel.goOutstanding,
+      ...(s.save.ongoingPct != null ? { save_ongoing_pct: s.save.ongoingPct } : {}), ...(s.ppel.ongoingPct != null ? { ppel_ongoing_pct: s.ppel.ongoingPct } : {}),
+      ...(s.vppel.ongoingPct != null ? { vppel_ongoing_pct: s.vppel.ongoingPct } : {}),
       vppel_status: s.vppel.status, vppel_annual: s.vppel.annual, vppel_ongoing: s.vppel.ongoing || 0, vppel_first_fy: s.vppel.firstFY, vppel_last_fy: s.vppel.lastFY,
       grants_avg: s.grants.avg, grants_yield: s.grants.yield, construction_inflation: s.inflation,
       ...(s.tax ? { tax_home_value: s.tax.homeValue, ag_value_per_acre: s.tax.agPerAcre } : {}),
@@ -214,6 +216,7 @@
         initiative_id: r.project != null ? initId.get(r.project) || null : null }));
     }
     evenKeys(out.phase);
+    Object.assign(out, demoLedger(demo, districtId, newId, out, startFY));
     return out;
   }
   /** bulk inserts need the same fields on every row: a field some rows have is set to null on the others */
@@ -251,6 +254,71 @@
     return out;
   }
 
+  /* A demo district's month-end general ledger: July, August and September of the plan's first year, so Budget vs. actual,
+     spending on initiatives and the Home ledger tile have something to show. Built from the demo's own settings: General Fund
+     revenue and spending by function from its General Fund figures, SAVE, PPEL and V-PPEL from receipts, ongoing amounts and debt,
+     and this year's capital phases as spending on those initiatives. Only revenue and spending accounts: no balance-sheet accounts,
+     so applying it doesn't change the fund balances the plan starts from. Fictional, like every demo figure. */
+  function demoLedger(demo, districtId, newId, rows, startFY) {
+    const s = demo.settings || {}, g = s.gf, out = { import_batch: [], gl_account: [], gl_amount: [] };
+    if (!startFY) return out;
+    const cal = startFY - 1, months = [[7, 31], [8, 31], [9, 30]].map(([m, d]) => ({ m: m - 6, end: `${cal}-${String(m).padStart(2, '0')}-${d}` }));
+    const acct = [];   // [code, fund_code, function_code, object_code, description, kind, mapped_fund, budget, pace(m) -> share of budget so far, encumbered share, initiative_id]
+    const r0 = (v) => Math.round(v);
+    const even = (m) => m / 12, tenMonth = (m) => Math.max(0, m - 1.5) / 10, summer = (m) => [0, 0.32, 0.58, 0.71][m], lagged = (m) => Math.max(0, m - 1) / 12;
+    const taxes = (m) => [0, 0.01, 0.03, 0.41][m];
+    if (g) {
+      const staff = (g.staff || []).reduce((t, x) => t + Number(x.fte) * (Number(x.salary) * (1 + Number(x.benefits == null ? 0.1709 : x.benefits)) + Number(x.health || 0)), 0);
+      const rev = Number(g.enrollment) * Number(g.dcpp) + Number(g.other_formula || 0) + Number(g.misc_income || 0), spend = staff + Number(g.nonstaff || 0);
+      [['1110', 'Property tax levy', 0.42, taxes], ['3111', 'State foundation aid', 0.46, even], ['1900', 'Other local revenue', 0.12, lagged]].forEach(([obj, d, sh, pace]) =>
+        acct.push([`10-0000-${obj}`, '10', '0000', obj, d, 'revenue', 'general', rev * sh, pace, 0]));
+      [['1100', 'Regular instruction', 0.52, tenMonth, 0.01], ['1200', 'Special instruction', 0.11, tenMonth, 0.01], ['2100', 'Student support', 0.04, tenMonth, 0.02],
+        ['2200', 'Instructional staff support', 0.03, even, 0.03], ['2300', 'General administration', 0.03, even, 0.02], ['2400', 'School administration', 0.06, even, 0.01],
+        ['2500', 'Business and central services', 0.03, even, 0.02], ['2600', 'Operation and maintenance of plant', 0.11, (m) => even(m) * 1.12, 0.05],
+        ['2700', 'Student transportation', 0.05, tenMonth, 0.04], ['3100', 'Food service and other', 0.02, tenMonth, 0.02]].forEach(([fn, d, sh, pace, enc]) =>
+        acct.push([`10-${fn}-0000`, '10', fn, '0000', d, 'expense', 'general', spend * sh, pace, enc]));
+    }
+    const debt = (fund) => (s.debt || []).filter((x) => x.fund === fund).reduce((t, x) => t + Number(x.annual || 0), 0);
+    if (s.save && s.save.receipts) {
+      acct.push(['33-0000-1220', '33', '0000', '1220', 'Secure an Advanced Vision for Education (SAVE) sales tax', 'revenue', 'save', Number(s.save.receipts), lagged, 0]);
+      if (s.save.ongoing) acct.push(['33-2600-0450', '33', '2600', '0450', 'Technology and building equipment (SAVE)', 'expense', 'save', Number(s.save.ongoing), summer, 0.12]);
+      if (debt('save')) acct.push(['33-5000-0830', '33', '5000', '0830', 'Revenue bond payments (SAVE)', 'expense', 'save', debt('save'), (m) => (m >= 3 ? 0.5 : 0), 0]);
+    }
+    if (s.ppel && s.ppel.receipts) {
+      acct.push(['36-0000-1112', '36', '0000', '1112', 'Physical plant and equipment levy (PPEL)', 'revenue', 'ppel', Number(s.ppel.receipts), taxes, 0]);
+      if (s.ppel.ongoing) acct.push(['36-2700-0732', '36', '2700', '0732', 'Vehicles and equipment (PPEL)', 'expense', 'ppel', Number(s.ppel.ongoing), summer, 0.2]);
+      if (debt('ppel')) acct.push(['36-5000-0830', '36', '5000', '0830', 'Lease-purchase payments (PPEL)', 'expense', 'ppel', debt('ppel'), (m) => (m >= 2 ? 0.5 : 0), 0]);
+    }
+    if (s.vppel && s.vppel.status === 'active' && s.vppel.annual) {
+      acct.push(['36-0000-1113', '36', '0000', '1113', 'Voter-approved PPEL levy', 'revenue', 'vppel', Number(s.vppel.annual), taxes, 0]);
+      if (s.vppel.ongoing) acct.push(['36-2200-0739', '36', '2200', '0739', 'Classroom technology (V-PPEL)', 'expense', 'vppel', Number(s.vppel.ongoing), summer, 0.1]);
+    }
+    /* this year's capital phases in the board version, as spending on those initiatives */
+    const board = (rows.scenario || []).find((x) => x.is_board_version) || (rows.scenario || [])[0];
+    const INIT = new Map((rows.initiative || []).map((i) => [i.id, i])), FUNDCODE = { save: '33', ppel: '36', vppel: '36' };
+    let n = 0;
+    (rows.phase || []).filter((ph) => board && ph.scenario_id === board.id && ph.fy === startFY && ph.status !== 'done').forEach((ph) => {
+      (rows.phase_funding || []).filter((f) => f.phase_id === ph.id && FUNDCODE[f.fund]).forEach((f) => {
+        const i = INIT.get(ph.initiative_id) || {}; n++;
+        acct.push([`${FUNDCODE[f.fund]}-4600-07${String(n).padStart(2, '0')}`, FUNDCODE[f.fund], '4600', '0700', `${i.name || 'Project'}${ph.label ? ': ' + ph.label : ''}`, 'initiative', f.fund,
+          Number(ph.cost) * Number(f.pct) / 100, (m) => [0, 0.18, 0.46, 0.62][m], 0.24, ph.initiative_id]);
+      });
+    });
+    if (!acct.length) return out;
+    const ids = acct.map(() => newId());
+    acct.forEach((a, k) => out.gl_account.push({ id: ids[k], district_id: districtId, code: a[0], fund_code: a[1], function_code: a[2], object_code: a[3], description: a[4],
+      account_type: a[5] === 'revenue' ? 'revenue' : 'expenditure', maps_to: a[5], mapped_fund: a[6], sign: 1, needs_review: false, initiative_id: a[10] || null }));
+    months.forEach((mo) => {
+      const bid = newId();
+      out.import_batch.push({ id: bid, district_id: districtId, kind: 'gl_monthly', period_end: mo.end, fiscal_year: startFY, file_name: `demo-ledger-${mo.end}.csv`, status: 'uploaded', row_count: acct.length });
+      acct.forEach((a, k) => {
+        const wobble = 1 + (((k * 37 + mo.m * 11) % 9) - 4) / 100;   // a little noise, the same every time
+        const ytd = r0(a[7] * Math.min(1.05, a[8](mo.m) * wobble)), enc = a[5] === 'revenue' ? 0 : r0(a[7] * a[9] * (mo.m === 3 ? 1 : 0.8));
+        out.gl_amount.push({ district_id: districtId, batch_id: bid, account_id: ids[k], fiscal_year: startFY, period_end: mo.end, ytd_amount: ytd, budget_amount: r0(a[7]), encumbered: enc });
+      });
+    });
+    return out;
+  }
   /* what each capital fund is already committed to over the plan, before any project: payments on existing debt and new
      borrowing, ongoing commitments, and yearly costs of programs and hires charged to the fund (year 0 scaled like receipts) */
   function commitments(L, cfg) {
@@ -260,10 +328,51 @@
       const f = y === 0 ? cfg.f0 : 1;
       ['save', 'ppel'].forEach((b) => {
         out[b].debt += (E.debtIn(cfg, b, y) + E.finPay(cfg, b, y, L)) * f;
-        out[b].ongoing += (b === 'save' ? cfg.saveOng : cfg.ppelOng) * f;
+        out[b].ongoing += E.ongoingIn(cfg, b, y, L) * f;
       });
-      if (out.vppel && cfg.vStatus !== 'none' && L.vppel && fy >= cfg.vFirst && fy <= cfg.vLast) out.vppel.ongoing += (cfg.vppelOng || 0) * f;
+      if (out.vppel) out.vppel.ongoing += E.ongoingIn(cfg, 'vppel', y, L) * f;
       CAP_FUNDS.forEach((b) => { out[b].yearly += E.recurIn(cfg, b, y, L) * f; });
+    });
+    return out;
+  }
+  /* Possibly counted twice: a purchase that repeats (buses every year, a device refresh, a yearly contract) charged to SAVE, PPEL or
+     V-PPEL when that fund also has an ongoing commitment. Regular replacements are usually what the ongoing amount is for, so the
+     same buses can end up in the plan twice. A check, not an error: the district decides.
+     item: { id, name, phases: [{ fy, cost, funds: [fund], status }], yearly: [{ fund, first, last, amount }] }
+     ongoing: { save, ppel, vppel } dollars a year now. -> [{ fund, how: 'yearly'|'repeats', years: [fy], routine: bool }] */
+  const ROUTINE = /\b(bus|buses|fleet|vehicles?|vans?|suburbans?|cars?|trucks?|chromebooks?|devices?|laptops?|ipads?|tablets?|computers?|technology|tech|copiers?|printers?|mowers?|tractors?|maintenance|repairs?|refresh|replacement cycle|annual|yearly|every year|carpet|furniture|seal ?coat(ing)?|crack seal|paint(ing)?|lockers?)\b/i;
+  function routineOverlap(item, ongoing) {
+    const out = [], routine = ROUTINE.test(item.name || '');
+    ['save', 'ppel', 'vppel'].forEach((b) => {
+      if (!(ongoing && ongoing[b] > 0.5)) return;
+      const yr = (item.yearly || []).filter((r) => r.fund === b && Number(r.amount) > 0 && (r.last == null || Number(r.last) > Number(r.first)));
+      if (yr.length) out.push({ fund: b, how: 'yearly', years: [...new Set(yr.map((r) => Number(r.first)))].sort(), routine, ongoing: ongoing[b] });
+      const ph = (item.phases || []).filter((x) => x.status !== 'done' && (x.funds || []).includes(b) && Number(x.cost) > 0);
+      const years = [...new Set(ph.map((x) => Number(x.fy)))].sort((a, c) => a - c);
+      const allYears = new Set((item.phases || []).filter((x) => x.status !== 'done' && Number(x.cost) > 0).map((x) => Number(x.fy)));
+      if (!years.length || (years.length < 2 && !(routine && allYears.size >= 2))) return;   // a routine purchase repeated across two funds counts too
+      /* evenly spaced, similar cost: the shape of a replacement cycle, whatever it's called */
+      const gaps = years.slice(1).map((y, j) => y - years[j]), even = gaps.every((g) => g === gaps[0]);
+      const costs = years.map((y) => ph.filter((x) => Number(x.fy) === y).reduce((t, x) => t + Number(x.cost), 0)), lo = Math.min(...costs), hi = Math.max(...costs);
+      const cycle = years.length >= 4 && even && hi <= lo * 1.35;
+      if (years.length < 2 && !routine) return;
+      if (routine || cycle) out.push({ fund: b, how: 'repeats', years, routine, ongoing: ongoing[b] });
+    });
+    return out;
+  }
+  /** routineOverlap for every initiative in a scenario (inp from buildInputs) */
+  function doubleCount(inp) {
+    const cfg = inp.cfg, L = inp.levers, ongoing = {};
+    ['save', 'ppel', 'vppel'].forEach((b) => { ongoing[b] = E.ongoingIn(cfg, b, Math.min(1, cfg.n - 1), Object.assign({}, L, { vppel: true })); });
+    const ids = [...new Set(inp.projects.map((p) => String(p.id)).concat((L.recur || []).map((r) => String(r.initiative_id))))];
+    const out = [];
+    ids.forEach((id) => {
+      const p = inp.projects.find((x) => String(x.id) === id);
+      const item = { id, name: p ? p.name : ((L.recur || []).find((r) => String(r.initiative_id) === id) || {}).name || '',
+        phases: p ? p.phases.map((ph) => ({ fy: cfg.start + ph.year, cost: ph.cost, status: ph.status, funds: [...new Set(ph.funding.map((f) => f.b).concat(ph.options || []))] })) : [],
+        yearly: (L.recur || []).filter((r) => String(r.initiative_id) === id) };
+      if (p && p.type && !['capital', 'technology', 'other', 'program'].includes(p.type)) return;
+      routineOverlap(item, ongoing).forEach((x) => out.push(Object.assign({ id, name: item.name }, x)));
     });
     return out;
   }
@@ -290,5 +399,5 @@
     ];
   }
 
-  return { starterSets, settingsFromRows, projectsFromRows, leversFromRows, recurFromRows, buildInputs, demoRows, evenKeys, yearSummary, fundPaths, recurByYear, commitments, CAP_FUNDS };
+  return { demoLedger, routineOverlap, doubleCount, ROUTINE, starterSets, settingsFromRows, projectsFromRows, leversFromRows, recurFromRows, buildInputs, demoRows, evenKeys, yearSummary, fundPaths, recurByYear, commitments, CAP_FUNDS };
 });
