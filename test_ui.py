@@ -1496,6 +1496,22 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/summary"); await pg.wait_for_timeout(700); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)"); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view")
     check("summary: board version totals", "$14.79M" in t and "$5.35M" in t and "District baseline" in t)
+    # 14 Oct: every screen shows the same board-version figures (the engine's), wherever they appear
+    _g=gold("orig",None); _gap=fmtK(_g["gap"]); _need=fmtK(_g["need"]); _bsid3=next(x["id"] for x in TABLES["scenario"] if x["is_board_version"])
+    def figs(label, text):
+        return [m.group(1) for m in re.finditer(re.escape(label)+r"[^$\n]{0,40}\n?[^$\n]{0,20}(−?\$[\d.,]+[kM]?)", text)]
+    seen={}
+    for route in ["home/today","money/capital","money/summary","plan/ranking/fit"]:
+        await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
+        await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+route); await pg.wait_for_timeout(900)
+        if route=="money/capital" and await pg.locator("select[data-cap-scenario]").count():
+            await pg.select_option("select[data-cap-scenario]", _bsid3); await pg.wait_for_timeout(600)
+        if route.startswith("plan/ranking") and await pg.locator("select[data-rank-sid]").count():
+            await pg.select_option("select[data-rank-sid]", _bsid3); await pg.wait_for_timeout(900)
+        tx=await pg.inner_text("#view")
+        seen[route]={"gap":figs("Gap to close",tx)+figs("the gap goes from",tx)+figs("The gap of",tx),"need":figs("10-year need",tx)}
+    gaps=[v for r in seen.values() for v in r["gap"]]; needs=[v for r in seen.values() for v in r["need"]]
+    check("every screen shows the board version's gap and 10-year need as the engine computes them", len(gaps)>=3 and all(v==_gap for v in gaps) and all(v==_need for v in needs), json.dumps(seen)+" want "+_gap+" / "+_need)
     check("summary: each fund's low point, rounded on the summary", fmtK(EXP["saveLow"])+" (FY"+str(EXP["saveLowFY"])+")" in t, fmtK(EXP["saveLow"]))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(900); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view")

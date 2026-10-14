@@ -1,31 +1,32 @@
-# HighGround update, 14 Oct (c): choosing where costs go, and clearer fund splits
+# HighGround update, 14 Oct (d): dollar-flow checks on random districts, and two fixes they found
 
-Builds on 14 Oct (b). **No database change.** Upload to GitHub: `app.js`, `styles.css`, `test_ui.py`, `STEPS.md`. Then republish Bridger Hollow's community page (Share → Community page → Publish) so the new note appears. Then Cmd+Option+R in Safari.
+Builds on 14 Oct (c). **No database change.**
 
-## Where an initiative's costs go
-- The picker is now **"Save its costs to"**, in three plain groups:
-  - **Working scenarios: try ideas without changing the adopted plan.** A new initiative goes here by default.
-  - **A new working copy of the adopted plan** (made when you save).
-  - **The adopted plan: the board's approved version.** Listed separately and never chosen for you.
-- The line under the picker says what the choice means. For the adopted plan: "This is the adopted plan, the version the board approved. It feeds Home, Rank & fund, the board report and the public page…"
-- **Saving to the adopted plan asks first:** "Change the adopted plan? … Saving X here changes what Home, Rank & fund and the board report show… The public page keeps the last published version until an admin publishes again. To try it out first, click Cancel and choose a new working copy."
-  - If it's locked, an admin's save **unlocks it just long enough to save, then locks it again**. No more "go unlock it on the Capital plan first".
-  - Anyone who isn't an admin sees it as "(admin only)" and is pointed to a working scenario or a working copy.
-- **The Capital plan, on the locked adopted plan,** now has an **Add an initiative** button too; it opens the same picker.
+## Two fixes (found by the new checks)
+1. **Funding vs. committed: this year's debt payment.** When the balances are from partway through a year, Starting numbers lets you say whether this year's debt payment is still to pay, already paid, or spread over the year. The plan used that choice; the Funding vs. committed bars always assumed "spread", so their debt bar was off by up to about $250k in the first year. Now they match the plan.
+2. **"Whichever has room" with a campaign and boosters.** A campaign or bond was treated as always having room, even with nothing financed in the scenario, so a phase that could use PPEL, a campaign *or boosters* could land on the unfinanced campaign and add its whole cost to the gap, when boosters were right there. Raising costs could even lower the gap. Now, among choices that leave the levy funds equally short, the one that leaves less to an unfinanced campaign wins. A campaign is still the last resort when nothing else can pay, and when the scenario has a bond that covers it, it's used as before.
 
-## Splitting a cost: phases vs. funds
-Your screenshot: three phases of $32M, $32M and $64M, each with a 25/25/50 "%" that was meant to split the project between funds. The % box only ever meant "this phase's share from this fund".
-- **With one fund, there's no % box at all.** The fund pays the whole phase.
-- **With two or three funds,** each share shows its dollars as you type ("25 % = $8,000,000"), and the column says "add a fund to split this phase's cost".
-- **A running total under the phases:** "Total one-time cost: $128,000,000 in 3 phases" with a tag per fund ("SAVE $32,000,000 · PPEL $32,000,000 · Grants/Donations $64,000,000"), so either way of entering it is easy to check.
-- If shares don't add to 100%, the message says why: "they split one phase between funds, not the project between phases."
-- So, for one project paid 25% SAVE / 25% PPEL / 50% grants in one year: **one phase, $128M, three funds at 25/25/50** — or three phases with one fund each, as you entered it. Both now show the same totals.
+The Bridger Hollow and Ironwood demo figures don't change.
 
-## Community page: why the chart shows only levies
-Not a bug in the chart, but it was far too easy to miss. Publishing **holds back initiatives the board hasn't approved** (the "Hold back" box, on by default). In Bridger Hollow every campaign, bond and booster project is still an idea, a proposal or being analysed (CTE and ag addition, track, turf), so the community version has only levy-funded projects. The board version has them all.
-- **Share → Community page** now lists exactly what's held back, with each one's status and funds ("CTE and ag building addition · being analysed · SAVE + campaign/bond"), and says how to show them: approve them on Initiatives, or untick Hold back, then publish again.
-- **The public page** now says at the top: "This page shows what the board has approved. 8 more initiatives are still being considered and aren't shown, including 3 that would be paid partly by a campaign, bond or boosters." (Counts only: no names of unapproved items go public.)
-- The public page also only changes when an admin publishes again; it doesn't follow edits to the board version on its own.
+## New checks
+- **`dollarflow_test.js`: 1,200 random districts and plans (5,000 nightly).** Rules money must always obey:
+  - every dollar of every phase is charged to exactly one place;
+  - each fund's year rolls into the next (start + receipts − spending = next start, or a shortfall);
+  - the gap = unpaid campaign money + fund shortfalls;
+  - more receipts never raise the gap; higher costs or one more project never lower it;
+  - doubling every dollar doubles the gap (no hidden fixed amounts);
+  - Funding vs. committed adds up to receipts minus what the plan gets;
+  - everything above the funding line fits, the first below doesn't, and filling in only funds what fits;
+  - the General Fund balance rolls forward, and a new cost never raises solvency.
+  With the two old bugs put back, it fails at once (checked).
+- **Every screen agrees:** the browser test now reads the board version's gap and 10-year need on Home, the Capital plan, the summary and Rank & fund, and fails if any differs from the engine.
+- **Nightly on GitHub:** `.github/workflows/nightly-checks.yml` runs all the calculation tests every night, and on every upload, with a new random seed. If anything fails, GitHub emails you; the log names the broken rule and the SEED to replay it.
+
+## Install (GitHub only)
+1. **Add file → Upload files:** `engine.js`, `capital.js`, `dollarflow_test.js`, `fundchoice_test.js`, `test_ui.py`, `STEPS.md`. Commit.
+2. **The nightly check:** **Add file → Create new file**. In the name box type exactly `.github/workflows/nightly-checks.yml` (the slashes make the folders). Open `nightly-checks.yml` from the package in TextEdit, copy everything, paste it in, and **Commit**.
+3. Open the repository's **Actions** tab: a "Nightly checks" run starts within a minute. A green tick means everything passed. The first run also shows if any older test file is missing from the repository.
+4. Cmd+Option+R in Safari.
 
 ## Tests
-Unit: 27 files pass. Browser: 483 checks, all pass (new: picker groups and default, confirm-and-relock on the adopted plan, no % with one fund, dollars per share, running total, clearer split message).
+Unit: 28 files pass (new: dollarflow; fundchoice +2). Engine golden cases: 32, 0 differences. Browser: 484 checks, all pass.

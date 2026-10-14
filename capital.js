@@ -327,7 +327,7 @@
     cfg.years.forEach((fy, y) => {
       const f = y === 0 ? cfg.f0 : 1;
       ['save', 'ppel'].forEach((b) => {
-        out[b].debt += (E.debtIn(cfg, b, y) + E.finPay(cfg, b, y, L)) * f;
+        out[b].debt += E.debtDue(cfg, b, y) + E.finPay(cfg, b, y, L) * f;   // this year's payment as Starting numbers says (still to pay, paid, spread), like the plan
         out[b].ongoing += E.ongoingIn(cfg, b, y, L) * f;
       });
       if (out.vppel) out.vppel.ongoing += E.ongoingIn(cfg, 'vppel', y, L) * f;

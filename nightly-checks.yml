@@ -1,0 +1,28 @@
+# HighGround: every night (and on every upload to main), run all the calculation tests, plus the dollar-flow checks on
+# 5,000 random districts with a new random seed. If anything fails, GitHub emails the repository owner; the log shows the
+# failing rule and the SEED, so the exact case can be replayed: SEED=<number> node dollarflow_test.js
+name: Nightly checks
+on:
+  schedule:
+    - cron: '17 9 * * *'      # about 4:17 a.m. Central
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Calculation tests
+        run: |
+          fail=0
+          for t in *_test.js; do
+            echo "== $t"
+            node "$t" || fail=1
+          done
+          exit $fail
+      - name: Dollar flow on 5,000 random districts (new seed each run)
+        run: SEED=$(( (RANDOM << 15) | RANDOM )) N=5000 node dollarflow_test.js

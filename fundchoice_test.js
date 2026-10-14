@@ -33,6 +33,12 @@ check('no fund has room: goes to the one with the most room, and the shortfall i
 // boosters / campaign as a last resort always have room
 r = run([fill, { id: 'p', name: 'Turf', phases: [{ cost: ppel0 * 3 + save0, year: 0, options: ['save', 'ppel', 'camp'] }] }]);
 check('campaign/bond as the last choice catches what no levy fund can', r.picks[0].b === 'camp' && r.unfunded > 0.5, JSON.stringify(r.picks));
+// 14 Oct: a campaign with nothing financed doesn't tie with boosters (boosters pay; an unfinanced campaign is all gap)
+r = run([fill, { id: 'p', name: 'Turf', phases: [{ cost: ppel0 * 3 + save0, year: 0, options: ['ppel', 'camp', 'boost'] }] }]);
+check('boosters listed after an unfinanced campaign still win: nothing left unpaid', r.picks[0].b === 'boost' && r.unfunded < 0.5, JSON.stringify(r.picks));
+{ const L2 = Object.assign({}, L, { fin: E.leversOf({ fin: [{ name: 'Bond', kind: 'go', fy: cfg.start, amount: (ppel0 * 3 + save0) * 2, rate: 0.04, years: 20 }] }, cfg).fin });
+  const r2 = E.compute(E.cleanList([fill, { id: 'p', name: 'Turf', phases: [{ cost: ppel0 * 3 + save0, year: 0, options: ['ppel', 'camp', 'boost'] }] }], cfg), L2, cfg);
+  check('…but with a bond in the scenario that covers it, the campaign/bond (listed first) is used', r2.picks[0].b === 'camp' && r2.unfunded < 0.5, JSON.stringify(r2.picks)); }
 
 // order: earlier projects choose first
 r = run([fill, { id: 'p1', name: 'First', phases: [{ cost: ppel0 * 0.7, year: 0, options: ['ppel', 'grants'] }] }, { id: 'p2', name: 'Second', phases: [{ cost: ppel0 * 0.7, year: 0, options: ['ppel', 'camp'] }] }]);

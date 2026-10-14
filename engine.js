@@ -326,6 +326,10 @@
         /* room this year, and "safe" room: what can be taken now without leaving a later year's fixed-fund phases short
            (the lowest running balance from this year to the end of the plan, counting later fixed spending) */
         const room = {}, safe = {};
+        /* a campaign or bond is the last resort for what no levy fund can pay, but it pays only what this scenario raises or
+           borrows: between choices that leave the levy funds equally short, the one that leaves less to an unfinanced campaign wins
+           (so boosters, when listed, beat a campaign with nothing behind it; found by the random-district checks, 14 Oct 2026) */
+        const campRoom = Math.max(0, finCarry + finProceeds(cfg, y, L) - spend.camp);
         CAP_ORDER.forEach((b) => {
           room[b] = carry[b] + inflow(cfg, b, y, L) - spend[b];
           let run = room[b], low = run;
@@ -341,22 +345,24 @@
           const n = flex.length, idx = new Array(n).fill(0);
           let best = null;
           for (;;) {
-            const use = {}; CAP_ORDER.forEach((b) => { use[b] = 0; });
-            for (let k = 0; k < n; k++) { const b = flex[k][1].options[idx[k]]; if (capital(b)) use[b] += flex[k][2]; }
+            const use = { camp: 0 }; CAP_ORDER.forEach((b) => { use[b] = 0; });
+            for (let k = 0; k < n; k++) { const b = flex[k][1].options[idx[k]]; if (capital(b) || b === 'camp') use[b] += flex[k][2]; }
             let shortSafe = 0, shortNow = 0;
+            const campShort = Math.max(0, use.camp - campRoom);
             CAP_ORDER.forEach((b) => { shortSafe += Math.max(0, use[b] - Math.max(0, safe[b])); shortNow += Math.max(0, use[b] - Math.max(0, room[b])); });
-            const key = [Math.round(shortSafe), Math.round(shortNow)].concat(idx);
+            const key = [Math.round(shortSafe), Math.round(shortNow), Math.round(campShort)].concat(idx);
             if (!best || lexLess(key, best)) best = key;
             let k = n - 1; while (k >= 0 && ++idx[k] >= flex[k][1].options.length) { idx[k] = 0; k--; }
             if (k < 0) break;
           }
-          choice = best.slice(2);
+          choice = best.slice(3);
         }
         flex.forEach(([p, ph, c], k) => {
           let b;
           if (choice) b = ph.options[choice[k]];
           else {
-            b = ph.options.find((o) => !capital(o) || safe[o] >= c - 0.5);                  // fits now and later
+            b = ph.options.find((o) => (o === 'camp' ? campRoom >= c - 0.5 : !capital(o) || safe[o] >= c - 0.5));   // fits now and later
+            if (!b) b = ph.options.find((o) => !capital(o));                                  // boosters, or a campaign as the last resort
             if (!b) b = ph.options.find((o) => capital(o) && room[o] >= c - 0.5);            // fits now only
             if (!b) b = ph.options.slice().sort((a, z) => (capital(z) ? safe[z] : Infinity) - (capital(a) ? safe[a] : Infinity))[0];
           }
@@ -407,7 +413,7 @@
   }
 
   return {
-    VERSION: '2026-10-14',
+    VERSION: '2026-10-14d',
     BUCKETS, BUCKET_NAMES, CAP_ORDER, PRI_LIST, SF2472_CUT, LEGAL_YEARLY, LEGAL_TYPE,
     fyOfDate, firstYearFraction, normSettings, makeConfig, defaultLevers, leversOf, cleanFin,
     cleanPhases, cleanProject, cleanList, cleanRecur, recurIn, receiptsIn, ongoingIn, debtIn, debtDue, finPay, inflow, compute, pmt, sfCut, saveBondCapacity, goDebtRoom, legality, checkLegal,
