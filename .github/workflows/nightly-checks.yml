@@ -1,6 +1,6 @@
 # HighGround: every night (and on every upload to main), run all the calculation tests, plus the dollar-flow checks on
-# 5,000 random districts with a new random seed. If anything fails, GitHub emails the repository owner; the log shows the
-# failing rule and the SEED, so the exact case can be replayed: SEED=<number> node dollarflow_test.js
+# 5,000 random districts with a new random seed. If anything fails, GitHub emails the repository owner; the log names the
+# failing test file (and, for the dollar-flow checks, the rule and the SEED to replay: SEED=<number> node dollarflow_test.js)
 name: Nightly checks
 on:
   schedule:
@@ -11,18 +11,27 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: America/Chicago     # the same time zone the tests were written in
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'  # the same Node as the daily health check and the test machine
       - name: Calculation tests
         run: |
-          fail=0
+          node --version
+          failed=""
           for t in *_test.js; do
-            echo "== $t"
-            node "$t" || fail=1
+            echo "::group::$t"
+            if ! node "$t"; then failed="$failed $t"; fi
+            echo "::endgroup::"
           done
-          exit $fail
+          if [ -n "$failed" ]; then echo "::error::Failed:$failed"; exit 1; fi
+          echo "All calculation tests passed."
       - name: Dollar flow on 5,000 random districts (new seed each run)
-        run: SEED=$(( (RANDOM << 15) | RANDOM )) N=5000 node dollarflow_test.js
+        run: |
+          SEED=$(( (RANDOM << 15) | RANDOM ))
+          echo "SEED=$SEED"
+          SEED=$SEED N=5000 node dollarflow_test.js || { echo "::error::Dollar-flow rule broken. Replay with SEED=$SEED node dollarflow_test.js"; exit 1; }
