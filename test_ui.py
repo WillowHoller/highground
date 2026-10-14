@@ -329,10 +329,19 @@ async def main():
     check("editor: “Add a phase” sits clear of the table above it", ab>=8, str(ab))
     await pg.screenshot(path=SHOTS+"/editor.png")
     first=pg.locator("[data-modal] [data-phase-row]").first
-    await first.locator("input[name=pct]").first.fill("60"); n0=len(calls)
+    check("fund shares: with one fund there's no % box (it pays the whole phase)", not await first.locator("input[name=pct]").first.is_visible())
+    sm=await pg.inner_text("[data-modal] [data-cost-sum]")
+    check("costs: a running total of the one-time cost, by fund, under the phases", "Total one-time cost" in sm and "phases" in sm, sm)
+    await first.locator("button[data-action=addFund]").click(); await pg.wait_for_timeout(100)
+    await first.locator("input[name=cost]").fill("1,000,000"); await pg.wait_for_timeout(100)
+    us=await first.locator("[data-pct-usd]").all_inner_texts()
+    check("fund shares: with two funds each share shows its dollars", us==["= $500,000","= $500,000"], str(us))
+    await pg.evaluate("(()=>{const p=document.querySelectorAll('[data-modal] [data-phase-row]')[0].querySelectorAll('[name=pct]');p[0].value='60';p[1].value='30'})()"); n0=len(calls)
     await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
-    check("editor: a split that doesn't add to 100% is caught", "add to 60%" in await pg.inner_text("[data-modal] [data-form-errors]") and not any(c[0] in("POST","PATCH","DELETE") for c in calls[n0:]))
-    await first.locator("input[name=pct]").first.fill("100"); await first.locator("input[name=cost]").fill("950,000")
+    er=await pg.inner_text("[data-modal] [data-form-errors]")
+    check("editor: a split that doesn't add to 100% is caught, and says it's a split of one phase", "add to 90%" in er and "split one phase between funds" in er and not any(c[0] in("POST","PATCH","DELETE") for c in calls[n0:]), er)
+    await first.locator("[data-src] >> nth=1").locator("button[data-action=removeFund]").click()
+    await first.locator("input[name=cost]").fill("950,000")
     # fund rows: add, even split, two-fund complement, remove
     await first.locator("button[data-action=addFund]").click()
     pv=lambda: first.locator("input[name=pct]").evaluate_all("els=>els.map(e=>e.value)")
@@ -473,6 +482,8 @@ async def main():
     await pg.reload(); await pg.wait_for_timeout(700)
     t=await pg.inner_text("#view")
     check("publish: shows how many will show and how many are held back, and the public gap", "2 initiatives will show; 14 held back" in t and "The public page’s gap is" in t, t[t.find("Publish the community page"):t.find("Publish the community page")+500])
+    hl=await pg.inner_text("[data-held-list]") if await pg.locator("[data-held-list]").count() else ""
+    check("publish: names what's held back, with its status and where its money comes from, and how to show it", "Not on the community page" in hl and "campaign/bond" in hl and "untick “Hold back”" in hl, hl[:400])
     n0=len(calls); await pg.click("button[data-action=publishBoard]"); await pg.wait_for_timeout(700)
     pp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "/rest/v1/publication" in c[1]]
     check("publish: held-back proposals are left out of the public copy", pp and len(pp[0]["payload"]["projects"])==2 and pp[0]["payload"]["heldBack"]==14 and pp[0]["payload"]["holdBack"], str(pp)[:200])
@@ -715,10 +726,12 @@ async def main():
     check("initiatives: filter by status, and approved-but-not-planned is flagged", "FFA program" in t and "Middle school HVAC" not in t and "Approved, but not in the adopted plan" in t)
     await pg.click("a[data-action=editInitiative]:has-text('FFA program')"); await pg.wait_for_timeout(300)
     m=await pg.inner_text("[data-modal]")
-    check("decisions editor: an idea in no scenario yet can have costs straight away, going into a scenario that can change", "Not in a plan yet" in m and "Apply to scenario" in m
-          and await pg.locator("[data-modal] [data-phase-row]").count()==1 and await pg.input_value("[data-modal] select[data-ed-scenario]")==_ph_sid and "Details only" in m)
+    check("decisions editor: an idea in no scenario yet can have costs straight away, going into a scenario that can change", "Not in a plan yet" in m and "Save its costs to" in m
+          and await pg.locator("[data-modal] [data-phase-row]").count()==1 and await pg.input_value("[data-modal] select[data-ed-scenario]")==_ph_sid and "just its details" in m
+          and "A working scenario" in await pg.inner_text("[data-modal] [data-ed-sc-hint]"))
     locked=await pg.locator("[data-modal] select[data-ed-scenario] option[disabled]").count()
-    check("decisions editor: locked scenarios listed but can't be picked", locked==1 and "(locked)" in await pg.locator("[data-modal] select[data-ed-scenario] option[disabled]").inner_text())
+    _bopt=await pg.locator("[data-modal] select[data-ed-scenario] optgroup[label^='The adopted plan'] option").inner_text()
+    check("decisions editor: the adopted plan is offered separately, never the default; an admin can pick it after a warning", locked==0 and "the adopted plan" in _bopt and "asked to confirm" in _bopt, _bopt)
     await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
     await pg.click("[data-modal] button[data-action=costsPhases]"); await pg.wait_for_timeout(100)
     row=pg.locator("[data-modal] [data-phase-row]").first
@@ -1053,7 +1066,17 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(600)
     await pg.click("a[data-action=editInitiative]:has-text('Middle school HVAC')"); await pg.wait_for_timeout(400)
     o0=await pg.locator("[data-modal] select[data-ed-scenario] option[value='']").inner_text()
-    check("decisions editor: for an initiative already in plans, “Details only” says its costs stay put (it doesn't take it out)", "leave its costs in" in o0 and "not in a plan yet" not in o0, o0)
+    check("decisions editor: for an initiative already in plans, “Details only” says its costs stay put (it doesn't take it out)", "stay as they are" in o0 and "Nowhere yet" not in o0, o0)
+    _bsid2=next(x["id"] for x in TABLES["scenario"] if x["is_board_version"])
+    await pg.select_option("[data-modal] select[data-ed-scenario]", _bsid2); await pg.wait_for_timeout(300)
+    check("saving to the adopted plan: the hint says what it feeds", "the version the board approved" in await pg.inner_text("[data-modal] [data-ed-sc-hint]"))
+    n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(900)
+    lk=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and c[1].split("?")[0]=="/rest/v1/scenario"]
+    check("saving to the locked adopted plan (admin, after confirming): unlocked just long enough to save, then locked again", lk==[{"is_locked":False},{"is_locked":True}]
+          and any(c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase" for c in calls[n0:]), str(lk))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(500)
+    await pg.click("a[data-action=editInitiative]:has-text('Middle school HVAC')"); await pg.wait_for_timeout(400)
+    await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
     await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
     check("decisions editor: an unlocked scenario it's in offers “Take it out”", await pg.locator("[data-modal] button[data-action=removeProject]").count()==1 and "Take it out of" in await pg.inner_text("[data-modal] .ed-takeout"))
     n0=len(calls); await pg.click("[data-modal] button[data-action=deleteInitiative]"); await pg.wait_for_timeout(700)

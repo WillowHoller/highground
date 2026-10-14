@@ -856,3 +856,12 @@ ol.mv-grid{list-style:none;padding:0;margin:10px 0;display:grid;gap:12px;grid-te
 .chg-from{background:#F3F4F6;color:#374151;border:1px solid #E5E7EB}
 .chg-fund{background:#EEF5F0;color:#1E4A36;border:1px solid #BFD8C8}
 .chg-gap{background:#EEF3F8;color:#22394F;border:1px solid #C7D5E8}
+
+/* fund shares: a % only shows (and only means anything) once a phase has two or more funds */
+[data-srcs]:not(.multi) .pct-wrap{display:none}
+.pct-wrap{display:inline-flex;align-items:center;gap:6px}
+.pct-usd{color:#0E6A80;font-weight:600;white-space:nowrap}
+.th-sub{display:block;font-size:11px;font-weight:400;color:var(--muted)}
+.cost-sum{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;margin:8px 0;border-radius:10px;background:#F7F8F6;border:1px solid var(--border)}
+.cost-sum:empty{display:none}
+.cost-funds{display:flex;gap:6px;flex-wrap:wrap}

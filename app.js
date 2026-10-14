@@ -1391,8 +1391,26 @@
       <ul class="small">${list.slice(0, 8).map((x) => `<li>${esc(doubleText(x))}</li>`).join('')}</ul>${list.length > 8 ? `<p class="small">and ${list.length - 8} more.</p>` : ''}
       <p class="small muted">Ongoing commitments are set on${link}. If the regular amount doesn’t cover these, leave them in: this is a check, not an error.</p></details>`;
   }
+  /* the editor's running totals: each phase's fund shares in dollars, and the whole initiative's one-time cost by fund, so it's
+     plain that % splits one phase between funds and phases split the project over time */
+  function updateCostSum(form) {
+    const box = form && form.querySelector('[data-cost-sum]'); if (!box) return;
+    const byFund = {}, NAME = Object.fromEntries(FUNDS); let total = 0, n = 0;
+    form.querySelectorAll('[data-phase-body] [data-phase-row]').forEach((tr) => {
+      const cost = toNum((tr.querySelector('[name=cost]') || {}).value) || 0, srcs = [...tr.querySelectorAll('[data-src]')], either = tr.querySelector('[data-srcs].either');
+      srcs.forEach((r) => { const u = r.querySelector('[data-pct-usd]'), p = toNum(r.querySelector('[name=pct]').value);
+        if (u) u.textContent = srcs.length > 1 && !either && cost > 0 && p > 0 ? `= $${Math.round(cost * p / 100).toLocaleString('en-US')}` : ''; });
+      if (!(cost > 0)) return;
+      n++; total += cost;
+      if (either || srcs.length === 1) { const k = srcs.length ? (either ? srcs.map((r) => NAME[r.querySelector('[name=src]').value]).join(' or ') : NAME[srcs[0].querySelector('[name=src]').value]) : '?'; byFund[k] = (byFund[k] || 0) + cost; return; }
+      srcs.forEach((r) => { const k = NAME[r.querySelector('[name=src]').value], p = toNum(r.querySelector('[name=pct]').value) || 0; byFund[k] = (byFund[k] || 0) + cost * p / 100; });
+    });
+    box.innerHTML = n ? `<span><b>Total one-time cost: $${Math.round(total).toLocaleString('en-US')}</b>${n > 1 ? ` in ${n} phases` : ''}</span>
+      <span class="cost-funds">${Object.entries(byFund).map(([k, v]) => `<span class="chg chg-fund">${esc(k)} $${Math.round(v).toLocaleString('en-US')}</span>`).join(' ')}</span>` : '';
+  }
   /** the same check, live in the initiative editor, from what's on the form */
   function updateEdDouble(form) {
+    updateCostSum(form);
     const box = form && form.querySelector('[data-ed-double]'); if (!box || !ED.cfg) return;
     const cfg = ED.cfg, L = Object.assign(HGEngine.defaultLevers(cfg), { vppel: true }), ongoing = {};
     ['save', 'ppel', 'vppel'].forEach((b) => { ongoing[b] = HGEngine.ongoingIn(cfg, b, Math.min(1, cfg.n - 1), L); });
@@ -2429,7 +2447,8 @@
       ${fold(c, 'What it means for taxpayers', `<div class="card" id="cap-tax">${capTaxHtml()}</div>`)}
       ${fold(c, 'Projects by year', `<div id="cap-filters">${capFiltersHtml()}</div>
       <div id="cap-years">${capYearsHtml()}</div>
-      ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add an initiative</button></div>' : ''}
+      ${CAP.editable ? '<div class="row"><button type="button" class="btn primary" data-action="editProject" data-id="">Add an initiative</button></div>'
+        : c.plan && !CAP.pub ? '<div class="row"><button type="button" class="btn primary" data-action="addFromLockedPlan">Add an initiative</button><span class="small muted">This scenario is locked: you’ll choose where its costs go.</span></div>' : ''}
       <div id="cap-yearly">${capYearlyHtml()}</div>`)}
       ${peers}
       ${(() => { if (CAP.openEditor && CAP.editable) { const id = CAP.openEditor; setTimeout(() => openProjectEditor(id), 0); } CAP.openEditor = null; return ''; })()}
@@ -2956,7 +2975,7 @@
   const evenSplit = (n) => Array.from({ length: n }, (_, i) => Math.floor(100 / n) + (i < 100 % n ? 1 : 0));
   function fundRowHtml(f) {
     return `<div class="src" data-src><select name="src" aria-label="Fund">${FUNDS.map(([k, v]) => `<option value="${k}" ${f.b === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
-      <input name="pct" inputmode="decimal" value="${f.p == null ? '' : f.p}" aria-label="Percent"><span class="small muted">%</span>
+      <span class="pct-wrap"><input name="pct" inputmode="decimal" value="${f.p == null ? '' : f.p}" aria-label="Share of this phase’s cost"><span class="small muted">%</span><span class="pct-usd small" data-pct-usd></span></span>
       <button type="button" class="btn small danger" data-action="removeFund" aria-label="Remove this fund">×</button></div>`;
   }
   function phaseRowHtml(ph, cfg) {
@@ -2991,19 +3010,28 @@
     ED.rows = CAP.rows; ED.cfg = CAP.inputs.cfg; ED.sid = CAP.scenarioId; ED.mode = 'plan';
     renderEditor(pid);
   }
-  function openDecisionEditor(pid) {
-    const rows = INI.rows; ED.rows = rows; ED.cfg = edCfg(rows); ED.mode = 'decisions';
-    const usable = (x) => x && !x.is_locked, chosen = rows.scenarios.find((x) => x.id === INI.sid);
+  function openDecisionEditor(pid, from) {
+    const rows = (from && from.rows) || INI.rows; ED.rows = rows; ED.cfg = (from && from.cfg) || edCfg(rows); ED.mode = 'decisions';
+    const usable = (x) => x && !x.is_locked, chosen = rows.scenarios.find((x) => x.id === ((from && from.sid) || INI.sid));
+    const working = (x) => usable(x) && !x.is_board_version;   // where a new idea goes by default: never straight into the adopted plan
     let sid = null;
     const pl = pid ? rows.scenarios.filter((x) => inScen(rows, x.id, pid)) : [];
     ED.orphan = !!pid && !pl.length;   // an idea that isn't in any scenario yet: costs can go in, the same as for a new one
     if (pid && pl.length) sid = usable(chosen) && pl.includes(chosen) ? chosen.id : (pl.find(usable) || {}).id || null;
     /* a new initiative (or one in no scenario yet) can have its costs and phases straight away, approved or not: they go into the scenario on screen when it can
        be changed, otherwise the first one that can, otherwise a working copy of the board version made when it's saved */
-    else sid = usable(chosen) ? chosen.id : (rows.scenarios.find(usable) || {}).id || (rows.scenarios.length ? '__new' : null);
+    else sid = working(chosen) ? chosen.id : (rows.scenarios.find(working) || {}).id || (rows.scenarios.some((x) => x.is_board_version) ? '__new' : (rows.scenarios.find(usable) || {}).id || null);
     ED.copyFrom = (rows.scenarios.find((x) => x.is_board_version) || chosen || rows.scenarios[0] || {}).id || null;
     ED.sid = ED.cfg ? sid : null;
     renderEditor(pid);
+  }
+  /** what saving to the chosen place means, in plain words (shown under the picker, kept current as it changes) */
+  function edScHint(sid) {
+    const rows = ED.rows, sc = rows && rows.scenarios.find((x) => x.id === sid);
+    if (!sid) return 'Its name, priority and other details are saved. Choose a scenario to add costs.';
+    if (sid === '__new') return 'A copy of the adopted plan is made when you save, with this initiative added. The adopted plan itself doesn’t change: try it out, then compare.';
+    if (sc && sc.is_board_version) return `This is the adopted plan, the version the board approved. It feeds Home, Rank & fund, the board report and the public page${sc.is_locked ? '. It’s locked, so you’ll be asked to confirm before it changes' : ''}.`;
+    return `A working scenario: changes here don’t touch the adopted plan or what the board sees.${sc && sc.is_locked ? ' It’s locked; you’ll be asked to confirm.' : ''}`;
   }
   function costSectionHtml(pid) {
     const rows = ED.rows, cfg = ED.cfg, sid = ED.sid;
@@ -3025,8 +3053,9 @@
       <h3><span class="when-simple">Cost</span><span class="when-full">One-time costs (phases)</span></h3>
       <p class="small muted when-simple">One cost, the year it’s paid and the fund it comes from, in today’s dollars (the plan adds inflation). Leave it empty if there’s only a yearly cost.</p>
       <p class="small muted when-full">Costs in today’s dollars; the plan adds inflation. A phase starts with one fund; add up to three and the split is shared evenly, then adjust it. A program with only yearly costs can have no phases.</p>
-      <div class="scroll"><table class="data phases ph-table"><thead><tr><th>Phase name</th><th>Year</th><th>Cost, $</th><th>Paid from ${def('fund_choice')}</th><th>Status</th><th></th></tr></thead>
+      <div class="scroll"><table class="data phases ph-table"><thead><tr><th>Phase name</th><th>Year</th><th>Cost, $</th><th>Paid from ${def('fund_choice')}<span class="th-sub">add a fund to split this phase’s cost</span></th><th>Status</th><th></th></tr></thead>
         <tbody data-phase-body>${phases.map((ph) => phaseRowHtml(ph, cfg)).join('')}</tbody></table></div>
+      <div class="cost-sum" data-cost-sum></div>
       <div class="addrow when-full"><button type="button" class="btn small" data-action="addPhaseRow">Add a phase</button></div>
       <div class="row when-simple ed-more"><button type="button" class="btn small" data-action="costsPhases">Split into phases or funds</button>
         <button type="button" class="btn small when-noyearly" data-action="costsRecurring">Add a yearly (recurring) cost</button></div>
@@ -3085,11 +3114,16 @@
       </div>
       ${dec ? `<label class="field">Description<textarea name="description" maxlength="2000">${esc(i.description || '')}</textarea></label>
       <div class="costs-box"><h3>Costs</h3>
-        ${ED.cfg ? `<label class="field">Apply to scenario<select data-ed-scenario aria-label="Apply to scenario">
-            <option value="" ${!sid ? 'selected' : ''}>${plans.length ? `Details only: leave its costs in ${plans.length === 1 ? `“${esc(plans[0].name)}”` : `${plans.length} scenarios`} as they are` : 'Details only: not in a plan yet'}</option>
-            ${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === sid ? 'selected' : ''} ${x.is_locked ? 'disabled' : ''}>${esc(x.name)}${x.is_board_version ? ' (adopted plan)' : ''}${x.is_locked ? ' (locked)' : ''}${pid && inScen(rows, x.id, pid) ? ' · already in it' : ''}</option>`).join('')}
-            ${(!pid || ED.orphan) && ED.copyFrom && rows.scenarios.some((x) => x.is_locked) ? `<option value="__new" ${sid === '__new' ? 'selected' : ''}>A new working copy of “${esc((rows.scenarios.find((x) => x.id === ED.copyFrom) || {}).name || 'the board version')}” (made when you save)</option>` : ''}</select>
-            <span class="hint">${plans.length ? 'To take it out of a scenario, choose that scenario here, then “Take it out”. ' : ''}Costs and phases can go in now, before the board approves it. They’re added to the scenario chosen here. Only the adopted plan counts in reports and on Home; if it’s locked, unlock it on the Capital plan to add this to it.</span></label>`
+        ${ED.cfg ? (() => {
+          const admin = ctx().admin, board = rows.scenarios.find((x) => x.is_board_version), others = rows.scenarios.filter((x) => !x.is_board_version);
+          const already = (x) => (pid && inScen(rows, x.id, pid) ? ' · already in it' : '');
+          const opt = (x, label) => `<option value="${esc(x.id)}" ${x.id === sid ? 'selected' : ''} ${x.is_locked && !admin ? 'disabled' : ''}>${label}${already(x)}</option>`;
+          return `<label class="field">Save its costs to<select data-ed-scenario aria-label="Save its costs to">
+            <option value="" ${!sid ? 'selected' : ''}>${plans.length ? `Nowhere new: just its details (its costs in ${plans.length === 1 ? `“${esc(plans[0].name)}”` : `${plans.length} scenarios`} stay as they are)` : 'Nowhere yet: just its details'}</option>
+            ${others.length ? `<optgroup label="Working scenarios: try ideas without changing the adopted plan">${others.map((x) => opt(x, esc(x.name) + (x.is_locked ? ' (locked: admin only)' : ''))).join('')}</optgroup>` : ''}
+            ${board && (!pid || ED.orphan) ? `<option value="__new" ${sid === '__new' ? 'selected' : ''}>A new working copy of the adopted plan (made when you save)</option>` : ''}
+            ${board ? `<optgroup label="The adopted plan: the board's approved version">${opt(board, `${esc(board.name)}: the adopted plan${board.is_locked ? (admin ? ' (you’ll be asked to confirm)' : ' (admin only)') : ''}`)}</optgroup>` : ''}</select>
+            <span class="hint" data-ed-sc-hint>${edScHint(sid)}</span></label>`; })()
           : '<p class="small muted">Set up Starting numbers (Settings) before adding costs; the plan’s years come from there.</p>'}
         <div data-cost-section>${costSectionHtml(pid)}</div></div>`
       : costSectionHtml(pid)}
@@ -3117,9 +3151,10 @@
       /* "whichever has room": the funds are choices in order, not a split; the first is stored as the plan's default */
       const fm = tr.querySelector('[name=fmode]'), options = fm && fm.value === 'either' && funding.length > 1 ? funding.map((f) => f.b) : null;
       if (options) funding = [{ b: options[0], p: 100 }];
-      if (funding.length === 1 && funding[0].p === null) funding[0].p = 100;
-      if (funding.some((f) => f.p === null || isNaN(f.p) || f.p <= 0)) errs.push(`Phase ${k + 1}: give each fund a percentage.`);
-      else if (Math.abs(funding.reduce((a, f) => a + f.p, 0) - 100) > 0.01) errs.push(`Phase ${k + 1}: the percentages add to ${funding.reduce((a, f) => a + f.p, 0)}%, not 100%.`);
+      if (funding.length === 1) funding[0].p = 100;   // one fund pays the whole phase; a stray number in the hidden % box doesn't matter
+      const ph = `Phase ${k + 1}${g('label').trim() ? ` (${g('label').trim()})` : ''}`;
+      if (funding.some((f) => f.p === null || isNaN(f.p) || f.p <= 0)) errs.push(`${ph}: give each fund its share of this phase’s cost.`);
+      else if (Math.abs(funding.reduce((a, f) => a + f.p, 0) - 100) > 0.01) errs.push(`${ph}: the funds’ shares of this phase’s cost add to ${funding.reduce((a, f) => a + f.p, 0)}%. They need to add to 100%: they split one phase between funds, not the project between phases.`);
       const status = g('status'), actual = toNum(g('actual'));
       if (actual !== null && (isNaN(actual) || actual < 0)) errs.push(`Phase ${k + 1}: actual cost must be a number of dollars.`);
       return { label: g('label').trim().slice(0, 80) || null, fy: Number(g('fy')), cost, funding, options, status, actual: status === 'done' && actual !== null && !isNaN(actual) ? actual : null };
@@ -3148,6 +3183,18 @@
     const box = form.querySelector('[data-form-errors]'), r = readProject(form);
     if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); return; }
     const rows = ED.rows, d = S.district.id; let sid = ED.sid, sc = rows.scenarios.find((x) => x.id === sid), iid = form.dataset.id || null, rankFrom = sid;
+    /* the adopted plan (or any locked scenario): say what it means and ask, before anything is written. A locked one is unlocked
+       just long enough to save this initiative's costs, then locked again. */
+    let relock = null;
+    const hasCosts = r.phases.length || r.yearly.length || inScen(rows, sid, iid);
+    if (sc && hasCosts && (sc.is_board_version || sc.is_locked)) {
+      if (sc.is_locked && !ctx().admin) { box.hidden = false; box.textContent = `“${sc.name}” is locked. Only an admin can change it. Choose a working scenario, or a new working copy of the adopted plan.`; return; }
+      const msg = sc.is_board_version
+        ? `Change the adopted plan?\n\n“${sc.name}” is the version the board approved. Saving ${r.name} here changes what Home, Rank & fund and the board report show${sc.is_locked ? ', and it unlocks the plan just long enough to save, then locks it again' : ''}.\n\nThe public page keeps the last published version until an admin publishes again.\n\nTo try it out first, click Cancel and choose “A new working copy of the adopted plan”.`
+        : `“${sc.name}” is locked. Unlock it just long enough to save ${r.name}, then lock it again?`;
+      if (!confirm(msg)) return;
+      if (sc.is_locked) relock = sc.id;
+    }
     const fields = Object.assign({ name: r.name.slice(0, 120), type: r.type, status: r.status, tier: r.tier, engine_priority: ({ must: 'High', strategic: 'Med', nice: 'Low' })[r.tier] || null, focus_area: r.area, cost_confidence: r.conf, condition: r.cond, remaining_life: r.life },
       // needed-by is part 18; sent only when the database has it (or someone typed one), so an older database still saves
       r.needBy != null || rows.initiatives.some((x) => 'need_by_fy' in x) ? { need_by_fy: r.needBy } : {}, r.extra);
@@ -3168,6 +3215,8 @@
       if (!nid) throw new UserError('The working copy couldn’t be made. Try again, or copy the scenario on the capital plan first.');
       sid = nid; rankFrom = ED.copyFrom; sc = { id: nid, name }; CAP.scenarioId = nid;
     }
+    if (relock) await HG.db.update('scenario', `id=eq.${relock}`, { is_locked: false });
+    try {
     if (sid) {
       if (!inScen(rows, sid, iid)) {
         const rank = new Set(rows.phases.filter((ph) => ph.scenario_id === rankFrom).map((ph) => ph.initiative_id)).size + 1;
@@ -3188,6 +3237,7 @@
       if (oldPhases.length) await HG.db.removeAll('phase', `id=in.(${oldPhases.map(enc).join(',')})`);
       if (oldYearly.length) await HG.db.removeAll('recurring_cost', `id=in.(${oldYearly.map(enc).join(',')})`);
     }
+    } finally { if (relock) await HG.db.update('scenario', `id=eq.${relock}`, { is_locked: true }); }
     /* say plainly when an approved initiative went into a scenario that isn't the adopted plan */
     const adopted = rows.scenarios.find((x) => x.is_board_version);
     const notAdopted = sid && adopted && sid !== adopted.id && ['approved', 'underway'].includes(r.status)
@@ -3937,7 +3987,7 @@
     if (CP.key !== d.id) { CP.key = d.id; CP.note = null; CP.holdBack = true; CP.survey = true; }
     let draft = null;
     if (c.admin && d.public_link_enabled) {
-      try { draft = (await publicationPayload(d, { holdBack: CP.holdBack, note: '', survey: CP.survey })).payload; } catch (e) { draft = { error: e.message }; }
+      try { const pp = await publicationPayload(d, { holdBack: CP.holdBack, note: '', survey: CP.survey }); draft = pp.payload; draft.heldList = pp.held; } catch (e) { draft = { error: e.message }; }
     }
     const lastNote = current && current.payload ? current.payload.note || '' : (pubs[0] && pubs[0].payload ? pubs[0].payload.note || '' : '');
     const f = HGReport.fmt;
@@ -3957,6 +4007,10 @@
         <label class="row"><input type="checkbox" data-pub-hold ${CP.holdBack ? 'checked' : ''}> Hold back initiatives the board hasn’t approved (ideas, proposals, items being analysed, deferred or declined)</label>
         <label class="row"><input type="checkbox" data-pub-survey ${CP.survey ? 'checked' : ''}> Include “What you told us”: the latest community survey’s priorities and top themes${draft.survey ? ` (${esc(draft.survey.name)})` : CP.survey ? ' <span class="small muted">(no survey yet: add one on Plan → Community input)</span>' : ''}</label>
         <p class="small">${draft.shownCount} initiative${draft.shownCount === 1 ? '' : 's'} will show${draft.heldBack ? `; ${draft.heldBack} held back` : ''}. ${draft.holdBack && Math.abs(draft.gap.public - draft.gap.board) > 0.5 ? `The public page’s gap is ${f(draft.gap.public)}; the full board version’s is ${f(draft.gap.board)}.` : `Gap to close: ${f(draft.gap.public)}.`}${draft.done.length ? ` ${draft.done.length} finished phase${draft.done.length === 1 ? '' : 's'} listed under “What we’ve finished.”` : ''}</p>
+        ${draft.holdBack && draft.heldList && draft.heldList.length ? (() => { const FN = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'grants', camp: 'campaign/bond', boost: 'boosters' }, ST = Object.fromEntries(INIT_STATUS);
+          return `<div class="notice warn" data-held-list><b>Not on the community page (the board hasn’t approved ${draft.heldList.length === 1 ? 'it' : 'them'} yet):</b>
+            <ul class="small">${draft.heldList.map((x) => `<li>${esc(x.name)} <span class="muted">· ${esc((ST[x.status] || x.status).toLowerCase())}${x.funds.length ? ' · ' + esc(x.funds.map((b) => FN[b] || b).join(' + ')) : ''}${x.cost ? ' · ' + esc(f(x.cost)) : ''}</span></li>`).join('')}</ul>
+            <p class="small">${draft.heldOutside ? `That includes ${draft.heldOutside} paid partly by a campaign, bond or boosters, so the community chart shows less of those than the board version. ` : ''}To show them, set their status to Approved on Initiatives, or untick “Hold back” above.</p></div>`; })() : ''}
         ${!draft.shownCount ? '<div class="notice">Nothing would show: every initiative in the board version is still unapproved. Untick “Hold back”, or approve initiatives first.</div>' : ''}
         <div class="row"><button type="button" class="btn" data-action="previewPublic">Preview</button><button type="button" class="btn primary" data-action="publishBoard" ${draft.shownCount ? '' : 'disabled'}>Publish</button></div></div>`) : ''}
       <div class="card"><h3>Publish log</h3>${table([
@@ -4882,6 +4936,12 @@
     const stored = Object.assign({}, inp.stored, { recur: (inp.stored.recur || []).filter((r) => shown(r.initiative_id)) });
     const ids = new Set(inp.projects.map((p) => String(p.id)).concat((inp.stored.recur || []).map((r) => String(r.initiative_id))));
     const heldBack = [...ids].filter((id) => !shown(id)).length;
+    /* what's held back, by where its money comes from (counts only on the public page; names only for the person publishing) */
+    const srcOf = (id) => { const p = inp.projects.find((x) => String(x.id) === String(id)); return p ? [...new Set(p.phases.flatMap((ph) => ph.funding.map((f) => f.b).concat(ph.options || [])))] : []; };
+    const heldIds = [...ids].filter((id) => !shown(id));
+    const heldOutside = heldIds.filter((id) => srcOf(id).some((b) => b === 'camp' || b === 'boost')).length;
+    const held = heldIds.map((id) => { const i = INIT.get(String(id)) || {}, p = inp.projects.find((x) => String(x.id) === String(id));
+      return { name: i.name || (p && p.name) || 'Initiative', status: i.status || 'proposed', funds: srcOf(id), cost: p ? p.phases.reduce((a, ph) => a + ph.cost, 0) : 0 }; });
     const done = rows.phases.filter((ph) => ph.scenario_id === board.id && ph.status === 'done' && shown(ph.initiative_id))
       .map((ph) => ({ name: (INIT.get(ph.initiative_id) || {}).name || '', label: ph.label || '', fy: ph.fy, done_date: ph.done_date || null }))
       .sort((x, y) => String(y.done_date || '').localeCompare(String(x.done_date || '')));
@@ -4901,11 +4961,11 @@
     return { board, payload: {
       v: 2, engine: HGEngine.VERSION, scenario: { name: board.name },
       settings: inp.cfg.settings, stored, notes: inp.notes, tax: inp.tax,
-      note: String(o.note || '').trim().slice(0, 1500), holdBack: !!o.holdBack, survey, heldBack, shownCount: ids.size - heldBack, done: done.slice(0, 20),
+      note: String(o.note || '').trim().slice(0, 1500), holdBack: !!o.holdBack, survey, heldBack, heldOutside, shownCount: ids.size - heldBack, done: done.slice(0, 20),
       gap: { public: gapOf(projects, stored), board: gapOf(inp.projects, inp.stored) },
       projects: projects.map((p) => ({ id: p.id, name: p.name, pri: p.pri, est: p.est, area: p.area, cond: p.cond, life: p.life,
         phases: p.phases.map((ph) => ({ cost: ph.cost, year: ph.year, funding: ph.funding, options: ph.options, status: ph.status, actual: ph.actual, label: ph.label })) })),
-    } };
+    }, held };
   }
   function publishOpts() {
     return { holdBack: !!(document.querySelector('[data-pub-hold]') || {}).checked, note: (document.querySelector('[data-pub-note]') || {}).value || '', survey: !!(document.querySelector('[data-pub-survey]') || {}).checked };
@@ -5032,6 +5092,7 @@
       <div class="pubhead" style="border-top:6px solid ${accent}">
         <div><h1>Capital plan</h1><div class="lede">${esc(P.scenario ? P.scenario.name : p.title || 'Board version')}, published ${esc(day(p.published_at))}</div></div></div>
       ${d.is_demo ? '<div class="notice">Demo district: every name and figure is made up.</div>' : ''}
+      ${P.heldBack ? `<div class="notice" data-pub-held>This page shows what the board has approved. <b>${P.heldBack} more initiative${P.heldBack === 1 ? ' is' : 's are'} still being considered</b> and ${P.heldBack === 1 ? 'isn’t' : 'aren’t'} shown${P.heldOutside ? `, including ${P.heldOutside} that would be paid partly by a campaign, bond or boosters` : ''}.</div>` : ''}
       ${P.note ? `<div class="card pubnote"><p>${esc(P.note).replace(/\n+/g, '</p><p>')}</p></div>` : ''}
       ${P.survey ? `<div class="card"><h3>What you told us</h3><p class="small muted">${esc(P.survey.name)}${P.survey.responses ? ` · ${Number(P.survey.responses).toLocaleString('en-US')} responses` : ''}</p>
         ${P.survey.importance.length ? `<table class="data"><tbody>${P.survey.importance.map((r) => `<tr><td>${esc(r.label)}</td><td><span class="ubar"><i style="width:${Math.min(100, r.value / (r.value <= 5 ? 5 : 100) * 100)}%"></i></span> <b>${r.value.toLocaleString('en-US', { maximumFractionDigits: 2 })}</b>${r.value <= 5 ? ' out of 5' : ''}</td></tr>`).join('')}</tbody></table>` : ''}
@@ -5429,9 +5490,9 @@
       const cell = el.parentElement.querySelector('[data-srcs]'), used = [...cell.querySelectorAll('[name=src]')].map((x) => x.value);
       if (used.length >= 3) return;
       cell.insertAdjacentHTML('beforeend', fundRowHtml({ b: (FUNDS.find(([k]) => !used.includes(k)) || FUNDS[0])[0], p: null }));
-      rebalanceFunds(cell);
+      rebalanceFunds(cell); updateEdDouble(el.closest('form'));
     },
-    async removeFund(el) { const cell = el.closest('[data-srcs]'); if (cell.querySelectorAll('[data-src]').length <= 1) return; el.closest('[data-src]').remove(); rebalanceFunds(cell); },
+    async removeFund(el) { const cell = el.closest('[data-srcs]'), f = el.closest('form'); if (cell.querySelectorAll('[data-src]').length <= 1) return; el.closest('[data-src]').remove(); rebalanceFunds(cell); updateEdDouble(f); },
     async addToScenario(el) {
       const sid = document.querySelector('[data-addto-sc]').value;
       CAP.key = S.district.id; CAP.scenarioId = sid; CAP.openEditor = el.dataset.id;
@@ -5441,6 +5502,7 @@
     async iniStatus(el) { INI.status = el.dataset.v; here(); },
     async removeProject(el) { await removeProject(el); },
     async deleteInitiative(el) { await deleteInitiative(el); },
+    async addFromLockedPlan() { openDecisionEditor(null, { rows: CAP.rows, cfg: CAP.inputs.cfg, sid: CAP.scenarioId }); },
     async addPhaseRow() { const t = document.querySelector('[data-phase-template]'); document.querySelector('[data-phase-body]').insertAdjacentHTML('beforeend', t.innerHTML); fitTables(document.querySelector('[data-modal]')); },
     async costsPhases(el) {   // from one simple cost to the full phases table, with a second row ready
       const box = el.closest('[data-costs]'); box.classList.remove('simple-phases');
@@ -5725,7 +5787,9 @@
     const rt = e.target.closest('[data-rank-tier]');
     if (rt) { run(async () => { await HG.db.update('initiative', `id=eq.${enc(rt.dataset.rankTier)}`, { tier: rt.value || null, engine_priority: ({ must: 'High', strategic: 'Med', nice: 'Low' })[rt.value] || null }); here(); }, rt); return; }
     const es = e.target.closest('[data-ed-scenario]');
-    if (es) { ED.sid = es.value || null; const f = es.closest('form'); f.querySelector('[data-cost-section]').innerHTML = costSectionHtml(f.dataset.id || null); return; }
+    if (es) { ED.sid = es.value || null; const f = es.closest('form'); f.querySelector('[data-cost-section]').innerHTML = costSectionHtml(f.dataset.id || null);
+      const h = f.querySelector('[data-ed-sc-hint]'); if (h) { h.textContent = edScHint(ED.sid); h.classList.toggle('hint-warn', !!(ED.rows.scenarios.find((x) => x.id === ED.sid) || {}).is_board_version); }
+      updateEdDouble(f); return; }
     const rc = e.target.closest('[data-reg-col]');
     if (rc) { const cols = Object.assign({}, UP.reg.cols); if (rc.value === '') delete cols[rc.dataset.regCol]; else cols[rc.dataset.regCol] = Number(rc.value); UP.regCols = cols; regParse(); document.getElementById('upload-review').innerHTML = reviewHtml(); return; }
     const rm = e.target.closest('[data-reg-month]');
