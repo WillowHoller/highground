@@ -43,6 +43,8 @@ In the project: **SQL Editor → New query**. For each file below, copy everythi
 | 8h | `24_focus_areas.sql` | Lets an initiative belong to several focus areas |
 | 8i | `25_validation_fixes.sql` | Fixes from the 10 Oct 2026 validation |
 | 8j | `26_two_step.sql` | Two-step sign-in required, district by district (staff always). **Re-run it after adding any later part with new tables.** |
+| 8k | `27_vppel_ongoing.sql`, `28_ongoing_pct.sql` | What V-PPEL holds back each year; any fund's holdback as a share of receipts |
+| 8l | `29_holdback_contracts.sql` | One combined yearly holdback per fund, or split into recurring costs and a cushion; contracts and monthly pay applications (with the two-step rule built in) |
 | 9 | `05_verify_setup.sql` | Checks the structure. **All 10 rows should say PASS.** |
 | 10 | `06_access_test.sql` | Signs in as six test people and tries allowed and forbidden things, then deletes them. **All 21 rows should say PASS.** |
 

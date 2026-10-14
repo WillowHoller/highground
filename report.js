@@ -25,8 +25,15 @@
     const bal = {};
     (inp.balances || []).filter((b) => b.as_of <= inp.periodEnd).forEach((b) => { if (!bal[b.fund] || b.as_of > bal[b.fund].as_of) bal[b.fund] = { amount: Number(b.amount), as_of: b.as_of }; });
     // budget vs. actual from the month's ledger
-    const budget = inp.batch ? B.summarize(inp.accounts, inp.amounts, inp.batch.period_end, 'budget').funds.map((f) => ({
-      key: f.key, name: f.name, revenue: pick(f.revenue), spending: pick(f.spending) })) : [];
+    const BS = inp.batch ? B.summarize(inp.accounts, inp.amounts, inp.batch.period_end, 'budget') : null;
+    const budget = BS ? BS.funds.map((f) => ({ key: f.key, name: f.name, revenue: pick(f.revenue), spending: pick(f.spending) })) : [];
+    // what each capital fund holds back this year, and how much unlinked spending has used (A.holdbackUse)
+    let holdback = [];
+    const yH = fy - cfg.start;
+    if (BS && yH >= 0 && yH < cfg.n && A.holdbackUse) {
+      const held = {}; ['save', 'ppel', 'vppel'].forEach((k) => { held[k] = E.ongoingIn(cfg, k, yH, bi.levers); });
+      holdback = A.holdbackUse(inp.accounts || [], inp.amounts || [], held, BS.gone).map((x) => ({ fund: x.fund, held: x.held, used: x.used, expected: x.expected, status: x.status }));
+    }
     // progress on the adopted plan this fiscal year
     const act = A.actuals(inp.accounts || [], inp.linkedAmounts || inp.amounts || [], inp.batches || []);
     const planned = A.planned(bi.projects, bi.levers, cfg, fy);
@@ -50,6 +57,8 @@
       ledgerThrough: inp.batch ? inp.batch.period_end : null,
       plan: { need: r.need, levyFunded: r.levyFunded, financed: r.financed, gap: r.gap, overflow: r.overflow, start: cfg.start, years: cfg.n },
       balances: bal, budget, progress, initiatives, done, pending: pending.slice(0, 12), pendingCount: pending.length,
+      holdback,
+      contracts: inp.contracts || [],   // [{ id, name, sentence, status, flags: [text] }] worked out by the app from the pay apps
       tax: tax && tax.taxed.length && tax.hasValuation ? { home: tax.peak.home, fy: tax.peak.fy, homeValue: tax.homeValue } : null,
       gf: inp.gf || null,   // the General Fund forecast's headline figures, when the district has set it up
     };
@@ -78,6 +87,15 @@
       items.push(`General Fund solvency ${now.gf.solvency > prev.gf.solvency ? 'rose' : 'fell'} from ${(prev.gf.solvency * 100).toFixed(1)}% to ${(now.gf.solvency * 100).toFixed(1)}%.`);
     const spentNow = (now.progress || []).reduce((t, x) => t + x.spent, 0), spentPrev = now.fiscalYear === prev.fiscalYear ? (prev.progress || []).reduce((t, x) => t + x.spent, 0) : 0;
     if (spentNow - spentPrev > 0.5) items.push(`Spending on initiatives this period: ${fmt(spentNow - spentPrev)}.`);
+    (now.holdback || []).forEach((h) => {
+      const p = (prev.holdback || []).find((x) => x.fund === h.fund);
+      if (h.status === 'over' && !(p && p.status === 'over' && now.fiscalYear === prev.fiscalYear))
+        items.push(`${FUNDN[h.fund]} spending outside the plan’s initiatives (${fmt(h.used)}) has passed what the plan holds back for the year (${fmt(h.held)}).`);
+    });
+    (now.contracts || []).forEach((k) => {
+      const p = (prev.contracts || []).find((x) => x.id === k.id);
+      if (k.status !== 'ok' && (!p || p.status === 'ok')) items.push(`${k.name}: ${k.flags.join(' ')}`);
+    });
     if (!items.length) items.push('Nothing material changed since the last report.');
     return { first: false, items, since: prev.periodEnd };
   }

@@ -72,5 +72,34 @@
     return out;
   }
 
-  return { latestByYear, actuals, suggestLinks, planned, words };
+  /**
+   * The yearly holdback, tracked: spending this fiscal year in each capital fund on accounts NOT linked to an initiative counts
+   * against what the plan holds back for that fund. Debt service (function 5xxx) and transfers and other financing uses (6xxx)
+   * are left out, as they are from the state's figure the holdback usually starts from.
+   * accounts: gl_account rows; amounts: gl_amount rows for one month-end import (year to date); held: { save, ppel, vppel } dollars
+   * held back this fiscal year; gone: share of the fiscal year gone (0–1).
+   * -> [{ fund, held, spent, onOrder, used, expected, left, status: 'pace'|'ahead'|'over'|'none', facilities, top: [{ code, description, used }] }]
+   */
+  function holdbackUse(accounts, amounts, held, gone) {
+    const A = new Map((accounts || []).map((a) => [a.id, a]));
+    const by = {};
+    ['save', 'ppel', 'vppel'].forEach((k) => { by[k] = { spent: 0, onOrder: 0, facilities: 0, lines: {} }; });
+    (amounts || []).forEach((g) => {
+      const a = A.get(g.account_id); if (!a || !by[a.mapped_fund]) return;
+      if (a.initiative_id || a.maps_to !== 'expense' || /^[56]/.test(a.function_code || '')) return;
+      const sign = a.sign || 1, sp = (Number(g.ytd_amount) || 0) * sign, oo = (Number(g.encumbered) || 0) * sign, f = by[a.mapped_fund];
+      f.spent += sp; f.onOrder += oo;
+      if (/^4/.test(a.function_code || '')) f.facilities += sp + oo;
+      const key = a.code || a.id; f.lines[key] = f.lines[key] || { code: a.code || '', description: a.description || '', used: 0 }; f.lines[key].used += sp + oo;
+    });
+    const g0 = Math.max(0, Math.min(1, Number(gone) || 0));
+    return ['save', 'ppel', 'vppel'].map((k) => {
+      const f = by[k], h = Math.max(0, Number((held || {})[k]) || 0), used = f.spent + f.onOrder, expected = h * g0;
+      const status = h < 0.5 ? (used > 0.5 ? 'none' : 'pace') : used > h + 0.5 ? 'over' : used > expected + 0.05 * h && used > expected * 1.1 ? 'ahead' : 'pace';
+      return { fund: k, held: h, spent: f.spent, onOrder: f.onOrder, used, expected, left: h - used, status, facilities: f.facilities,
+        top: Object.values(f.lines).filter((x) => Math.abs(x.used) > 0.5).sort((x, y) => y.used - x.used).slice(0, 5) };
+    }).filter((x) => x.held > 0.5 || Math.abs(x.used) > 0.5);
+  }
+
+  return { latestByYear, actuals, suggestLinks, planned, words, holdbackUse };
 });

@@ -37,5 +37,19 @@ const prevGf = Object.assign({}, prev, { gf: { solvency: 0.164 } });
 check('General Fund headline kept in the report, and its change described', withGf.gf.solvency === 0.152 && /General Fund solvency fell from 16\.4% to 15\.2%/.test(Rp.changes(withGf, prevGf).items.join(' ')));
 check('nothing material: said plainly', Rp.changes(now, now).items[0] === 'Nothing material changed since the last report.');
 check('the report is plain data (can be stored as it was)', JSON.parse(JSON.stringify(now)).plan.need === now.plan.need);
+// 14 Oct (f): what each capital fund holds back this year, against unlinked spending; contracted projects from the app
+const hb = now.holdback || [];
+check('holdback: each capital fund with something held back or spent, from the board version', hb.length >= 1 && hb.every((h) => ['save', 'ppel', 'vppel'].includes(h.fund) && h.held >= 0), hb);
+const sv = hb.find((h) => h.fund === 'save');
+check('holdback: SAVE held back is the board version’s figure for FY2027 ($150k in the demo)', sv && Math.abs(sv.held - 150000) < 1, sv);
+check('holdback: expected by now = held × the share of the year gone (Sep 30: 25%)', sv && Math.abs(sv.expected - sv.held * 0.25) < 1, sv);
+check('holdback: no ledger, no holdback lines', (prev.holdback || []).length >= 0 && (Rp.build({ district: rows.district, rows, periodEnd: '2026-09-30', batch: null, accounts: [], amounts: [], batches: [], balances: balancesSep }).holdback || []).length === 0);
+const over = JSON.parse(JSON.stringify(now)); over.holdback = [{ fund: 'save', held: 150000, used: 190000, expected: 37500, status: 'over' }];
+const pace = JSON.parse(JSON.stringify(now)); pace.holdback = [{ fund: 'save', held: 150000, used: 20000, expected: 37500, status: 'pace' }];
+check('changes: a fund passing its holdback is said once', /SAVE spending outside the plan’s initiatives \(\$190k\) has passed what the plan holds back for the year \(\$150k\)/.test(Rp.changes(over, pace).items.join(' ')) && !/passed what the plan holds back/.test(Rp.changes(over, over).items.join(' ')));
+const withK = Rp.build({ district: rows.district, rows, periodEnd: '2026-09-30', batch: sep, accounts, amounts: amounts('sep', 1), batches: [aug, sep], balances: balancesSep,
+  contracts: [{ id: 'k1', name: 'Addition', sentence: 'Addition · 46% complete.', status: 'warn', flags: ['Contingency is 70% used with the work 46% complete.'] }] });
+check('contracts: carried into the report as given', withK.contracts.length === 1 && withK.contracts[0].sentence === 'Addition · 46% complete.');
+check('changes: a contract newly off track is said', /Addition: Contingency is 70% used/.test(Rp.changes(withK, now).items.join(' ')));
 console.log(ch.items.map((x) => '  · ' + x).join('\n'));
 console.log(`report tests: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

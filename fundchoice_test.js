@@ -49,5 +49,17 @@ check('the choice is kept per phase (pick map)', r.pick.size === 2);
 r = run([fill]);
 check('plans without choices are untouched', r.picks.length === 0 && r.pick.size === 0);
 
+// 14d: an unfinanced campaign isn't "room": boosters come first when both are choices, in any order
+r = run([fill, { id: 'p', name: 'Scoreboard', phases: [{ cost: ppel0 * 3 + save0, year: 0, options: ['save', 'camp', 'boost'] }] }]);
+check('unfinanced campaign vs. boosters: boosters pay, nothing in the gap', r.picks[0].b === 'boost' && r.gap < 0.5, JSON.stringify(r.picks) + ' gap ' + r.gap);
+const Lf = Object.assign({}, L, { fin: E.cleanFin([{ kind: 'gift', fy: cfg.start, amount: ppel0 * 3 + save0 + 1 }], cfg) });
+r = E.compute(E.cleanList([fill, { id: 'p', name: 'Scoreboard', phases: [{ cost: ppel0 * 3 + save0, year: 0, options: ['save', 'camp', 'boost'] }] }], cfg), Lf, cfg);
+check('…but a campaign with money raised this year is used in the order given', r.picks[0].b === 'camp' && r.gap < 0.5, JSON.stringify(r.picks));
+const many = Array.from({ length: 10 }, (_, k) => ({ id: 'm' + k, name: 'Item ' + k, phases: [{ cost: ppel0 + save0 + 1000, year: 0, options: ['ppel', 'camp', 'boost'] }] }));
+r = run([fill].concat(many));
+check('more than 8 choices in a year: boosters before an unfinanced campaign', r.picks.every((x) => x.b !== 'camp') && r.unfunded < 0.5, JSON.stringify(r.picks.map((x) => x.b)));
+const dear = run([fill].concat(many.map((p) => Object.assign({}, p, { phases: [{ cost: p.phases[0].cost * 1.1, year: 0, options: p.phases[0].options }] }))));
+check('raising costs never lowers the gap here', dear.gap >= r.gap - 0.5, dear.gap + ' < ' + r.gap);
+
 console.log(fails ? `${fails} failed` : 'all passed');
 process.exit(fails ? 1 : 0);

@@ -17,7 +17,7 @@ Roles: **admin** (people, settings, publishing, unlocking), **business_manager**
 ## Plan inputs
 | Table | Holds |
 |---|---|
-| district_settings | The engine's settings: SAVE, PPEL, V-PPEL, grants, valuation, inflation, plan years. Ongoing (non-project, non-debt) commitments: `save_ongoing`, `ppel_ongoing`, `vppel_ongoing` (part 27); or as a share of each year's receipts, `save_ongoing_pct`, `ppel_ongoing_pct`, `vppel_ongoing_pct` (part 28, fraction 0–1; when set, the dollar column is ignored) |
+| district_settings | The engine's settings: SAVE, PPEL, V-PPEL, grants, valuation, inflation, plan years. Ongoing (non-project, non-debt) commitments: `save_ongoing`, `ppel_ongoing`, `vppel_ongoing` (part 27); or as a share of each year's receipts, `save_ongoing_pct`, `ppel_ongoing_pct`, `vppel_ongoing_pct` (part 28, fraction 0–1; when set, the dollar column is ignored). In the app these are **Held back each year**: by default one combined figure. `save_holdback_split`, `ppel_holdback_split`, `vppel_holdback_split` (part 29): when true, the dollar column is the fund's recurring costs AND the share is a cushion, and both are held back |
 | fund_balance | Balances by fund and date: typed in, uploaded, or refreshed from a GL import |
 | debt_obligation | Existing SAVE / PPEL / debt-levy payments and final year |
 | assumption_set | Base / Conservative / Growth assumptions (capital now; general-fund fields ready for later) |
@@ -81,6 +81,14 @@ Applying a monthly GL upload replaces the earlier upload for the same month and 
 | vendor_note | The vendor dictionary: plain-language labels, and vendors marked as expected |
 
 Business managers and admins upload registers and answer questions; every member, including board members, can read them.
+
+## Contracts and pay applications (part 29)
+| Table | Holds |
+|---|---|
+| initiative_contract | One per contracted initiative: contractor, original contract sum, owner's contingency, start and completion dates |
+| contract_progress | One per pay application: pay-app number, through date, contract sum to date (with change orders), work completed to date, retainage held, contingency left |
+
+Typed in from the contractor's pay-app summary each month. A check on the plan and the ledger (`contract.js`): never added to ledger spending. Members read; planners and business staff write; changes go to the activity log; the two-step rule applies.
 
 ## Reports and publishing
 | Table | Holds |

@@ -34,10 +34,12 @@
         district: { name: district ? district.name : '', short: district ? district.short_name : '', enrollment: n(s.enrollment, null) },
         plan: Object.assign({ years: n(s.plan_years, 10) }, s.plan_start_fy != null ? { startFY: n(s.plan_start_fy, undefined) } : {}),
         balances: { asOf: asOf, save: bal('save'), ppel: bal('ppel'), vppel: bal('vppel'), grants: bal('grants') },
-        save: { receipts: n(s.save_receipts, null), ongoing: s.save_ongoing_pct != null ? 0 : n(s.save_ongoing, 0), ongoingPct: n(s.save_ongoing_pct, null), trend: n(s.save_trend, 0), sf2472: s.sf2472 !== false, receiptsFY: n(s.save_receipts_fy, null) },
-        ppel: { receipts: n(s.ppel_receipts, null), ongoing: s.ppel_ongoing_pct != null ? 0 : n(s.ppel_ongoing, 0), ongoingPct: n(s.ppel_ongoing_pct, null), growth: n(s.ppel_growth, 0.03), valuation: n(s.taxable_valuation, null),
+        /* held back each year: one combined figure (dollars, or a share of receipts, whichever is set), or split into recurring
+           dollars plus a cushion share ({fund}_holdback_split): then both are held back */
+        save: { receipts: n(s.save_receipts, null), ongoing: s.save_ongoing_pct != null && !s.save_holdback_split ? 0 : n(s.save_ongoing, 0), ongoingPct: n(s.save_ongoing_pct, null), trend: n(s.save_trend, 0), sf2472: s.sf2472 !== false, receiptsFY: n(s.save_receipts_fy, null), split: !!s.save_holdback_split },
+        ppel: { receipts: n(s.ppel_receipts, null), ongoing: s.ppel_ongoing_pct != null && !s.ppel_holdback_split ? 0 : n(s.ppel_ongoing, 0), ongoingPct: n(s.ppel_ongoing_pct, null), growth: n(s.ppel_growth, 0.03), valuation: n(s.taxable_valuation, null), split: !!s.ppel_holdback_split,
                 rate: n(s.ppel_rate, null), actualValuation: n(s.actual_valuation, null), goOutstanding: n(s.go_outstanding, null) },
-        vppel: { status: s.vppel_status || 'none', annual: n(s.vppel_annual, 0), ongoing: s.vppel_ongoing_pct != null ? 0 : n(s.vppel_ongoing, 0), ongoingPct: n(s.vppel_ongoing_pct, null), firstFY: n(s.vppel_first_fy, null), lastFY: n(s.vppel_last_fy, null) },
+        vppel: { status: s.vppel_status || 'none', annual: n(s.vppel_annual, 0), ongoing: s.vppel_ongoing_pct != null && !s.vppel_holdback_split ? 0 : n(s.vppel_ongoing, 0), ongoingPct: n(s.vppel_ongoing_pct, null), firstFY: n(s.vppel_first_fy, null), lastFY: n(s.vppel_last_fy, null), split: !!s.vppel_holdback_split },
         grants: { avg: n(s.grants_avg, 0), yield: n(s.grants_yield, 0.75) },
         debt: capDebts.map((d) => ({ name: d.name, fund: d.fund, annual: n(d.annual_payment, 0), lastFY: n(d.final_fy, null), timing: d.first_year_timing || 'spread' })),
         inflation: n(s.construction_inflation, 0),
@@ -166,6 +168,7 @@
       taxable_valuation: s.ppel.valuation, actual_valuation: s.ppel.actualValuation, go_outstanding: s.ppel.goOutstanding,
       ...(s.save.ongoingPct != null ? { save_ongoing_pct: s.save.ongoingPct } : {}), ...(s.ppel.ongoingPct != null ? { ppel_ongoing_pct: s.ppel.ongoingPct } : {}),
       ...(s.vppel.ongoingPct != null ? { vppel_ongoing_pct: s.vppel.ongoingPct } : {}),
+      ...(['save', 'ppel', 'vppel'].reduce((o, k) => (s[k].split ? Object.assign(o, { [k + '_holdback_split']: true }) : o), {})),
       vppel_status: s.vppel.status, vppel_annual: s.vppel.annual, vppel_ongoing: s.vppel.ongoing || 0, vppel_first_fy: s.vppel.firstFY, vppel_last_fy: s.vppel.lastFY,
       grants_avg: s.grants.avg, grants_yield: s.grants.yield, construction_inflation: s.inflation,
       ...(s.tax ? { tax_home_value: s.tax.homeValue, ag_value_per_acre: s.tax.agPerAcre } : {}),

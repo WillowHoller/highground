@@ -416,7 +416,7 @@ async def main():
     row2=pg.locator("[data-modal] [data-phase-row]").nth(1)
     await row2.locator("select[name=fy]").select_option("2030"); await row2.locator("select[name=src]").select_option("ppel"); await row2.locator("input[name=cost]").fill("125000"); await pg.wait_for_timeout(150)
     dw=await pg.inner_text("[data-modal] [data-ed-double-warn]") if await pg.locator("[data-modal] [data-ed-double-warn]").count() else ""
-    check("may be counted twice: buses in two years on PPEL, which has an ongoing amount, are flagged in the editor as they're typed", "counted twice" in dw and "PPEL" in dw and "FY2028, FY2030" in dw and "ongoing" in dw, dw)
+    check("may be counted twice: buses in two years on PPEL, which has an ongoing amount, are flagged in the editor as they're typed", "counted twice" in dw and "PPEL" in dw and "FY2028, FY2030" in dw and "holds back" in dw, dw)
     cv=await pg.input_value("[data-modal] [data-phase-row] >> nth=1 >> input[name=cost]")
     check("costs get thousands commas as they're typed", cv=="125,000", cv)
     await pg.click("[data-modal] button[data-action=closeModal] >> nth=0"); await pg.wait_for_timeout(200)
@@ -945,12 +945,61 @@ async def main():
     n0=len(calls); await first.locator("button[data-action=piSavePhase]").click(); await pg.wait_for_timeout(600)
     sp=[json.loads(c[2]) for c in calls[n0:] if "rpc/set_phase_progress" in c[1]]
     check("progress: recorded through the progress-only function, even on the locked plan", sp and sp[0]["p_status"]=="done" and sp[0]["p_actual"]==401500 and sp[0]["p_done"]=="2026-09-25" and sp[0]["p_phase"]==sorted(TABLES_ph,key=lambda p:(p["fy"],p["seq"]))[0]["id"], str(sp))
+    # 14 Oct (f): contracted projects and pay applications, in Initiative progress
+    t=await pg.inner_text("tr.pidetail")
+    check("contract: before database update 29, the open initiative says what to run", "database update 29" in t, t[:400])
+    TABLES["initiative_contract"]=[]; TABLES["contract_progress"]=[]
+    await pg.reload(); await pg.wait_for_timeout(900); await pg.click("a[data-action=piOpen][data-id='%s']"%roof_init); await pg.wait_for_timeout(500)
+    check("contract: an open initiative offers to add its contract, with a ? that explains", await pg.locator("[data-contract] button[data-action=contractEdit]").count()==1 and await pg.locator("[data-contract] button.defn[data-term=contract]").count()==1)
+    await pg.click("[data-contract] button[data-action=contractEdit]"); await pg.wait_for_timeout(400)
+    await pg.fill("form[data-form=saveContract] [name=contractor]","Genesis Builders"); await pg.fill("form[data-form=saveContract] [name=original_sum]","")
+    await pg.click("form[data-form=saveContract] button[type=submit]"); await pg.wait_for_timeout(300)
+    check("contract: the original sum is needed", "Original contract sum is needed" in await pg.inner_text("form[data-form=saveContract] [data-form-errors]"))
+    await pg.type("form[data-form=saveContract] [name=original_sum]","1000000")
+    check("contract: dollar fields get commas as typed", await pg.input_value("form[data-form=saveContract] [name=original_sum]")=="1,000,000")
+    await pg.fill("form[data-form=saveContract] [name=original_contingency]","50,000"); await pg.fill("form[data-form=saveContract] [name=start_date]","2026-07-01"); await pg.fill("form[data-form=saveContract] [name=completion_date]","2027-06-30")
+    n0=len(calls); await pg.click("form[data-form=saveContract] button[type=submit]"); await pg.wait_for_timeout(700)
+    cp=[(c[1],json.loads(c[2])) for c in calls[n0:] if c[0]=="POST" and c[1].startswith("/rest/v1/initiative_contract")]
+    check("contract: saved once per initiative (upsert on the initiative)", cp and "on_conflict=initiative_id" in cp[0][0] and cp[0][1][0]["original_sum"]==1000000 and cp[0][1][0]["original_contingency"]==50000 and cp[0][1][0]["initiative_id"]==roof_init and cp[0][1][0]["contractor"]=="Genesis Builders", str(cp)[:300])
+    TABLES["initiative_contract"]=[dict(cp[0][1][0])] if cp else []
+    await pg.reload(); await pg.wait_for_timeout(900); await pg.click("a[data-action=piOpen][data-id='%s']"%roof_init); await pg.wait_for_timeout(500)
+    t=await pg.inner_text("[data-contract]")
+    check("contract: the card shows the contract and asks for the first pay app", "Genesis Builders" in t and "$1,000,000" in t and "No pay application recorded yet" in t and await pg.locator("form[data-form=savePayApp]").count()==1, t[:300])
+    check("contract: the pay-app form starts from the contract sum", await pg.input_value("form[data-form=savePayApp] [name=contract_sum]")=="1,000,000")
+    await pg.fill("form[data-form=savePayApp] [name=through_date]","2026-09-30"); await pg.fill("form[data-form=savePayApp] [name=pay_app_no]","3")
+    await pg.fill("form[data-form=savePayApp] [name=completed_to_date]","276,579"); await pg.fill("form[data-form=savePayApp] [name=retainage]","300,000")
+    n0=len(calls); await pg.click("form[data-form=savePayApp] button[type=submit]"); await pg.wait_for_timeout(300)
+    check("pay app: retainage over the work completed is refused, nothing saved", "Retainage can’t be more than the work completed" in await pg.inner_text("form[data-form=savePayApp] [data-form-errors]") and not [c for c in calls[n0:] if c[0]=="POST"])
+    await pg.fill("form[data-form=savePayApp] [name=retainage]","13,829"); await pg.fill("form[data-form=savePayApp] [name=contingency_remaining]","20,000")
+    n0=len(calls); await pg.click("form[data-form=savePayApp] button[type=submit]"); await pg.wait_for_timeout(700)
+    pa=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/contract_progress"]
+    check("pay app: four totals saved, with its date and number", pa and pa[0]["completed_to_date"]==276579 and pa[0]["retainage"]==13829 and pa[0]["contingency_remaining"]==20000 and pa[0]["contract_sum"]==1000000 and pa[0]["pay_app_no"]==3 and pa[0]["through_date"]=="2026-09-30", str(pa)[:300])
+    TABLES["contract_progress"]=[dict(pa[0], id="pa3", entered_at="2026-10-02T12:00:00Z")] if pa else []
+    await pg.reload(); await pg.wait_for_timeout(900); await pg.click("a[data-action=piOpen][data-id='%s']"%roof_init); await pg.wait_for_timeout(500)
+    t=await pg.inner_text("[data-contract]")
+    check("contract: % complete, projected cost, contingency, change orders, ledger and still to pay", "28%" in t and "Projected final cost" in t and "$1,020,000" in t and "60%" in t and "Ledger vs. pay apps" in t and "Still to pay" in t and "$737,250" in t, t[:900])
+    check("contract: the ledger ($262,750 linked) matches what the pay apps say was paid; retainage isn't a difference", "Match" in t and "paid per pay apps $262,750" in t, t[:900])
+    check("contract: contingency used faster than the work is flagged in plain words", "Contingency is 60% used with the work 28% complete." in t, t)
+    check("contract: every new term on the card has a ? that explains it", all([await pg.locator("[data-contract] button.defn[data-term=%s]"%k).count()>0 for k in ["contract","contract_sum","completed_to_date","retainage","contingency","projected_final","books_vs_payapps","contract_schedule"]]))
+    await pg.click("[data-contract] button.defn[data-term=retainage]"); await pg.wait_for_timeout(300)
+    check("contract: the retainage ? says why the ledger shows less", "isn’t an error" in await pg.inner_text(".defpop"))
+    await pg.click(".defpop .dp-x"); await pg.wait_for_timeout(150)
+    check("contract: the progress table flags it beside the initiative", "Contract: contingency" in await pg.inner_text("table.pitable"))
+    await pg.locator("[data-contract]").screenshot(path=SHOTS+"/contract.png")
+    await pg.click("button[data-action=openHelp]"); await pg.wait_for_timeout(300)
+    hm=await pg.inner_text("[data-modal]")
+    check("Help on Initiative progress explains pay applications and lists the new terms", "pay application" in hm and "Retainage" in hm and "Projected final cost" in hm, hm[:600])
+    await pg.click("[data-modal] button[data-action=closeModal]"); await pg.wait_for_timeout(200)
     # Phase 3C: budget vs. actual (ledger still loaded from the progress tests); 3D adds an August import to compare
     TABLES["import_batch"]=TABLES["import_batch"]+[{"id":"glb0","district_id":"d1","kind":"gl_monthly","status":"applied","period_end":"2026-08-31","fiscal_year":2027,"file_name":"gl-aug.csv","row_count":21,"uploaded_at":"2026-09-10T10:00:00Z"}]
     TABLES["gl_amount"]=TABLES["gl_amount"]+[dict(g, batch_id="glb0", ytd_amount=(g["ytd_amount"] or 0)/2, encumbered=0) for g in TABLES["gl_amount"] if g["batch_id"]=="glb1"]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/track/actuals"); await pg.wait_for_timeout(800)
     t=await pg.inner_text("#view")
     check("budget: every fund, General Fund first, from the ledger through the month end", "Every fund" in t and t.find("General Fund")<t.find("SAVE")<t.find("PPEL") and "Sep 30, 2026" in t and "25% of the fiscal year gone" in t, t[:300])
+    hb=await pg.inner_text("[data-holdback-card]") if await pg.locator("[data-holdback-card]").count() else ""
+    check("held back: Budget vs. actual shows each capital fund's holdback for the year against unlinked spending, with how much of the year has gone", "Held back each year" in hb and "SAVE" in hb and "Expected by now" in hb and "25% of the year has gone" in hb and ("On pace" in hb or "Running ahead" in hb or "Over" in hb), hb[:600])
+    if hb: await pg.locator("[data-holdback-card]").screenshot(path=SHOTS+"/holdback-card.png")
+    check("held back: the card's terms have a ? (what's held back, what counts as used)", await pg.locator("[data-holdback-card] button.defn[data-term=holdback]").count()==1 and await pg.locator("[data-holdback-card] button.defn[data-term=holdback_used]").count()==1)
     check("budget: by default, the year ends at budget unless already exceeded (no false alarms)", "$12,300,000" in t and "$2,909,551" in t and "over by" not in t and "on budget" in t, t[:600])
     await pg.select_option("select[data-ba=method]","pace"); await pg.wait_for_timeout(600); t=await pg.inner_text("#view")
     check("budget: rest of the year at the budget's pace", "$12,134,551" in t and "short by $165,449" in t)
@@ -1288,6 +1337,7 @@ async def main():
     leads={}; gaps={}
     for route in ["home/today","plan/priorities","track/measures","plan/initiatives","plan/ranking","plan/scenarios","money/summary","money/general","track/initiatives","money/capital","track/actuals","track/registers","share/board","share/plans","share/community","settings/overview","settings/setup","plan/community"]:
       await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+route); await pg.wait_for_timeout(600)
+      if route=="home/today" and not await pg.locator("p.lead").count(): await pg.wait_for_timeout(900)   # the first screen can take longer to load
       leads[route]=await pg.locator("p.lead").first.inner_text() if await pg.locator("p.lead").count() else ""
       tight=await pg.evaluate("""(()=>{const els=[...document.querySelectorAll('#view .card, #view .grid, #view details.fold, #view .tile-card')].filter(e=>e.offsetParent&&!e.closest('[data-modal]'));const out=[];
         for(const a of els)for(const b of els){if(a===b||a.contains(b)||b.contains(a))continue;const r=a.getBoundingClientRect(),q=b.getBoundingClientRect();const g=q.top-r.bottom;
@@ -1781,20 +1831,22 @@ async def main():
     vals=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["as_of","bal_save","bal_ppel","enrollment","enrollment_year","save_receipts","save_receipts_fy","ppel_receipts","ppel_rate","vppel_status","vppel_annual"]]
     check("starting numbers: Fill in sets the form, nothing saved (PPEL balance split by the two rates)", vals==["2025-06-30","1,900,000","126,467","1188","2025-26","1,450,000","2025","102,754","0.33","active","417,246"] and not [c for c in calls[n1:] if c[0] in("POST","PATCH")], str(vals))
     more=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["bal_vppel","taxable_valuation","actual_valuation","ppel_growth","save_trend","save_ongoing","ppel_ongoing","vppel_ongoing","grants_avg","vppel_first_fy","vppel_last_fy"]]
-    check("starting numbers: Fill in also sets valuations, growth, SAVE trend, ongoing spending (PPEL's split by the two rates), grants (5 years) and the V-PPEL years", more==["513,533","727,000,000","1,250,000,000","3.1","2.77","180,000","18,772","76,228","46,000","2022","2031"], str(more))
+    check("starting numbers: Fill in also sets valuations, growth, SAVE trend, what each fund holds back as a share of receipts to the half point (PPEL's split by the two rates), grants (5 years) and the V-PPEL years", more==["513,533","727,000,000","1,250,000,000","3.1","2.77","12.5","18.5","18.5","46,000","2022","2031"], str(more))
+    modes=[await pg.input_value(f"form[data-form=saveSetup] [name={k}_ongoing_mode]") for k in ["save","ppel","vppel"]]
+    check("held back: the state's figure goes in as a share of receipts (the default), not dollars", modes==["pct","pct","pct"], str(modes))
     hints=await pg.evaluate("Object.fromEntries([...document.querySelectorAll('form[data-form=saveSetup] [data-ongoing-hint]')].map(h=>[h.dataset.ongoingHint,h.textContent]))")
-    check("ongoing commitments: each field shows its share of receipts and the typical range", "12% of SAVE receipts" in hints.get("save","") and "10–25%" in hints.get("save","") and "18% of PPEL receipts" in hints.get("ppel","") and "18% of V-PPEL receipts" in hints.get("vppel",""), str(hints))
+    check("held back: each field says what its share is in dollars at today's receipts, and the typical range", "$181,250 a year at today’s receipts" in hints.get("save","") and "10–25%" in hints.get("save","") and "$19,009 a year" in hints.get("ppel","") and "$77,191 a year" in hints.get("vppel",""), str(hints))
     tips=await pg.inner_text("form[data-form=saveSetup] [data-setup-checks]")
-    check("ongoing commitments: a PPEL share far below what districts spend gets a second-look tip; SAVE in range doesn't", "Ongoing PPEL commitments are 18% of receipts" in tips and "Ongoing SAVE commitments are" not in tips, tips[:400])
-    await pg.fill("form[data-form=saveSetup] [name=save_ongoing]","290,000"); await pg.wait_for_timeout(100)
+    check("held back: a PPEL share far below what districts spend gets a second-look tip; SAVE in range doesn't", "PPEL held back each year is" in tips and "SAVE held back each year is" not in tips, tips[:400])
+    await pg.fill("form[data-form=saveSetup] [name=save_ongoing]","20"); await pg.wait_for_timeout(100)
     h2=await pg.inner_text("form[data-form=saveSetup] [data-ongoing-hint=save]")
-    check("ongoing commitments: the share updates as you type", "20% of SAVE receipts" in h2, h2)
-    await pg.fill("form[data-form=saveSetup] [name=save_ongoing]","180,000")
+    check("held back: the dollars update as you type the share", "$290,000 a year" in h2, h2)
+    await pg.fill("form[data-form=saveSetup] [name=save_ongoing]","12.5")
     dfunds=await pg.evaluate("[...document.querySelectorAll('form[data-form=saveSetup] [data-debt-body] [data-debt-row]')].map(tr=>tr.querySelector('[name=debt_fund]').value+':'+tr.querySelector('[name=debt_annual]').value)")
     check("starting numbers: debt payments from the annual report fill funds that have no row yet", dfunds.count("debt_levy:295,000")==1 and sum(1 for x in dfunds if x.startswith("save:"))>=1, str(dfunds))
     stt2=await pg.inner_text("[data-setup-state]")
     await pg.locator("[data-setup-state]").screenshot(path=SHOTS+"/setup-state.png")
-    check("starting numbers: the comparison lists the new state figures", "Taxable valuation, FY2027" in stt2 and "Ongoing SAVE spending a year" in stt2 and "Gifts and grants to the capital funds" in stt2 and "Voter-approved PPEL levied since" in stt2, stt2[-900:])
+    check("starting numbers: the comparison lists the new state figures", "Taxable valuation, FY2027" in stt2 and "SAVE spent outside building projects, debt and transfers, a year" in stt2 and "against what you hold back" in stt2 and "Gifts and grants to the capital funds" in stt2 and "Voter-approved PPEL levied since" in stt2, stt2[-900:])
     await pg.select_option("select[data-grant-years]","3"); await pg.click("button[data-action=setupPrefill]"); await pg.wait_for_timeout(200)
     check("starting numbers: a 3-year grants average when chosen", await pg.input_value("form[data-form=saveSetup] [name=grants_avg]")=="60,000")
     hv=[await pg.input_value(f"form[data-form=saveSetup] [name={n}]") for n in ["tax_home_value","construction_inflation"]]
@@ -1822,7 +1874,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(900)
     vv=await pg.input_value("form[data-form=saveSetup] [name=vppel_ongoing]")
     est=await pg.inner_text("[data-ongoing-est=vppel]") if await pg.locator("[data-ongoing-est=vppel]").count() else ""
-    check("ongoing: an empty V-PPEL amount drops in from the state's average without typing, marked; a saved SAVE amount is kept", vv=="76,228" and await pg.locator("form[data-form=saveSetup] [name=vppel_ongoing].prefilled").count()==1
+    check("held back: an empty V-PPEL amount drops in from the state's average as a share of receipts without typing, marked; a saved SAVE amount is kept", vv=="18.5" and await pg.input_value("form[data-form=saveSetup] [name=vppel_ongoing_mode]")=="pct" and await pg.locator("form[data-form=saveSetup] [name=vppel_ongoing].prefilled").count()==1
           and "FY2023–FY2025" in est and await pg.locator("[data-ongoing-est=save]").count()==0 and await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="250,000", vv+" | "+est)
     await pg.fill("form[data-form=saveSetup] [name=save_ongoing]",""); await pg.type("form[data-form=saveSetup] [name=save_ongoing]","1234567")
     check("ongoing: commas go in as you type", await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="1,234,567")
@@ -1834,11 +1886,33 @@ async def main():
     check("ongoing: a share isn't given commas", await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="10")
     n0=len(calls); await pg.click("form[data-form=saveSetup] button[type=submit]"); await pg.wait_for_timeout(800)
     sv=[json.loads(c[2])[0] for c in calls[n0:] if c[0]=="POST" and "/rest/v1/district_settings?on_conflict=district_id" in c[1]]
-    check("ongoing: a share saves as a fraction, with the dollar amount 0; the dropped-in V-PPEL amount saves too", sv and sv[0].get("save_ongoing_pct")==0.1 and sv[0].get("save_ongoing")==0 and sv[0].get("vppel_ongoing")==76228 and sv[0].get("ppel_ongoing_pct") is None, str(sv)[:500])
+    check("held back: a share saves as a fraction, with the dollar amount 0; the dropped-in V-PPEL share saves too; one combined figure (not split)", sv and sv[0].get("save_ongoing_pct")==0.1 and sv[0].get("save_ongoing")==0 and sv[0].get("vppel_ongoing_pct")==0.185 and sv[0].get("vppel_ongoing")==0 and sv[0].get("ppel_ongoing_pct") is None and sv[0].get("save_holdback_split") is False, str(sv)[:500])
     if sv: TABLES["district_settings"][0].update(sv[0])   # the simulated database doesn't keep what's posted
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(900)
     check("ongoing: the share comes back as a share", await pg.input_value("form[data-form=saveSetup] [name=save_ongoing_mode]")=="pct" and await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="10")
+    # 14 Oct (f): one combined figure by default; "Split it" into recurring dollars and a cushion share
+    await pg.locator("[data-holdback=save]").screenshot(path=SHOTS+"/holdback-combined.png")
+    check("held back: one combined figure by default (split unticked, its fields hidden)", not await pg.is_checked("form[data-form=saveSetup] [name=save_holdback_split]") and await pg.locator("[data-holdback=save] [data-hb-split]").is_hidden())
+    await pg.click("[data-holdback=save] label.field button.defn[data-term=holdback], [data-holdback=save] > label button.defn[data-term=holdback]"); await pg.wait_for_timeout(300)
+    check("held back: its ? explains it comes off the top before projects, and why a share", "off the top" in await pg.inner_text(".defpop") and "SF 2472" in await pg.inner_text(".defpop"))
+    await pg.click(".defpop .dp-x"); await pg.wait_for_timeout(150)
+    await pg.check("form[data-form=saveSetup] [name=save_holdback_split]"); await pg.wait_for_timeout(200)
+    check("held back: ticking Split it moves the whole figure into the cushion, recurring starts at $0", await pg.locator("[data-holdback=save] [data-hb-split]").is_visible() and await pg.locator("[data-holdback=save] [data-hb-combined]").is_hidden()
+          and await pg.input_value("form[data-form=saveSetup] [name=save_cushion]")=="10" and await pg.input_value("form[data-form=saveSetup] [name=save_recurring]")=="0")
+    await pg.fill("form[data-form=saveSetup] [name=save_recurring]","60,000"); await pg.fill("form[data-form=saveSetup] [name=save_cushion]","9"); await pg.wait_for_timeout(150)
+    await pg.locator("[data-holdback=save]").screenshot(path=SHOTS+"/holdback-split.png")
+    sh=await pg.inner_text("form[data-form=saveSetup] [data-ongoing-hint=save]")
+    check("held back: the split hint adds them up at today's receipts", "Holds back $150,000 a year" in sh and "$60,000 recurring plus a 9% cushion ($90,000)" in sh, sh)
+    n0=len(calls); await pg.click("form[data-form=saveSetup] button[type=submit]"); await pg.wait_for_timeout(800)
+    sv=[json.loads(c[2])[0] for c in calls[n0:] if c[0]=="POST" and "/rest/v1/district_settings?on_conflict=district_id" in c[1]]
+    check("held back: a split saves the recurring dollars, the cushion share and the split flag", sv and sv[0].get("save_ongoing")==60000 and sv[0].get("save_ongoing_pct")==0.09 and sv[0].get("save_holdback_split") is True, str(sv)[:400])
+    if sv: TABLES["district_settings"][0].update(sv[0])
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/setup"); await pg.wait_for_timeout(900)
+    check("held back: a split comes back split", await pg.is_checked("form[data-form=saveSetup] [name=save_holdback_split]") and await pg.input_value("form[data-form=saveSetup] [name=save_recurring]")=="60,000" and await pg.input_value("form[data-form=saveSetup] [name=save_cushion]")=="9")
+    await pg.uncheck("form[data-form=saveSetup] [name=save_holdback_split]"); await pg.wait_for_timeout(200)
+    check("held back: unticking adds them back into one share of receipts (6% + 9% = 15%)", await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]")=="15" and await pg.input_value("form[data-form=saveSetup] [name=save_ongoing_mode]")=="pct", await pg.input_value("form[data-form=saveSetup] [name=save_ongoing]"))
     # put it back the way the later tests expect
     TABLES["district_settings"][:]=[dict(x) for x in _ds0]
     # 14 Oct: Rank & fund tests the General Fund too; the capital plan flags repeating purchases that may be in the ongoing amounts
@@ -1855,7 +1929,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await pg.wait_for_timeout(900)
     dc=await pg.inner_text("[data-double-count]") if await pg.locator("[data-double-count]").count() else ""
-    check("capital plan: repeating bus and device purchases on PPEL are flagged against PPEL's ongoing amount", "may be counted twice" in dc and "Bus fleet replacement" in dc and "PPEL also has $40k a year of ongoing commitments" in dc and "Roof" not in dc, dc[:600])
+    check("capital plan: repeating bus and device purchases on PPEL are flagged against PPEL's ongoing amount", "may be counted twice" in dc and "Bus fleet replacement" in dc and "PPEL already holds back $40k a year" in dc and "Roof" not in dc, dc[:600])
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/general"); await pg.wait_for_timeout(600)
     await pg.click("button[data-action=gfEdit]"); await pg.wait_for_timeout(700)
     gst=await pg.inner_text("[data-gf-state]")

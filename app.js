@@ -606,6 +606,8 @@
         ['tax_home_value', s0.tax_home_value ? moneyIn(s0.tax_home_value) : null], ['construction_inflation', pctOf(s0.construction_inflation)]]
         .filter(([n]) => !(/^(save|ppel|vppel)_ongoing$/.test(n) && s0[n + '_pct'] != null))   // set as a share of receipts: leave it be
         .map(([n, mine]) => [n, mine != null && mine !== '' ? mine : sv[n]]).filter(([, v]) => v != null && v !== '');
+      /* a held-back figure filled from the state is a share of receipts: say so, or it would be read as dollars */
+      ['save', 'ppel', 'vppel'].forEach((k) => { const n = k + '_ongoing'; if (!s0[n] && s0[n + '_pct'] == null && sv[n] != null && hiddenState.some(([x]) => x === n)) hiddenState.push([n + '_mode', sv[n + '_mode'] || 'usd']); });
       const f = (n, l, v, h) => `<label class="field">${esc(l)}<input name="${n}" inputmode="decimal" value="${esc(v == null ? '' : v)}">${h ? `<span class="hint">${esc(h)}</span>` : ''}</label>`;
       return `<h1>Confirm the starting numbers</h1>
         <p>${st ? `Filled from the state’s annual report (FY${esc(st.fiscal_year)})${lv ? ` and levy rates (FY${esc(lv.fiscal_year)})` : ''}. Change anything you have newer figures for, like this year’s audit.` : 'Enter the district’s figures from the general ledger or the audit.'}</p>
@@ -747,8 +749,8 @@
     'money/summary': ['Every fund from the board version: capital fund balances, what’s available against what’s committed, and the General Fund.', 'Open the folds for the year-by-year numbers.'],
     'money/general': ['A five-year General Fund forecast: solvency, spending authority and what a negotiated raise (the total package increase) costs.', 'Try the what-if levers; nothing is saved. The business office keeps the starting figures current; “Fill these in” uses the public sources listed below.'],
     'money/capital': ['Projects by year, split across the capital funds, and the gap left to close.', '“What-if and financing” tries changes without saving; “Leave projects out” shows the plan without them.', '“What it means for taxpayers” shows the added levy for a typical home and an acre.'],
-    'track/initiatives': ['Each initiative this fiscal year: planned, spent and on order, from the monthly ledger.', 'Link new spending accounts to initiatives so their spending counts.'],
-    'track/actuals': ['Each fund’s budget, actual and year-end forecast from the month-end general ledger (GL) export.'],
+    'track/initiatives': ['Each initiative this fiscal year: planned, spent and on order, from the monthly ledger.', 'Link new spending accounts to initiatives so their spending counts.', 'For a project built under contract, open it and add the contract, then each month’s pay application (four totals from the summary page). HighGround flags cost, contingency, schedule, and any gap between the ledger and the pay apps.'],
+    'track/actuals': ['Each fund’s budget, actual and year-end forecast from the month-end general ledger (GL) export.', '“Held back each year” shows how much of each capital fund’s holdback the year’s unlinked spending has used, against how much of the year has gone.'],
     'settings/uploads': ['Bring in the month-end ledger, the check register, the budget, projects or balances.', 'Nothing changes until you review what HighGround read and click Apply; the original file is kept.'],
     'track/registers': ['Questions from the month’s bills: new vendors, possible duplicates, changed names, payments much larger than usual.', 'The business office answers; everyone in the district can read the answers. Set the bid threshold in the settings at the bottom.'],
     'share/board': ['Create the month’s board report: it’s saved exactly as made, and the next one compares itself with it.', 'Decision packets put one initiative on one page for a vote.'],
@@ -756,7 +758,7 @@
     'share/plans': ['One plan, three views: the full plan (named by the district), the academic goals tagged as state CSIP goals, and the capital improvement plan.', 'Choose approved items only, or all items with proposals labelled; totals always count approved work only. Print it, download it for Excel, or save the version the board adopted.'],
     'settings/overview': ['Every setting, grouped, with a line saying where each one stands. The banner at the top shows how much of the district’s setup is done.', 'Click a card to open that setting.'],
     'settings/district': ['The district’s name, look and public link, and its Iowa district number (for peer comparisons and pre-filled numbers).'],
-    'settings/setup': ['What the capital plan starts from: receipts, balances and existing debt.', 'If the Iowa district number is set, “Fill in” uses public figures from the state and federal agencies listed below; you can change any of them before saving.'],
+    'settings/setup': ['What the capital plan starts from: receipts, balances, what each fund holds back each year, and existing debt.', 'Held back each year is one figure per fund, usually a share of receipts; tick “Split it” only if you track recurring costs and a cushion separately.', 'If the Iowa district number is set, “Fill in” uses public figures from the state and federal agencies listed below; you can change any of them before saving.'],
     'settings/people': ['Invite people with a role: admin, business manager, superintendent, editor, board member or viewer.'],
     'settings/activity': ['Every change: who, when, and what it was before.'],
     'settings/assumptions': ['Base, Conservative and Growth outlooks a scenario can plan for.'],
@@ -868,7 +870,9 @@
     ['Fill in from public data', 'settings/setup', 'state census enrollment valuations prefill'], ['Existing debt', 'settings/setup', 'GO bonds obligations'], ['Upload the month-end ledger', 'settings/uploads', 'gl excel csv budget balances'],
     ['Templates', 'settings/uploads', 'excel xlsx'], ['Improvement plan', 'share/plans', 'cip csip timelines'], ['Decision packets', 'share/board', ''], ['Public link', 'share/community', 'publish'],
     ['Possible duplicate payments', 'track/registers', 'vendors bills'], ['Peer comparisons', 'money/summary', 'similar districts state annual report'], ['Glossary', 'help/guide', 'definitions terms sources'],
-    ['Logo', 'settings/district', 'brand color'], ['Iowa district number', 'settings/district', ''], ['Invite people', 'settings/people', 'roles']];
+    ['Logo', 'settings/district', 'brand color'], ['Iowa district number', 'settings/district', ''], ['Invite people', 'settings/people', 'roles'],
+    ['Held back each year', 'settings/setup', 'holdback cushion contingency uncommitted reserve ongoing recurring'], ['Holdback used this year', 'track/actuals', 'holdback cushion unplanned'],
+    ['Pay applications', 'track/initiatives', 'pay app contract contractor retainage change orders contingency construction manager']];
   function screenItems() {
     const out = [];
     ALL.forEach((s) => visibleTabs(s).filter((t) => t.menu !== false).forEach((t) => out.push({ k: 'screen', id: `${s.id}/${t.id}`, name: t.label === s.label || s.id === 'home' ? t.label : t.label, what: s.id === 'home' || s.id === 'help' ? 'Screen' : `Screen · ${s.label}`, area: s.id })));
@@ -1381,7 +1385,7 @@
   function doubleText(x) {
     const F = FUND_NAMES[x.fund] || x.fund, yrs = x.years.map((y) => 'FY' + y), many = x.routine || x.how === 'repeats';
     const when = x.how === 'yearly' ? `has a yearly cost on ${F} from ${yrs[0]}` : `is paid from ${F} in ${yrs.length > 4 ? `${yrs.length} years (${yrs[0]}–${yrs[yrs.length - 1]})` : yrs.join(', ')}`;
-    return `${x.name || 'This initiative'} ${when}, and ${F} also has ${fmtK(x.ongoing)} a year of ongoing commitments. If ${many ? 'these purchases are' : 'this cost is'} part of that regular spending (the district’s usual replacements or maintenance), take ${many ? 'them' : 'it'} out here, or lower the ongoing amount, so ${many ? 'they aren’t' : 'it isn’t'} counted twice.`;
+    return `${x.name || 'This initiative'} ${when}, and ${F} already holds back ${fmtK(x.ongoing)} a year for recurring costs and a cushion. If ${many ? 'these purchases are' : 'this cost is'} part of that regular spending (the district’s usual replacements or maintenance), take ${many ? 'them' : 'it'} out here, or lower the amount held back, so ${many ? 'they aren’t' : 'it isn’t'} counted twice.`;
   }
   function doubleNotice(inp, c) {
     let list = []; try { list = HGCapital.doubleCount(inp); } catch (e) { return ''; }
@@ -1389,7 +1393,7 @@
     const link = c && c.district ? ` <a href="#/d/${enc(c.district.slug)}/settings/setup">Starting numbers</a>` : ' Starting numbers';
     return `<details class="fold notice warn" data-double-count ${list.length <= 2 && c && (c.plan || c.finance) ? 'open' : ''}><summary><b>Worth a second look: ${list.length} cost${list.length === 1 ? '' : 's'} may be counted twice</b></summary>
       <ul class="small">${list.slice(0, 8).map((x) => `<li>${esc(doubleText(x))}</li>`).join('')}</ul>${list.length > 8 ? `<p class="small">and ${list.length - 8} more.</p>` : ''}
-      <p class="small muted">Ongoing commitments are set on${link}. If the regular amount doesn’t cover these, leave them in: this is a check, not an error.</p></details>`;
+      <p class="small muted">What each fund holds back each year is set on${link}. If the amount held back doesn’t cover these, leave them in: this is a check, not an error.</p></details>`;
   }
   /* the editor's running totals: each phase's fund shares in dollars, and the whole initiative's one-time cost by fund, so it's
      plain that % splits one phase between funds and phases split the project over time */
@@ -1807,14 +1811,14 @@
     const rows = funds.map((k) => { const p = paths[k], c = K[k], committed = c.debt + c.ongoing + c.yearly, avail = p.open + p.receipts + committed;
       return { k, avail, debt: c.debt, other: c.ongoing + c.yearly, proj: p.spend, left: Math.max(0, avail - committed - p.spend), short: p.over }; });
     const hi = Math.max(1, ...rows.map((r) => Math.max(r.avail, r.debt + r.other + r.proj) + r.short));
-    const SEG = [['debt', '#4B5563', 'Debt payments'], ['other', '#9AA5A0', 'Ongoing and yearly costs'], ['proj', '#2F6B4F', 'Board-version projects'], ['left', '#BFDCC9', 'Left over'], ['short', '#B42318', 'Short']];
+    const SEG = [['debt', '#4B5563', 'Debt payments'], ['other', '#9AA5A0', 'Held back and yearly costs'], ['proj', '#2F6B4F', 'Board-version projects'], ['left', '#BFDCC9', 'Left over'], ['short', '#B42318', 'Short']];
     /* each fund: its bar, then a key under it with the same colours, in the same order, with the amounts */
     const bars = rows.map((r) => { const segs = SEG.filter(([key]) => r[key] > 0.5);
       return `<div class="cbar-row"><div class="cbar-head"><span class="cbar-name">${esc(FUND_NAMES[r.k])}</span><span class="small muted">${fmtK(r.avail)} available${r.short > 0.5 ? ` · <span class="gaptext">short ${fmtK(r.short)}</span>` : ''}</span></div>
         <div class="cbar" role="img" aria-label="${esc(FUND_NAMES[r.k])}: ${segs.map(([key, , name]) => `${name} ${fmtK(r[key])}`).join(', ')}">${segs.map(([key, color, name]) => `<span style="width:${(100 * r[key] / hi).toFixed(2)}%;background:${color}" title="${esc(name)} ${fmtK(r[key])}"></span>`).join('')}</div>
         <ul class="cbar-key">${segs.map(([key, color, name]) => `<li class="${key === 'short' ? 'gaptext' : ''}"><i style="background:${color}"></i>${name} <b>${fmtK(r[key])}</b></li>`).join('')}</ul></div>`; }).join('');
     return `<div class="cbars">${bars}</div>
-      <p class="small muted">Over FY${cfg.start}–FY${cfg.start + cfg.n - 1}. Available = the starting balance plus every year’s receipts. Committed = payments on existing debt and planned borrowing, ongoing commitments, and yearly costs of programs and hires paid from the fund.</p>`;
+      <p class="small muted">Over FY${cfg.start}–FY${cfg.start + cfg.n - 1}. Available = the starting balance plus every year’s receipts. Committed = payments on existing debt and planned borrowing, what each fund holds back each year, and yearly costs of programs and hires paid from the fund.</p>`;
   }
   /* ---- peer comparisons from the state's annual reports (part 16): only unusual numbers are shown ---- */
   const PEERS = { key: null, data: null };
@@ -2132,10 +2136,18 @@
     if (pct == null || isNaN(pct)) return typ;
     return `${receipts > 0 ? `That’s $${Math.round(pct / 100 * receipts).toLocaleString('en-US')} a year at today’s receipts, and it rises or falls with them. ` : 'It rises or falls with receipts. '}${typ}`;
   }
-  const ONGOING_RECEIPTS = { save: 'save_receipts', ppel: 'ppel_receipts', vppel: 'vppel_annual' };
+  const ONGOING_RECEIPTS = { save: 'save_receipts', ppel: 'ppel_receipts', vppel: 'vppel_annual' }, ONGOING_SETTING_RECEIPTS = ONGOING_RECEIPTS;
   /** an ongoing field's value in dollars a year at today's receipts, whichever way it's entered (null if empty, NaN if not a number) */
   function ongoingDollars(form, k) {
     const oe = form.querySelector(`[name="${k}_ongoing"]`); if (!oe) return null;
+    const sp = form.querySelector(`[name="${k}_holdback_split"]`);
+    if (sp && sp.checked) {
+      const r = toNum((form.querySelector(`[name="${k}_recurring"]`) || {}).value), cu = toNum((form.querySelector(`[name="${k}_cushion"]`) || {}).value);
+      if ((r != null && isNaN(r)) || (cu != null && isNaN(cu))) return NaN;
+      const re = form.querySelector(`[name="${ONGOING_RECEIPTS[k]}"]`), rec = re ? toNum(re.value) : null;
+      if (r == null && cu == null) return null;
+      return (r || 0) + (cu && rec > 0 ? cu / 100 * rec : 0);
+    }
     const v = toNum(oe.value); if (v == null || isNaN(v)) return v;
     if (ongoingMode(form, k) !== 'pct') return v;
     const re = form.querySelector(`[name="${ONGOING_RECEIPTS[k]}"]`), rec = re ? toNum(re.value) : null;
@@ -2148,7 +2160,8 @@
     Object.entries(ONGOING_RECEIPTS).forEach(([k, rn]) => {
       const h = form.querySelector(`[data-ongoing-hint="${k}"]`), oe = form.querySelector(`[name="${k}_ongoing"]`), re = form.querySelector(`[name="${rn}"]`);
       if (!h || !oe) return;
-      const rec = re ? toNum(re.value) : null;
+      const rec = re ? toNum(re.value) : null, sp = form.querySelector(`[name="${k}_holdback_split"]`);
+      if (sp && sp.checked) { h.textContent = holdbackSplitHint(k, toNum((form.querySelector(`[name="${k}_recurring"]`) || {}).value) || 0, toNum((form.querySelector(`[name="${k}_cushion"]`) || {}).value), rec); return; }
       h.textContent = ongoingMode(form, k) === 'pct' ? ongoingPctHint(k, toNum(oe.value), rec) : ongoingHint(k, toNum(oe.value), rec);
     });
   }
@@ -2160,6 +2173,37 @@
     if (v != null && !isNaN(v)) oe.value = sel.value === 'pct' ? (rec > 0 ? String(+(v / rec * 100).toFixed(1)) : '') : (rec > 0 ? moneyIn(Math.round(v / 100 * rec)) : '');
     oe.closest('.field').querySelector('[data-ongoing-unit]').textContent = sel.value === 'pct' ? '%' : '$';
     oe.classList.remove('prefilled');
+    renderSetupChecks(form);
+  }
+  /** "Holds back $186,000 a year at today's receipts: $60,000 recurring plus a 9% cushion ($126,000)." */
+  function holdbackSplitHint(fund, recurring, cushionPct, receipts) {
+    const T = ONGOING_TYPICAL[fund]; if (!T) return '';
+    const cu = cushionPct != null && !isNaN(cushionPct) && receipts > 0 ? cushionPct / 100 * receipts : null, m = (v) => '$' + Math.round(v).toLocaleString('en-US');
+    if (cu == null) return `Recurring costs are held back as dollars; the cushion as a share of ${T.label} receipts, so it rises or falls with them.`;
+    const tot = (recurring || 0) + cu;
+    return `Holds back ${m(tot)} a year at today’s receipts (${receipts > 0 ? pctWhole(tot / receipts) : ''} of ${T.label}): ${m(recurring || 0)} recurring plus a ${+Number(cushionPct).toFixed(2)}% cushion (${m(cu)}). Typical in all: ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}%.`;
+  }
+  /** ticking "Split it" moves the combined figure into the cushion (recurring starts at $0); unticking adds the two back together */
+  function toggleHoldbackSplit(box) {
+    const form = box.closest('form'), wrap = box.closest('[data-holdback]'), k = wrap.dataset.holdback;
+    const oe = form.querySelector(`[name="${k}_ongoing"]`), mode = form.querySelector(`[name="${k}_ongoing_mode"]`), re = form.querySelector(`[name="${ONGOING_RECEIPTS[k]}"]`);
+    const rec = re ? toNum(re.value) : null, R = form.querySelector(`[name="${k}_recurring"]`), Cu = form.querySelector(`[name="${k}_cushion"]`);
+    if (box.checked) {
+      const v = toNum(oe.value);
+      if (v != null && !isNaN(v)) {
+        if (mode.value === 'pct') { Cu.value = String(v); R.value = moneyIn(0); }
+        else if (rec > 0) { Cu.value = String(+(v / rec * 100).toFixed(2)); R.value = moneyIn(0); }
+        else { R.value = moneyIn(v); Cu.value = ''; }   // no receipts to turn dollars into a share: keep them as recurring
+      }
+    } else {
+      const r = toNum(R.value) || 0, cu = toNum(Cu.value);
+      if (rec > 0) { mode.value = 'pct'; oe.dataset.mode = 'pct'; oe.value = String(+((r / rec) * 100 + (cu || 0)).toFixed(2)); }
+      else if (!cu) { mode.value = 'usd'; oe.dataset.mode = 'usd'; oe.value = moneyIn(r); }
+      else { mode.value = 'pct'; oe.dataset.mode = 'pct'; oe.value = String(cu); }
+      const u = wrap.querySelector('[data-ongoing-unit]'); if (u) u.textContent = mode.value === 'pct' ? '%' : '$';
+    }
+    oe.classList.remove('prefilled');
+    wrap.querySelector('[data-hb-combined]').hidden = box.checked; wrap.querySelector('[data-hb-split]').hidden = !box.checked;
     renderSetupChecks(form);
   }
   /**
@@ -2197,8 +2241,10 @@
       list.push([`Example home: the district’s median home value (Census Bureau, ${HV.acs_year - 4}–${HV.acs_year})`, '$' + o.tax_home_value]); }
     if (CI && CI.value != null) { const v = Math.max(0, Math.min(0.15, Number(CI.value))); o.construction_inflation = pctIn(v);
       list.push(['Construction inflation (school construction prices, last three years)', `${pctIn(v)}% a year`]); }
-    ongoingFromState(st).forEach((x) => { o[x.field] = mi(x.amount);
-      list.push([`Ongoing ${x.label} spending (average FY${x.from}–FY${x.to}, leaving out construction and debt)`, '$' + mi(x.amount) + ' a year' + (x.pct != null ? `, about ${pctWhole(x.pct)} of ${x.label} receipts` : '')]); });
+    ongoingFromState(st).forEach((x) => {
+      if (x.pct != null) { o[x.field] = String(Math.round(x.pct * 200) / 2); o[x.field + '_mode'] = 'pct'; }   // held back as a share, to the nearest half point
+      else { o[x.field] = mi(x.amount); o[x.field + '_mode'] = 'usd'; }
+      list.push([`${x.label} held back each year (what the district spent outside building projects, debt and transfers, average FY${x.from}–FY${x.to})`, (x.pct != null ? `${Math.round(x.pct * 200) / 2}% of ${x.label} receipts, about ` : '') + '$' + mi(x.amount) + ' a year']); });
     const ga = grantsAvg(M, grantYears || 5);
     if (ga) { o.grants_avg = mi(ga.avg); list.push([`Gifts and grants to the capital funds (average FY${ga.from}–FY${ga.to})`, '$' + mi(ga.avg) + ' a year']); }
     const dp = (M.car && M.car.debt_payments) || {}, DN = { save: ['save', 'SAVE revenue bonds'], ppel: ['ppel', 'PPEL leases or bonds'], debt: ['debt_levy', 'General-obligation bonds'] };
@@ -2342,12 +2388,12 @@
         { label: 'Short by', num: true, html: (y) => (y.over > 0.5 ? `<b class="gaptext">${fmtK(y.over)}</b>` : '') },
         { label: 'End', num: true, html: (y) => (y.fy === P.lowFY ? `<b>${fmtK(y.end)}</b> <span class="small muted">low</span>` : fmtK(y.end)) },
       ], P.years, '')}
-      <p class="small muted">Receipts are after existing debt payments and ongoing commitments${k === 'save' && inp.levers.sf ? ', and after the SF 2472 reduction' : ''}${cfg.f0 < 1 ? `; FY${cfg.start} counts only the part of the year after ${day(cfg.settings.balances.asOf)}` : ''}.</p></div>`; };
+      <p class="small muted">Receipts are after existing debt payments and what’s held back each year${k === 'save' && inp.levers.sf ? ', and after the SF 2472 reduction' : ''}${cfg.f0 < 1 ? `; FY${cfg.start} counts only the part of the year after ${day(cfg.settings.balances.asOf)}` : ''}.</p></div>`; };
     return top + history + `
       <p class="small muted">Year by year from <b>${esc(sc.name)}</b>${sc.is_board_version ? ', the board version' : ''}. <a href="#/d/${enc(c.district.slug)}/money/capital">Change it on the capital plan</a></p>
       ${funds.map(fundCard).join('')}
       <div class="card"><h3>Borrowing room</h3>
-        <p>SAVE revenue bonds: about <b>${fmtK(cap.pv)}</b>, based on the lowest year (FY${cap.fy}): SAVE after ongoing commitments, covering all SAVE debt payments 1.20 times, 20 years at 4.5%. Coverage is set by the bond market, not by law; ask the district’s financial advisor.</p>
+        <p>SAVE revenue bonds: about <b>${fmtK(cap.pv)}</b>, based on the lowest year (FY${cap.fy}): SAVE after what’s held back each year, covering all SAVE debt payments 1.20 times, 20 years at 4.5%. Coverage is set by the bond market, not by law; ask the district’s financial advisor.</p>
         <p>${go != null ? `General-obligation bonds: about <b>${fmtK(go)}</b> left under the debt limit (5% of actual valuation, less GO debt outstanding). A GO bond also needs 60% of voters.` : 'General-obligation limit: add the district’s actual (100%) valuation in Starting numbers to see it.'}</p></div>
       <p class="small muted">Fund rules are a plain-language guide, not legal advice. Confirm a specific use with the district’s attorney or the Iowa Department of Education.</p>`;
   }
@@ -2747,9 +2793,11 @@
     if (!board && !c.admin) return '<div class="card"><h3>No board version yet</h3><p>Progress is tracked against the plan the board adopted. A district admin marks that scenario as the board version.</p></div>';
     if (!board) return `<div class="card"><h3>No board version yet</h3><p>Progress is tracked against the plan the board adopted. On the capital plan, make one scenario the board version.</p>
       <a class="btn primary" href="#/d/${enc(d.slug)}/money/capital">Capital plan</a></div>`;
-    const [accounts, batches] = await Promise.all([
+    const [accounts, batches, contracts, payApps] = await Promise.all([
       HG.db.selectAll('gl_account', `select=*&district_id=eq.${d.id}`).catch(() => []),
       HG.db.select('import_batch', `select=id,kind,status,period_end,fiscal_year&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc`).catch(() => []),
+      HG.db.select('initiative_contract', `select=*&district_id=eq.${d.id}`).catch(() => null),   // null: database update 29 not run yet
+      HG.db.select('contract_progress', `select=*&district_id=eq.${d.id}&order=through_date`).catch(() => []),
     ]);
     const latest = HGActuals.latestByYear(batches), batchIds = Object.values(latest).map((x) => x.id);
     const sugg = c.finance ? HGActuals.suggestLinks(accounts, rows.initiatives) : [];
@@ -2758,10 +2806,11 @@
       ? await HG.db.selectAll('gl_amount', `select=batch_id,account_id,ytd_amount,encumbered,budget_amount&batch_id=in.(${batchIds.join(',')})&account_id=in.(${wanted.join(',')})`).catch(() => []) : [];
     const act = HGActuals.actuals(accounts, amounts, batches);
     const inp = HGCapital.buildInputs(rows, board.id), cfg = inp.cfg;
-    if (PI.key !== d.id) { PI.key = d.id; PI.fy = null; PI.open = null; }
+    if (PI.key !== d.id) { PI.key = d.id; PI.fy = null; PI.open = null; PI.contractEdit = null; }
     const fys = Object.keys(latest).map(Number).sort((x, y) => y - x);
     const fy = PI.fy || fys[0] || cfg.start;
-    PI.ctx = { rows, board, inp, act, accounts, amounts, latest, fy, sugg };
+    PI.ctx = { rows, board, inp, act, accounts, amounts, latest, fy, sugg, contracts, payApps };
+    const CON = contractStatuses(inp, act, accounts, contracts || [], payApps);
     const plan = HGActuals.planned(inp.projects, inp.levers, cfg, fy);
     const INIT = new Map(rows.initiatives.map((i) => [i.id, i])), STATUS = Object.fromEntries(INIT_STATUS);
     const ids = [...new Set(inp.projects.map((p) => String(p.id)).concat(Object.keys(act.byInitiative)))].filter((id) => INIT.has(id));
@@ -2775,8 +2824,11 @@
       if (pl > 0.5 && spent + encd > pl * 1.05) note = `<span class="gaptext">Over plan by ${fmt(spent + encd - pl)}</span>`;
       else if (pl < 0.5 && spent > 0.5) note = '<span class="gaptext">Spending, but nothing planned this year</span>';
       else if (pl > 0.5 && through && spent + encd < 0.5) note = '<span class="muted">No spending yet</span>';
+      const k = CON[id];
+      if (k && k.x.hasPayApp && k.x.status !== 'ok') note += `${note ? '<br>' : ''}<span class="${k.x.status === 'bad' ? 'gaptext' : 'warntext'}">Contract: ${esc(k.x.flags.map((f) => ({ cost: 'over budget', contingency: 'contingency', schedule: 'behind', books: 'ledger differs' })[f.k]).join(', '))}</span>`;
+      else if (k && k.x.hasPayApp) note += `${note ? '<br>' : ''}<span class="small muted">Contract ${Math.round(k.x.pctComplete * 100)}% complete</span>`;
       return { id, i, p, phases, done, pl, spent, encd, a, note };
-    }).filter((x) => x.pl > 0.5 || x.a || x.phases.some((ph) => cfg.start + ph.year === fy));
+    }).filter((x) => x.pl > 0.5 || x.a || x.phases.some((ph) => cfg.start + ph.year === fy) || (CON[x.id] && CON[x.id].x.hasPayApp));
     items.sort((x, y) => (y.pl - x.pl) || x.i.name.localeCompare(y.i.name));
     const tot = items.reduce((t, x) => ({ pl: t.pl + x.pl, spent: t.spent + x.spent, encd: t.encd + x.encd }), { pl: 0, spent: 0, encd: 0 });
     { const flagged = items.filter((x) => /gaptext/.test(x.note)).length;
@@ -2806,6 +2858,7 @@
               ${canEdit && ledger ? `<br><a href="#" class="small" data-action="piUseLedger" data-amount="${Math.round(ledger * 100) / 100}">Use the ledger: ${fmt(ledger)}</a>` : ''}</td>
             <td>${canEdit ? '<button type="button" class="btn small" data-action="piSavePhase">Save</button>' : ''}</td></tr>`; }).join('')}
         </tbody></table>` : '<p class="muted">No one-time phases in the board version.</p>'}
+        ${contracts === null ? (canEdit ? '<p class="small muted">Contract and pay-app tracking needs database update 29 (29_holdback_contracts.sql). Run it in Supabase to turn it on.</p>' : '') : contractCard(x, CON[x.id], canEdit)}
         <div class="small"><b>Linked spending accounts:</b> ${linked.length ? linked.map((a) => `<code>${esc(a.code)}</code> ${esc(a.description || '')}${c.finance ? ` <a href="#" data-action="piUnlink" data-id="${esc(a.id)}">Unlink</a>` : ''}`).join(' · ') : '<span class="muted">none yet</span>'}</div>
         <p class="small muted">The board version stays locked: recording progress changes only status, dates and actual cost, and each change is in the activity log. A finished phase’s actual cost replaces its estimate in the capital plan.</p>
       </div></td></tr>`;
@@ -2824,6 +2877,95 @@
           <td class="num">${x.pl > 0.5 ? fmt(x.pl - x.spent - x.encd) : ''}</td><td>${x.note}</td></tr>${PI.open === x.id ? detail(x) : ''}`).join('') || '<tr><td colspan="9" class="muted">Nothing planned or spent in this year.</td></tr>'}
       </tbody>${items.length ? `<tfoot><tr><th colspan="4">${items.length} initiative${items.length === 1 ? '' : 's'}</th><th class="num">${fmt(tot.pl)}</th><th class="num">${fmt(tot.spent)}</th><th class="num">${fmt(tot.encd)}</th><th class="num">${fmt(tot.pl - tot.spent - tot.encd)}</th><th></th></tr></tfoot>` : ''}</table></div>
       <p class="small muted" style="margin-top:8px">Planned is the board version’s cost for the year, with inflation (finished phases at their actual cost). Spent and on order come from spending accounts linked to each initiative. Click an initiative to record progress.</p></div>`;
+  }
+  /* ---- contracted projects: contract + monthly pay applications (HGContract), shown in Initiative progress ---- */
+  /** for each initiative with a contract: { c (contract row), apps (its pay apps), x (HGContract.status) } */
+  function contractStatuses(inp, act, accounts, contracts, payApps) {
+    const out = {}, cfg = inp.cfg;
+    contracts.forEach((ct) => {
+      const id = String(ct.initiative_id), p = inp.projects.find((q) => String(q.id) === id);
+      /* the board version's whole cost for it, in each year's dollars (finished phases at their actual cost) */
+      const planned = p ? p.phases.reduce((t, ph) => t + (ph.status === 'done' && ph.actual != null ? ph.actual : ph.cost * Math.pow(1 + (inp.levers.infl || 0), ph.year)), 0) : null;
+      const linked = accounts.some((a) => String(a.initiative_id) === id), byFy = act.byInitiative[id] || {};
+      const ledgerSpent = linked && Object.keys(byFy).length ? Object.values(byFy).reduce((t, r) => t + r.spent, 0) : null;   // project to date, every fiscal year's latest month
+      const apps = payApps.filter((r) => String(r.initiative_id) === id);
+      out[id] = { c: ct, apps, x: HGContract.status(ct, apps, { planned, ledgerSpent }) };
+    });
+    return out;
+  }
+  function contractCard(x, k, canEdit) {
+    const m = (v) => (v == null ? '—' : (v < 0 ? '−' : '') + '$' + Math.round(Math.abs(v)).toLocaleString('en-US')), pc = (v) => (v == null ? '—' : Math.round(v * 100) + '%');
+    const id = x.id, editing = PI.contractEdit === id;
+    if (!k && !editing) return `<div class="contract-card" data-contract="${esc(id)}"><b>Contract and pay applications</b> ${def('contract')}
+      <p class="small muted">For a project built under contract: record the contract once, then each month’s pay application, and HighGround checks cost, contingency, schedule and the ledger.</p>
+      ${canEdit ? `<button type="button" class="btn small" data-action="contractEdit" data-id="${esc(id)}">Add the contract</button>` : '<p class="small muted">No contract recorded.</p>'}</div>`;
+    const c = (k && k.c) || {};
+    const form = editing ? `<form class="stack contract-form" data-form="saveContract" data-id="${esc(id)}" novalidate><div class="fgrid">
+        <label class="field">Contractor or construction manager<input name="contractor" maxlength="120" value="${esc(c.contractor || '')}"></label>
+        <label class="field">Original contract sum, $<input name="original_sum" inputmode="decimal" value="${c.original_sum == null ? '' : esc(moneyIn(c.original_sum))}"><span class="hint">As signed, before change orders.</span></label>
+        <label class="field"><span>Owner’s contingency, $ ${def('contingency')}</span><input name="original_contingency" inputmode="decimal" value="${c.original_contingency == null ? '' : esc(moneyIn(c.original_contingency))}"><span class="hint">The project budget’s allowance for surprises; 0 if none.</span></label>
+        <label class="field">Start<input type="date" name="start_date" value="${esc(c.start_date || '')}"></label>
+        <label class="field">Substantial completion<input type="date" name="completion_date" value="${esc(c.completion_date || '')}"><span class="hint">For the rough schedule check.</span></label></div>
+        <div class="notice error" data-form-errors hidden></div>
+        <div class="row"><button type="submit" class="btn primary small">Save the contract</button><button type="button" class="btn small" data-action="contractEdit" data-id="">Cancel</button>
+          ${k ? `<span style="flex:1"></span><button type="button" class="btn small danger" data-action="contractDelete" data-id="${esc(id)}">Remove the contract and its pay apps</button>` : ''}</div></form>` : '';
+    if (!k) return `<div class="contract-card" data-contract="${esc(id)}"><b>Contract and pay applications</b> ${def('contract')}${form}</div>`;
+    const X = k.x, apps = HGContract.sorted(k.apps);
+    const tiles = X.hasPayApp ? `<div class="ctiles">
+        <div class="ctile"><div class="small muted">Complete ${def('contract_schedule')}</div><div class="stat">${pc(X.pctComplete)}</div><div class="small ${X.schedule === 'behind' ? 'warntext' : 'muted'}">${X.expectedPct != null ? `dates suggest ${pc(X.expectedPct)}` : 'add dates for a schedule check'}</div></div>
+        <div class="ctile"><div class="small muted">Projected final cost ${def('projected_final')}</div><div class="stat">${m(X.projectedFinal)}</div><div class="small ${X.cost === 'over' ? 'gaptext' : X.cost === 'within' ? 'ok' : 'muted'}">${X.cost === 'unknown' ? 'not in the board version' : `${X.cost === 'over' ? `${m(X.overBy)} over` : 'within'} the ${m(X.planned)} planned`}</div></div>
+        <div class="ctile"><div class="small muted">Contingency used ${def('contingency')}</div><div class="stat">${pc(X.contingencyUsedPct)}</div><div class="small muted">${X.contingencyLeft != null ? `${m(X.contingencyLeft)} left` : 'not given'}</div></div>
+        <div class="ctile"><div class="small muted">Change orders</div><div class="stat">${m(X.changeOrders)}</div><div class="small muted">${X.changeOrdersPct != null ? `${(X.changeOrdersPct * 100).toFixed(1)}% of the original` : ''}</div></div>
+        <div class="ctile"><div class="small muted">Ledger vs. pay apps ${def('books_vs_payapps')}</div><div class="stat">${X.books === 'unknown' ? '—' : X.books === 'differ' ? m(X.booksDiff) : 'Match'}</div><div class="small ${X.books === 'differ' ? 'warntext' : 'muted'}">${X.books === 'unknown' ? 'link the project’s ledger accounts to compare' : `ledger ${m(X.ledgerSpent)} · paid per pay apps ${m(X.paid)}${X.books === 'match-gross' ? ' (the ledger counts retainage as spent)' : ''}`}</div></div>
+        <div class="ctile"><div class="small muted">Still to pay</div><div class="stat">${m(X.stillToPay)}</div><div class="small muted">including ${m(X.retainage)} retainage ${def('retainage')}</div></div></div>
+      ${X.flags.length ? `<ul class="flags small">${X.flags.map((f) => `<li class="${f.level}">${esc(f.text)}</li>`).join('')}</ul>` : '<p class="small ok">On budget, contingency in step with the work, and the ledger agrees.</p>'}` : '<p class="small muted">No pay application recorded yet.</p>';
+    const hist = apps.length ? `<div class="scroll"><table class="data"><thead><tr><th>Pay app</th><th>Through</th><th class="num">Contract sum ${def('contract_sum')}</th><th class="num">Completed ${def('completed_to_date')}</th><th class="num">Retainage</th><th class="num">Contingency left</th><th class="num">Paid</th><th></th></tr></thead><tbody>
+        ${apps.slice().reverse().map((r) => `<tr><td>${r.pay_app_no == null ? '' : '#' + esc(r.pay_app_no)}</td><td>${esc(day(r.through_date))}</td><td class="num">${m(Number(r.contract_sum))}</td><td class="num">${m(Number(r.completed_to_date))}</td><td class="num">${m(Number(r.retainage || 0))}</td><td class="num">${r.contingency_remaining == null ? '' : m(Number(r.contingency_remaining))}</td><td class="num">${m(Number(r.completed_to_date) - Number(r.retainage || 0))}</td>
+          <td>${canEdit ? `<button type="button" class="btn small" data-action="payAppDelete" data-id="${esc(r.id)}">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '';
+    const last = apps[apps.length - 1];
+    const add = canEdit ? `<details class="fold" ${apps.length ? '' : 'open'}><summary>Add this month’s pay application</summary>
+      <form class="stack contract-form" data-form="savePayApp" data-id="${esc(id)}" novalidate>
+        <p class="small muted">Four totals from the pay application’s summary page (the AIA G702 or the construction manager’s cover sheet). Totals to date, not this month’s amounts.</p>
+        <div class="fgrid">
+        <label class="field">Pay app number<input name="pay_app_no" inputmode="numeric" value="${last && last.pay_app_no != null ? Number(last.pay_app_no) + 1 : ''}"></label>
+        <label class="field">Through<input type="date" name="through_date" value=""></label>
+        <label class="field"><span>Contract sum to date, $ ${def('contract_sum')}</span><input name="contract_sum" inputmode="decimal" value="${esc(moneyIn(last ? last.contract_sum : c.original_sum))}"><span class="hint">Original plus approved change orders.</span></label>
+        <label class="field"><span>Work completed to date, $ ${def('completed_to_date')}</span><input name="completed_to_date" inputmode="decimal" value=""><span class="hint">Completed and stored, before retainage.</span></label>
+        <label class="field"><span>Retainage held, $ ${def('retainage')}</span><input name="retainage" inputmode="decimal" value=""></label>
+        <label class="field"><span>Contingency left, $ ${def('contingency')}</span><input name="contingency_remaining" inputmode="decimal" value=""><span class="hint">From the owner’s contingency log; leave empty if not tracked.</span></label>
+        <label class="field">Note<input name="note" maxlength="300" value=""></label></div>
+        <div class="notice error" data-form-errors hidden></div>
+        <div class="row"><button type="submit" class="btn primary small">Add this pay app</button><span class="small muted">Kept with the others, so the history shows how the contingency and change orders moved. It doesn’t change ledger spending.</span></div></form></details>` : '';
+    return `<div class="contract-card" data-contract="${esc(id)}"><div class="row" style="justify-content:space-between"><b>Contract and pay applications ${def('contract')}</b>
+        ${canEdit && !editing ? `<button type="button" class="btn small" data-action="contractEdit" data-id="${esc(id)}">Edit the contract</button>` : ''}</div>
+      <p class="small muted">${esc(c.contractor || 'Contractor not named')} · original ${m(Number(c.original_sum))} · contingency ${m(Number(c.original_contingency || 0))}${c.start_date ? ` · ${esc(day(c.start_date))} to ${c.completion_date ? esc(day(c.completion_date)) : '?'}` : ''}</p>
+      ${form}${tiles}${hist}${add}</div>`;
+  }
+  const moneyOr = (v, label, errs, required) => { const x = toNum(v); if (x === null) { if (required) errs.push(`${label} is needed.`); return null; } if (isNaN(x) || x < 0) { errs.push(`${label} must be a number of dollars.`); return null; } return x; };
+  async function saveContract(f, form) {
+    const box = form.querySelector('[data-form-errors]'), errs = [], id = form.dataset.id;
+    const row = { initiative_id: id, district_id: S.district.id, contractor: (f.contractor || '').trim().slice(0, 120) || null,
+      original_sum: moneyOr(f.original_sum, 'Original contract sum', errs, true), original_contingency: moneyOr(f.original_contingency, 'Owner’s contingency', errs) || 0,
+      start_date: f.start_date || null, completion_date: f.completion_date || null, updated_at: new Date().toISOString() };
+    if (row.original_sum === 0) errs.push('Original contract sum must be more than $0.');
+    if (row.start_date && row.completion_date && row.completion_date < row.start_date) errs.push('Completion is before the start.');
+    if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return; }
+    await HG.db.upsert('initiative_contract', [row], 'initiative_id');
+    PI.contractEdit = null; toast('Contract saved', 'Add each month’s pay application below it.'); here();
+  }
+  async function savePayApp(f, form) {
+    const box = form.querySelector('[data-form-errors]'), errs = [], id = form.dataset.id, k = (PI.ctx.payApps || []).filter((r) => String(r.initiative_id) === id);
+    const ct = (PI.ctx.contracts || []).find((r) => String(r.initiative_id) === id) || {};
+    const no = toNum(f.pay_app_no);
+    const row = { district_id: S.district.id, initiative_id: id, pay_app_no: no == null || isNaN(no) ? null : Math.round(no), through_date: f.through_date || '',
+      contract_sum: moneyOr(f.contract_sum, 'Contract sum to date', errs, true), completed_to_date: moneyOr(f.completed_to_date, 'Work completed to date', errs, true),
+      retainage: moneyOr(f.retainage, 'Retainage', errs) || 0, contingency_remaining: moneyOr(f.contingency_remaining, 'Contingency left', errs), note: (f.note || '').trim().slice(0, 300) || null };
+    const chk = HGContract.checkEntry(row, ct, k);
+    const all = errs.concat(chk.errors);
+    if (all.length) { box.hidden = false; box.innerHTML = all.map(esc).join('<br>'); return; }
+    if (chk.warnings.length && !confirm(`Check before saving:\n\n${chk.warnings.join('\n')}\n\nSave it anyway?`)) return;
+    await HG.db.insert('contract_progress', row);
+    toast('Pay application added', 'Cost, contingency, schedule and the ledger are checked again.'); here();
   }
   async function piSavePhase(el) {
     const tr = el.closest('[data-pi-phase]'), v = (n) => tr.querySelector(`[name=${n}]`).value;
@@ -2849,6 +2991,33 @@
     return `<div class="notice">The ledger is through ${esc(day(gl[0].period_end))}. The close for ${esc(day(st.nextMonthEnd))} is usually ready by now. ${link} to keep balances current.</div>`;
   }
   const BA = { key: null, fy: null, method: 'budget', fund: null };
+  /** what each capital fund holds back this fiscal year (from the board version), against unlinked spending in the ledger */
+  function holdbackFor(inp, fy) {
+    const cfg = inp.cfg, y = fy - cfg.start, out = {};
+    if (y < 0 || y >= cfg.n) return null;
+    ['save', 'ppel', 'vppel'].forEach((k) => { out[k] = HGEngine.ongoingIn(cfg, k, y, inp.levers); });
+    return out;
+  }
+  async function holdbackCard(c, accounts, amounts, fy, gone) {
+    const rows = await loadCapitalRows(c.district), board = rows.settings && rows.scenarios.find((x) => x.is_board_version);
+    if (!board) return '';
+    const inp = HGCapital.buildInputs(rows, board.id), held = holdbackFor(inp, fy);
+    if (!held) return '';
+    const H = HGActuals.holdbackUse(accounts, amounts, held, gone);
+    if (!H.length) return '';
+    const m = (v) => (v < 0 ? '−' : '') + '$' + Math.round(Math.abs(v)).toLocaleString('en-US'), pc = (v) => Math.round(v * 100) + '%';
+    const ST = { pace: '<span class="ok">On pace</span>', ahead: '<span class="warntext">Running ahead</span>', over: '<span class="gaptext">Over</span>', none: '<span class="warntext">Nothing held back</span>' };
+    const how = (k) => { const st = inp.cfg.settings[k] || {}; return st.split ? 'recurring costs plus a cushion' : st.ongoingPct != null ? `${+(Number(st.ongoingPct) * 100).toFixed(2)}% of receipts` : 'a set amount'; };
+    const fac = H.filter((x) => x.facilities > 0.5);
+    return `<div class="card" data-holdback-card><h3>Held back each year ${def('holdback')}</h3>
+      <p class="small muted">What each capital fund holds back in FY${fy} for recurring costs and a cushion (from the board version “${esc(board.name)}”), and how much of it spending not linked to an initiative has used ${def('holdback_used')}. ${pc(gone)} of the year has gone.</p>
+      <div class="scroll"><table class="data"><thead><tr><th>Fund</th><th>Held back as</th><th class="num">Held back FY${fy}</th><th class="num">Used so far</th><th class="num">Expected by now</th><th class="num">Left</th><th></th></tr></thead><tbody>
+        ${H.map((x) => `<tr data-hb-fund="${x.fund}"><td>${esc(FUND_NAMES[x.fund])}</td><td class="small">${esc(how(x.fund))}</td><td class="num">${m(x.held)}</td><td class="num">${m(x.used)}${x.onOrder > 0.5 ? `<br><span class="small muted">includes ${m(x.onOrder)} on order</span>` : ''}</td><td class="num">${m(x.expected)}</td><td class="num ${x.left < -0.5 ? 'gaptext' : ''}">${m(x.left)}</td><td class="small">${ST[x.status]}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${fac.length ? `<p class="small">${fac.map((x) => `${m(x.facilities)} of ${esc(FUND_NAMES[x.fund])}’s is building and site work (function 4xxx)`).join('; ')} not linked to an initiative. If it belongs to a planned project, <a href="#/d/${enc(c.district.slug)}/track/initiatives">link its account to the initiative</a> so it isn’t counted against the holdback and the project too.</p>` : ''}
+      <details class="fold"><summary>Largest lines</summary>${H.map((x) => x.top.length ? `<h4>${esc(FUND_NAMES[x.fund])}</h4><ul class="small">${x.top.map((t) => `<li><code>${esc(t.code)}</code> ${esc(t.description)}: ${m(t.used)}</li>`).join('')}</ul>` : '').join('') || '<p class="small muted">No unlinked spending yet.</p>'}</details>
+      ${c.finance ? `<p class="small muted">Change what’s held back on <a href="#/d/${enc(c.district.slug)}/settings/setup">Starting numbers</a>.</p>` : ''}</div>`;
+  }
   async function vActuals(c) {
     const d = c.district;
     const batches = await HG.db.select('import_batch', `select=id,kind,status,period_end,fiscal_year&district_id=eq.${d.id}&kind=eq.gl_monthly&status=eq.applied&order=period_end.desc`).catch(() => []);
@@ -2858,10 +3027,11 @@
     if (BA.key !== d.id) { BA.key = d.id; BA.fy = null; BA.fund = null; BA.late = null; BA.early = null; }
     const fy = BA.fy && latest[BA.fy] ? BA.fy : fys[0], batch = latest[fy];
     const [accounts, amounts] = await Promise.all([
-      HG.db.selectAll('gl_account', `select=id,code,fund_code,function_code,maps_to,mapped_fund,sign&district_id=eq.${d.id}`),
+      HG.db.selectAll('gl_account', `select=id,code,description,fund_code,function_code,maps_to,mapped_fund,sign,initiative_id&district_id=eq.${d.id}`),
       HG.db.selectAll('gl_amount', `select=account_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${batch.id}`),
     ]);
     const S = HGBudget.summarize(accounts, amounts, batch.period_end, BA.method);
+    const hbHtml = await holdbackCard(c, accounts, amounts, fy, S.gone).catch(() => '');
     // compare two months: the later defaults to this year's latest, the earlier to the import before it
     const all = batches.slice().sort((x, y) => (x.period_end < y.period_end ? 1 : -1));
     const late = all.find((b) => b.id === BA.late) || batch;
@@ -2909,6 +3079,7 @@
           <td class="num">${fmt(f.revenue.budget)}</td><td class="num">${fmt(f.revenue.actual)}</td><td class="num">${fmt(f.revenue.forecast)}</td><td class="small">${revVar(f.revenue)}</td>
           <td class="num">${fmt(f.spending.budget)}</td><td class="num">${fmt(f.spending.actual)}</td><td class="num">${fmt(f.spending.encumbered)}</td><td class="num">${fmt(f.spending.forecast)}</td><td class="small">${spendVar(f.spending)}</td></tr>`).join('')}
       </tbody></table></div></div>
+      ${hbHtml}
       ${fund ? `<div class="card"><h3>${esc(fund.name)}</h3>
         <div class="grid tiles">
           <div class="card tile-card"><div class="small muted">Revenue received</div><div class="stat">${fmt(fund.revenue.actual)}</div><div class="small muted">of ${fmt(fund.revenue.budget)} budgeted · ${pctTxt(fund.revenue.used)}</div>${bar(fund.revenue.used, false)}</div>
@@ -3948,6 +4119,10 @@
       ${(P.budget || []).length ? `<div class="card"><h3>Funds</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Balance</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">On order ${def('encumbered')}</th><th class="num">Spending forecast</th></tr></thead><tbody>
         ${P.budget.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${P.balances[x.key] ? f(P.balances[x.key].amount) : ''}</td><td class="num">${f(x.revenue.budget)}</td><td class="num">${f(x.revenue.actual)}</td><td class="num">${f(x.spending.budget)}</td><td class="num">${f(x.spending.actual)}</td><td class="num">${f(x.spending.encumbered)}</td><td class="num">${f(x.spending.forecast)}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}
+      ${(P.holdback || []).length ? `<div class="card" data-report-holdback><h3>Held back each year ${def('holdback')}</h3><ul>${P.holdback.map((h) => `<li>${esc(FUND_NAMES[h.fund])}: <b>${f(h.held)}</b> held back for FY${P.fiscalYear} for recurring costs and unplanned items; <b>${f(h.used)}</b> used${P.ledgerThrough ? ` through ${esc(day(P.ledgerThrough))}` : ''} <span class="${h.status === 'over' ? 'gaptext' : h.status === 'pace' ? 'ok' : 'warntext'}">(${({ pace: 'on pace', ahead: 'running ahead', over: 'over', none: 'nothing held back' })[h.status]})</span>.</li>`).join('')}</ul>
+        <p class="small muted">Used = spending from the fund that isn’t linked to a planned initiative, plus what’s on order; debt payments and transfers aren’t counted.</p></div>` : ''}
+      ${(P.contracts || []).length ? `<div class="card" data-report-contracts><h3>Contracted projects ${def('contract')}</h3><ul>${P.contracts.map((k) => `<li>${esc(k.sentence)}${k.flags.length ? `<br><span class="small ${k.status === 'bad' ? 'gaptext' : 'warntext'}">${esc(k.flags.join(' '))}</span>` : ''}</li>`).join('')}</ul>
+        <p class="small muted">From the contractor’s latest pay application up to this month end. The detailed bills are in the consent agenda; this is the progress against the plan.</p></div>` : ''}
       <div class="card"><h3>Initiatives this year</h3>${(P.progress || []).length ? `<div class="scroll"><table class="data"><thead><tr><th>Initiative</th><th>Status</th><th>Phases done</th><th class="num">Planned FY${P.fiscalYear}</th><th class="num">Spent</th><th class="num">On order ${def('encumbered')}</th></tr></thead><tbody>
         ${P.progress.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(STATUS[x.status] || x.status)}</td><td>${x.phases ? `${x.phasesDone} of ${x.phases}` : ''}</td><td class="num">${f(x.planned)}</td><td class="num">${x.spent ? f(x.spent) : ''}</td><td class="num">${x.encumbered ? f(x.encumbered) : ''}</td></tr>`).join('')}
       </tbody></table></div>` : '<p class="muted">Nothing planned or spent this year.</p>'}</div>
@@ -3969,7 +4144,21 @@
     const amounts = batch ? await HG.db.selectAll('gl_amount', `select=account_id,batch_id,ytd_amount,budget_amount,encumbered&batch_id=eq.${batch.id}`) : [];
     const g = gfRun(rows, board.id), ys = g ? g.R.years : null;
     const gf = ys ? (() => { const low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]); return { solvency: ys[0].solvency, lowest: low.solvency, lowestFY: low.fy, lowestLow: low.solvencyLow, lowestHigh: low.solvencyHigh, unspentRatio: ys[0].unspentRatio, endBalance: ys[ys.length - 1].balance, endFY: ys[ys.length - 1].fy, flags: g.R.flags }; })() : null;
-    const payload = HGReport.build({ district: d, rows, periodEnd: date, batch, accounts, amounts, batches: batch ? [batch] : [], balances, gf });
+    /* contracted projects: each one's latest pay app on or before the month end, checked against the plan and the ledger to date */
+    let contracts = [];
+    const [cons, apps] = await Promise.all([
+      HG.db.select('initiative_contract', `select=*&district_id=eq.${d.id}`).catch(() => []),
+      HG.db.select('contract_progress', `select=*&district_id=eq.${d.id}&through_date=lte.${date}&order=through_date`).catch(() => []),
+    ]);
+    if (cons.length) {
+      const upTo = batches.filter((b) => b.period_end <= date), latestFy = HGActuals.latestByYear(upTo), ids = Object.values(latestFy).map((b) => b.id);
+      const linkedAcc = accounts.filter((a) => a.initiative_id && cons.some((ct) => String(ct.initiative_id) === String(a.initiative_id))).map((a) => a.id);
+      const amts = ids.length && linkedAcc.length ? await HG.db.selectAll('gl_amount', `select=batch_id,account_id,ytd_amount,encumbered,budget_amount&batch_id=in.(${ids.join(',')})&account_id=in.(${linkedAcc.join(',')})`).catch(() => []) : [];
+      const CON = contractStatuses(HGCapital.buildInputs(rows, board.id), HGActuals.actuals(accounts, amts, upTo), accounts, cons, apps);
+      const NAME = new Map(rows.initiatives.map((i) => [String(i.id), i.name]));
+      contracts = Object.entries(CON).filter(([id]) => NAME.has(id)).map(([id, k]) => ({ id, name: NAME.get(id), sentence: HGContract.sentence(NAME.get(id), k.x), status: k.x.hasPayApp ? k.x.status : 'none', flags: k.x.flags.map((f) => f.text) }));
+    }
+    const payload = HGReport.build({ district: d, rows, periodEnd: date, batch, accounts, amounts, batches: batch ? [batch] : [], balances, gf, contracts });
     const id = crypto.randomUUID();
     const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     await HG.db.insert('report_snapshot', { id, district_id: d.id, kind: 'board_monthly', title: `Board report, ${label}`, period_end: date, scenario_id: board.id, batch_id: batch ? batch.id : null, payload });
@@ -4032,7 +4221,8 @@
 
   const BACKUP_TABLES = ['district_settings', 'fund_balance', 'debt_obligation', 'assumption_set', 'priority', 'outcome', 'measure', 'measure_value',
     'survey', 'survey_result', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing',
-    'project_request', 'import_batch', 'gl_account', 'gl_amount', 'budget_line', 'publication', 'report_snapshot'];
+    'project_request', 'import_batch', 'gl_account', 'gl_amount', 'budget_line', 'publication', 'report_snapshot', 'initiative_contract', 'contract_progress'];
+  const BACKUP_OPTIONAL = new Set(['initiative_contract', 'contract_progress']);   // database update 29: a district without it still backs up
   async function vExports(c) {
     const rows = await loadCapitalRows(c.district);
     const opts = rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.is_board_version ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (board version)' : ''}</option>`).join('');
@@ -4085,7 +4275,7 @@
   }
   async function exportBackup() {
     const d = S.district, data = {};
-    for (const t of BACKUP_TABLES) data[t] = await HG.db.selectAll(t, `select=*&district_id=eq.${d.id}`);
+    for (const t of BACKUP_TABLES) data[t] = await HG.db.selectAll(t, `select=*&district_id=eq.${d.id}`).catch((e) => { if (BACKUP_OPTIONAL.has(t)) return []; throw e; });
     const { allowed_domains, domain_role, ...district } = d;
     const backup = { kind: 'HighGround district backup', version: 1, exported_at: new Date().toISOString(), exported_by: S.user.email,
       engine: HGEngine.VERSION, district, tables: data };
@@ -4097,7 +4287,7 @@
   // order matters: parents before the rows that point to them
   const RESTORE_ORDER = ['district_settings', 'assumption_set', 'priority', 'outcome', 'measure', 'measure_value', 'survey', 'survey_result', 'initiative', 'scenario',
     'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing', 'import_batch', 'gl_account', 'gl_amount', 'budget_line', 'fund_balance', 'debt_obligation',
-    'project_request', 'publication', 'report_snapshot'];
+    'project_request', 'publication', 'report_snapshot', 'initiative_contract', 'contract_progress'];   // contracts go with their initiative when it's erased
   // everything in a district's plan, children first; used by restore and by the demo reset (people and access are never touched)
   const ERASE_ORDER = ['publication', 'report_snapshot', 'project_request', 'budget_line', 'gl_amount', 'gl_account', 'scenario', 'measure', 'outcome', 'survey', 'initiative', 'priority', 'assumption_set',
     'debt_obligation', 'fund_balance', 'import_batch', 'district_settings'];
@@ -4137,6 +4327,7 @@
       delete x.created_by; delete x.updated_by;                                  // the person restoring becomes the creator
       if ('owner_user_id' in x) x.owner_user_id = null;                          // accounts in the backup may no longer exist
       if (t === 'project_request' && 'user_id' in x) x.user_id = null;
+      if (t === 'contract_progress' && 'entered_by' in x) x.entered_by = null;
       if (t === 'scenario') { if (x.is_locked) locked.push(x.id); x.is_locked = false; }   // lock again once its contents are back
       return x;
     };
@@ -4152,7 +4343,7 @@
 
   // ---------------------------------------------------------------- activity (audit log)
   const TABLE_NAMES = { assumption_set: 'Assumption set', report_snapshot: 'Report', scenario_initiative: 'Ranking', survey: 'Survey', survey_result: 'Survey result',
-    budget_line: 'Adopted budget', gl_amount: 'Ledger amount', project_request: 'Project request', initiative_note: 'Note', attachment: 'Attachment', access_request: 'Access request',
+    budget_line: 'Adopted budget', gl_amount: 'Ledger amount', initiative_contract: 'Contract', contract_progress: 'Pay application', project_request: 'Project request', initiative_note: 'Note', attachment: 'Attachment', access_request: 'Access request',
     profile: 'Profile', district: 'District', district_member: 'Member', invitation: 'Invitation', district_settings: 'Starting numbers',
     debt_obligation: 'Debt', fund_balance: 'Fund balance', initiative: 'Project', scenario: 'Scenario', phase: 'Phase', phase_funding: 'Fund split',
     recurring_cost: 'Yearly cost', financing: 'Financing', priority: 'Priority', outcome: 'Outcome', measure: 'Measure', measure_value: 'Measure result',
@@ -4422,6 +4613,19 @@
     fill_in: ['Fill in around the gaps', 'Instead of stopping at the first initiative that doesn’t fit, HighGround skips it for now and keeps going down the ranked list, funding lower-ranked initiatives that fit. It never funds one that would stop a higher-ranked initiative from being paid for by the year it’s needed (or within a year, if no year is set). An initiative that can’t be paid for within that time even with nothing below it, because it needs a campaign, bond or grant, doesn’t hold the others up.'],
     likely_range: ['Likely range', 'How far off a forecast like this has been. HighGround ran its own forecast for 325 Iowa districts from their FY2020 and FY2021 audited figures and compared it with what they later reported to the state. Eight in ten landed inside the range: about ±6 points a year out, widening to about ±25 points five years out. The range is wide because each year’s small misses in revenue and spending add up in the balance. Use the middle line to compare choices; use the range before telling the board a year’s number.'],
     debt_timing: ['This year’s payment', 'Only matters when the balances are from partway through the year. “Still to pay” takes this year’s whole payment off the fund; “Already paid” takes none of it (the balance already reflects it); “Spread over the year” takes the share of the year that’s left.'],
+    holdback: ['Held back each year', 'Money taken off the top of each year’s SAVE, PPEL or V-PPEL receipts before anything goes to projects. It covers the fund’s recurring costs (technology, equipment, buses, regular maintenance) and a cushion for things nobody has listed as an initiative yet. Projects can only use what’s left. Most districts set one figure as a share of receipts (like 15% of SAVE), so it shrinks automatically if receipts fall, for example under SF 2472; a dollar amount stays fixed. HighGround starts it from the state’s annual report: what the district actually spent outside building projects, debt and transfers over the last three years.'],
+    holdback_split: ['Split it', 'Optional. Instead of one figure, enter the fund’s recurring costs in dollars a year and a separate cushion for unplanned items as a share of receipts. Both are held back. Use it if the board talks about the two separately; most districts don’t need to.'],
+    holdback_recurring: ['Recurring costs', 'What the fund pays every year for the same kinds of things: device leases, a technology refresh, bus replacement, regular maintenance. In dollars a year.'],
+    holdback_cushion: ['Cushion', 'A share of each year’s receipts kept uncommitted for things that come up during the year: a broken boiler part, a kiln, a scoreboard clock. It rises or falls with receipts.'],
+    holdback_used: ['Used so far', 'Spending this fiscal year from this fund on ledger accounts that aren’t linked to an initiative, plus what’s on order. Debt payments and transfers aren’t counted. Expected by now is the year’s holdback times the share of the year gone. If a planned project’s spending shows here, link its account to the initiative on Track → Initiative progress, so it isn’t counted against the holdback.'],
+    contract: ['Contract and pay applications', 'For a project built under contract: the contractor or construction manager sends a pay application each month with a summary page. Type four totals from it here. HighGround checks them against the board version and the ledger; it never adds them to spending, because the ledger already shows what was paid.'],
+    contract_sum: ['Contract sum to date', 'The contract amount today: the original contract plus approved change orders. It’s on the pay-app summary (on the AIA G702 form, line 3).'],
+    completed_to_date: ['Work completed to date', 'Work completed and materials stored to date, before retainage is held back (AIA G702 line 4).'],
+    retainage: ['Retainage', 'Part of each payment the district holds back (often 5%) until the work is finished. It’s earned but not yet paid, so the ledger usually shows less spent than the work completed, by about this much. That difference isn’t an error.'],
+    contingency: ['Contingency', 'Money set aside in the project budget for surprises. Using it up faster than the work progresses (more than 15 points ahead of % complete) is an early warning that the project may go over.'],
+    projected_final: ['Projected final cost', 'The contract sum today plus all the contingency that’s left: the conservative view, assuming every remaining contingency dollar is spent. If that’s within what the board version plans for the initiative, the project should finish on budget.'],
+    books_vs_payapps: ['Ledger vs. pay apps', 'Spending to date on the ledger accounts linked to this initiative, compared with what the pay apps say has been paid (work completed less retainage). A gap over $5,000 (or 2%) usually means a pay app hasn’t been recorded yet or was charged to another account. Some ledgers record retainage as spent when it’s earned; HighGround recognises that too.'],
+    contract_schedule: ['On schedule', 'A rough check: % complete against a straight line from the start date to the completion date. More than 10 points behind is flagged. The contractor’s own schedule is the real source.'],
     fund_rules: ['Fund rules', 'Iowa law limits what each capital fund can pay for. PPEL and V-PPEL can’t pay salaries, travel, supplies or routine maintenance (Iowa Code 298.3). SAVE is for school infrastructure, not personnel, and uses beyond tax relief must be covered by the district’s revenue purpose statement (Iowa Code 423F.3). HighGround refuses a fund the law doesn’t allow and lists charges to confirm. It’s a guide, not legal advice.'],
     authority: ['Spending authority', 'The most a district may spend from the General Fund in a year: formula funding, plus miscellaneous income, plus the unspent balance carried forward (capped, see Unspent balance).'],
     unspent: ['Unspent balance', 'Spending authority not used in a year. From FY2027 (SF 2472), only part of it carries into next year’s authority: the lesser of the unspent balance and 35% of the authorized budget from two years earlier (FY2025’s for FY2027). The School Budget Review Committee can approve more on request. The forecast applies this cap. Spending more than the authority requires a corrective plan; two years in a row brings state review.'],
@@ -4485,7 +4689,7 @@
       `For the bigger picture, see ${link('money/capital', 'Money')} (the capital plan and the funds) and ${link('plan/priorities', 'Plan → Priorities')} (the strategic plan).`]
       : r === 'business_manager' ? [
       `Each month, upload the month-end ledger on ${link('settings/uploads', 'Uploads')}, check the balances it shows, and apply it.`,
-      `Then link any new spending accounts to initiatives on ${link('track/initiatives', 'Track → Initiative progress')}, and check ${link('track/actuals', 'Budget vs. actual')}.`,
+      `Then link any new spending accounts to initiatives on ${link('track/initiatives', 'Track → Initiative progress')}, add the contractor’s pay application for any project under contract (four totals from its summary page), and check ${link('track/actuals', 'Budget vs. actual')}, including how much of each fund’s yearly holdback is used.`,
       `Create the month’s ${link('share/board', 'board report')}. Keep ${link('settings/setup', 'Starting numbers')} and the ${link('money/general', 'General Fund')} figures current.`]
       : [
       `Start on ${link('home/today', 'Home')}: what needs attention, and where the plan stands.`,
@@ -4496,6 +4700,9 @@
       ['Test a different future (inflation, negotiated raises, enrollment)', 'the what-if levers on the capital plan and the General Fund'], ['See what a bond would cost a homeowner', 'the capital plan’s “What it means for taxpayers”'],
       ['Record a measure’s result', 'Track → Measures'], ['Share the plan with the public', 'Share → Community page'],
       ['Check the month’s bills for anything unusual', 'Settings → Uploads (Check register), then Track → Check register'], ['Compare with similar Iowa districts', 'add the Iowa district number in Settings → District; unusual numbers then show under Money'], ['Find anything', 'Search, at the top of every page'],
+      ['Set how much each fund holds back each year', 'Settings → Starting numbers, “Held back each year” (one share of receipts, or split into recurring costs and a cushion)'],
+      ['Track a construction contract’s pay applications', 'Track → Initiative progress: open the initiative, add the contract, then each month’s pay app'],
+      ['See how much of the yearly holdback is used', 'Track → Budget vs. actual, “Held back each year”'],
     ];
     return `
       <div class="card"><h3>Where to start</h3><ol>${start.map((x) => `<li>${x}</li>`).join('')}</ol>
@@ -4593,7 +4800,7 @@
 
   // ---------------------------------------------------------------- starting numbers (district_settings, balances, debt)
   /* dollar fields get thousands commas as they're typed; the caret stays after the same digit */
-  const MONEY_FIELD = /^(bal_\w+|debt_annual|save_receipts|ppel_receipts|vppel_annual|taxable_valuation|actual_valuation|go_outstanding|tax_home_value|grants_avg|cost|actual|y_amount|(save|ppel|vppel)_ongoing)$/;
+  const MONEY_FIELD = /^(bal_\w+|debt_annual|save_receipts|ppel_receipts|vppel_annual|taxable_valuation|actual_valuation|go_outstanding|tax_home_value|grants_avg|cost|actual|y_amount|(save|ppel|vppel)_ongoing|(save|ppel|vppel)_recurring|original_sum|original_contingency|contract_sum|completed_to_date|retainage|contingency_remaining)$/;
   function liveCommas(el) {
     const raw = el.value; if (!/^\s*\$?[\d,]*\.?\d*\s*$/.test(raw) || !/\d/.test(raw)) return;   // anything else is left as typed; saving explains
     const caret = el.selectionStart == null ? raw.length : el.selectionStart, before = raw.slice(0, caret).replace(/[^\d.]/g, '').length;
@@ -4635,8 +4842,8 @@
     [['save', sr], ['ppel', pr], ['vppel', vst !== 'none' ? num('vppel_annual') : null]].forEach(([k, rec]) => {
       const T = ONGOING_TYPICAL[k], og = ongoingDollars(form, k); if (!(rec > 0) || og == null || isNaN(og)) return;
       const p = og / rec;
-      if (p > 1) warn.push(`Ongoing ${T.label} commitments ($${Math.round(og).toLocaleString()}) are more than ${T.label} receipts. Check both figures.`);
-      else if (p < T.lo / 2) tip.push(`Ongoing ${T.label} commitments are ${pctWhole(p)} of receipts; districts typically spend ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}% on ${T.uses} every year. If these purchases aren’t listed as initiatives, the plan will show more ${T.label} money free than there really is.`);
+      if (p > 1) warn.push(`${T.label} held back each year ($${Math.round(og).toLocaleString()}) is more than ${T.label} receipts. Check both figures.`);
+      else if (p < T.lo / 2) tip.push(`${T.label} held back each year is ${pctWhole(p)} of receipts; districts typically spend ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}% on ${T.uses} every year. If these purchases aren’t listed as initiatives, the plan will show more ${T.label} money free than there really is.`);
     });
     if (sr > 0 && !val('save_receipts_fy')) warn.push('Say which fiscal year the SAVE receipts are for. The SF 2472 reduction is scaled from that year; without it, HighGround assumes the year before the plan starts.');
     if (!form.querySelectorAll('[data-debt-body] [data-debt-row]').length) tip.push('No existing debt entered. If the district has SAVE revenue bonds, PPEL loans or lease-purchases, add them; otherwise the plan overstates what SAVE and PPEL can pay for.');
@@ -4665,8 +4872,14 @@
     const gy = document.querySelector('[data-grant-years]'), F = stateFill(st, gy ? Number(gy.value) : 5);
     Object.entries(F.values).forEach(([n, v]) => { const el = form.querySelector(`[name=${n}]`); if (!el || v == null || v === '') return;
       if (n === 'vppel_status') { if (el.value === 'none') el.value = v; return; }
-      const om = form.querySelector(`[name="${n}_mode"]`);   // an ongoing field: the state's figure is dollars a year
-      if (om && om.value !== 'usd') { om.value = 'usd'; el.dataset.mode = 'usd'; const u = el.closest('.field').querySelector('[data-ongoing-unit]'); if (u) u.textContent = '$'; }
+      if (/_ongoing_mode$/.test(n)) return;   // set with its field, below
+      const om = form.querySelector(`[name="${n}_mode"]`);   // a held-back field: the state's figure is a share of receipts (or dollars)
+      if (om) {
+        const want = F.values[n + '_mode'] || 'usd'; om.value = want; el.dataset.mode = want;
+        const w = el.closest('[data-holdback]'), u = w && w.querySelector('[data-ongoing-unit]'); if (u) u.textContent = want === 'pct' ? '%' : '$';
+        const sp = w && w.querySelector('[data-hb-split-toggle]');   // the state's figure is one combined amount
+        if (sp && sp.checked) { sp.checked = false; w.querySelector('[data-hb-combined]').hidden = false; w.querySelector('[data-hb-split]').hidden = true; }
+      }
       el.classList.remove('prefilled');
       el.value = v; });
     // debt payments the annual report shows, for funds that don't have a row yet (the final year has to come from the schedule)
@@ -4688,7 +4901,10 @@
     if (V && V.actual) rows.push([`Actual (100%) valuation, FY${V.fiscal_year}`, Number(V.actual), s.actual_valuation]);
     if (V && V.growth != null) rows.push([`Taxable valuation growth a year, FY${V.fiscal_year - V.growth_years}–FY${V.fiscal_year}`, Number(V.growth), s.ppel_growth, pf]);
     if (tr) rows.push([`SAVE receipts trend a year, FY${tr.from}–FY${tr.to}`, tr.pct, s.save_trend, pf]);
-    ongoingFromState(st).forEach((x) => rows.push([`Ongoing ${x.label} spending a year (average FY${x.from}–FY${x.to}, estimated${x.pct != null ? `; about ${pctWhole(x.pct)} of receipts` : ''}${x.fund !== 'save' && on.ppel && ppelSplit(st).voted != null ? ', split by levy rates' : ''})`, x.amount, s[x.field]]));
+    /* yours: what the district holds back at today's receipts, however it's entered (dollars, a share, or split) */
+    const heldNow = (k) => { const pct = s[k + '_ongoing_pct'], rec = Number(s[ONGOING_SETTING_RECEIPTS[k]]) || 0, dollars = pct == null || s[k + '_holdback_split'] ? Number(s[k + '_ongoing']) || 0 : 0;
+      return s[k + '_ongoing'] == null && pct == null ? null : dollars + (pct != null ? Number(pct) * rec : 0); };
+    ongoingFromState(st).forEach((x) => rows.push([`${x.label} spent outside building projects, debt and transfers, a year (average FY${x.from}–FY${x.to}, estimated${x.pct != null ? `; about ${pctWhole(x.pct)} of receipts` : ''}${x.fund !== 'save' && on.ppel && ppelSplit(st).voted != null ? ', split by levy rates' : ''}), against what you hold back`, x.amount, heldNow(x.fund)]));
     if (ga) rows.push([`Gifts and grants to the capital funds a year (average FY${ga.from}–FY${ga.to})`, ga.avg, s.grants_avg]);
     if (M.home_value && Number(M.home_value.median_value) > 0) rows.push([`Median home value (Census Bureau, ${M.home_value.acs_year - 4}–${M.home_value.acs_year})`, Number(M.home_value.median_value), s.tax_home_value]);
     if (M.construction_inflation && M.construction_inflation.value != null) rows.push(['School construction prices, yearly rise (last three years)', Number(M.construction_inflation.value), s.construction_inflation, pf]);
@@ -4712,18 +4928,28 @@
     const dis = c.finance ? '' : 'disabled';
     const f = (name, label, value, hint, kind) => `<label class="field">${esc(label)}
       <input name="${name}" ${kind === 'int' ? 'inputmode="numeric"' : 'inputmode="decimal"'} value="${esc(value)}" ${dis} autocomplete="off">${hint ? `<span class="hint">${esc(hint)}</span>` : ''}</label>`;
-    /* an ongoing-commitment field with a live "that's X% of receipts" hint (updateOngoingHints keeps it current) */
-    /* Set in dollars a year or as a share of each year's receipts. Empty (never set, or 0) with a state estimate on hand: the
-       state's three-year average drops in, marked, and is kept once saved. */
+    /* "Held back each year" for a capital fund (the {fund}_ongoing columns): ONE combined figure by default, as a share of each
+       year's receipts (the default) or dollars a year. Optionally split into recurring dollars + a cushion share. A field never set
+       (0, no share) with a state estimate on hand gets the state's figure as a share of receipts, marked, and kept once saved.
+       updateOngoingHints keeps the "that's $X a year" hint current. */
     const ongState = Object.fromEntries((st ? ongoingFromState(st) : []).map((x) => [x.fund, x]));
-    const fOng = (k, label, value, pct, receipts, what) => {
-      const isPct = pct != null, est = !isPct && !(Number(value) > 0) && ongState[k] && ongState[k].amount > 0 && c.finance ? ongState[k] : null;
-      const shown = isPct ? String(+(Number(pct) * 100).toFixed(2)) : moneyIn(est ? est.amount : value || 0);
-      const hint = isPct ? ongoingPctHint(k, Number(pct) * 100, Number(receipts) || null) : ongoingHint(k, est ? est.amount : Number(value || 0), Number(receipts) || null);
-      return `<div class="field ongoing-field"><label for="ong-${k}">${esc(label)}</label>
-      <span class="ong-in"><span class="ong-unit" data-ongoing-unit>${isPct ? '%' : '$'}</span><input id="ong-${k}" name="${k}_ongoing" inputmode="decimal" value="${esc(shown)}" ${dis} autocomplete="off" data-ongoing-input data-mode="${isPct ? 'pct' : 'usd'}" class="${est ? 'prefilled' : ''}">
-        <select name="${k}_ongoing_mode" ${dis} aria-label="${esc(label)}: dollars or share of receipts" data-ongoing-mode><option value="usd" ${isPct ? '' : 'selected'}>a year</option><option value="pct" ${isPct ? 'selected' : ''}>of receipts each year</option></select></span>
-      ${est ? `<span class="hint ok-hint" data-ongoing-est="${k}">Filled in from the state’s figures: the average for FY${est.from}–FY${est.to}, leaving out construction, debt and transfers${k !== 'save' ? ', split between PPEL and V-PPEL by the levy rates' : ''}. Change it if you know better; it’s kept when you save.</span>` : ''}
+    const fOng = (k, label, value, pct, split, receipts, what) => {
+      const unset = pct == null && !(Number(value) > 0), est = unset && !split && ongState[k] && ongState[k].amount > 0 && c.finance ? ongState[k] : null;
+      const estPct = est && est.pct != null ? Math.round(est.pct * 200) / 2 : null;   // to the nearest half point
+      /* combined: a share when one is set, when the state's share fills it, or when nothing is set (the default); else dollars */
+      const isPct = split ? true : pct != null || (est ? estPct != null : unset);
+      const shown = split ? '' : pct != null ? String(+(Number(pct) * 100).toFixed(2)) : est ? (estPct != null ? String(estPct) : moneyIn(est.amount)) : unset ? '' : moneyIn(value);
+      const rec = Number(receipts) || null;
+      const hint = split ? holdbackSplitHint(k, Number(value) || 0, pct == null ? null : Number(pct) * 100, rec)
+        : isPct ? ongoingPctHint(k, shown === '' ? null : Number(shown), rec) : ongoingHint(k, toNum(shown), rec);
+      return `<div class="field ongoing-field holdback" data-holdback="${k}"><label for="ong-${k}">${esc(label)} ${def('holdback')}</label>
+      <div data-hb-combined ${split ? 'hidden' : ''}><span class="ong-in"><span class="ong-unit" data-ongoing-unit>${isPct ? '%' : '$'}</span><input id="ong-${k}" name="${k}_ongoing" inputmode="decimal" value="${esc(shown)}" ${dis} autocomplete="off" data-ongoing-input data-mode="${isPct ? 'pct' : 'usd'}" class="${est ? 'prefilled' : ''}" placeholder="${isPct ? 'e.g. 15' : ''}">
+        <select name="${k}_ongoing_mode" ${dis} aria-label="${esc(label)}: share of receipts or dollars" data-ongoing-mode><option value="pct" ${isPct ? 'selected' : ''}>of receipts each year</option><option value="usd" ${isPct ? '' : 'selected'}>a year</option></select></span>
+        ${est ? `<span class="hint ok-hint" data-ongoing-est="${k}">Filled in from the state’s figures: over FY${est.from}–FY${est.to} the district spent about ${estPct != null ? `${estPct}% of its ${ONGOING_TYPICAL[k].label} receipts` : `$${moneyIn(est.amount)} a year`} on things that weren’t building projects, debt or transfers${k !== 'save' ? ' (split between PPEL and V-PPEL by the levy rates)' : ''}. Change it if your board holds back a different amount; it’s kept when you save.</span>` : ''}</div>
+      <div class="hb-split" data-hb-split ${split ? '' : 'hidden'}>
+        <label class="field"><span>Recurring costs, $ a year ${def('holdback_recurring')}</span><input name="${k}_recurring" inputmode="decimal" value="${esc(split ? moneyIn(value || 0) : '')}" ${dis} autocomplete="off" aria-label="${esc(label)}: recurring costs, dollars a year"></label>
+        <label class="field"><span>Cushion, % of receipts ${def('holdback_cushion')}</span><input name="${k}_cushion" inputmode="decimal" value="${esc(split && pct != null ? String(+(Number(pct) * 100).toFixed(2)) : '')}" ${dis} autocomplete="off" aria-label="${esc(label)}: cushion, percent of receipts"></label></div>
+      <label class="row small hb-toggle"><input type="checkbox" name="${k}_holdback_split" data-hb-split-toggle ${split ? 'checked' : ''} ${dis}> Split it into recurring costs and a cushion ${def('holdback_split')}</label>
       <span class="hint">${esc(what)} <span data-ongoing-hint="${k}">${esc(hint)}</span></span></div>`;
     };
     const debtRow = (x) => `<tr data-debt-row data-id="${esc(x.id || '')}">
@@ -4766,7 +4992,7 @@
           <div class="row">${hasForm ? `<button type="button" class="btn" data-action="setupPrefill">${setUp ? 'Replace the form’s figures with the state’s' : 'Fill in the form with these'}</button>` : ''}${gfb != null && setUp ? '<button type="button" class="btn" data-action="gfFromState">Use in the General Fund setup</button>' : ''}<span class="small muted">Nothing is saved until you click Save.</span></div>
           ${lv && Number(lv.voted_ppel) > 0 ? `<p class="small">The state lists a <b>voter-approved PPEL</b> for FY${esc(lv.fiscal_year)}. Filling in sets V-PPEL to Active and splits the annual report’s PPEL revenue between PPEL and V-PPEL by the two rates. Add the vote’s first and last fiscal years from the ballot measure.</p>` : ''}
           <p class="small muted">${esc([st.source, lv && lv.source, M.valuation && M.valuation.source, M.car && M.car.source].filter(Boolean).join('. '))}.
-            Ongoing spending is an estimate: the average of the last three years of SAVE or PPEL spending, leaving out construction, debt payments and transfers.</p>
+            What each fund held back is an estimate: the average of the last three years of SAVE or PPEL spending, leaving out construction, debt payments and transfers. It’s filled in as a share of receipts.</p>
           ${M.home_value ? `<p class="small"><b>${CENSUS_NOTICE}</b></p>` : ''}</div>`;
         return setUp ? fold(c, `Compare with the state’s annual report${nDiff ? ` · ${nDiff} figure${nDiff === 1 ? '' : 's'} differ` : ''}`, body, false) : body; })()
       : c.finance && !c.district.state_district_id ? `<p class="small muted">${c.admin ? `Add the district’s Iowa district number in <a href="#/d/${enc(c.district.slug)}/settings/district">Settings → District</a> to fill these from the state’s annual report.` : 'Once an admin adds the district’s Iowa district number, these can be filled from the state’s annual report.'}</p>` : ''}
@@ -4787,13 +5013,13 @@
         <div class="card"><h3>SAVE (Secure an Advanced Vision for Education)</h3><div class="fgrid">
           ${f('save_receipts', 'SAVE receipts per year, $', moneyIn(s.save_receipts), 'A full year’s receipts, from the general ledger or the audit')}
           ${f('save_receipts_fy', 'Those receipts are for fiscal year', s.save_receipts_fy || '', 'For example 2026', 'int')}
-          ${fOng('save', 'Ongoing SAVE commitments', s.save_ongoing, s.save_ongoing_pct, s.save_receipts, 'Yearly costs already paid from SAVE, not debt or building projects: technology, equipment, regular maintenance. Set it in dollars, or as a share of receipts (a contingency, like 10% of SAVE).')}
+          ${fOng('save', 'Held back each year from SAVE', s.save_ongoing, s.save_ongoing_pct, s.save_holdback_split, s.save_receipts, 'Comes off the top of each year’s SAVE before projects: technology, equipment, regular maintenance and a cushion for things not listed as initiatives.')}
           ${f('save_trend', 'SAVE receipts trend, % a year', pctIn(s.save_trend || 0), 'Negative if receipts are falling')}
           <label class="row"><input type="checkbox" name="sf2472" ${s.sf2472 === false ? '' : 'checked'} ${dis}> Apply the SF 2472 SAVE reduction</label></div></div>
 
         <div class="card"><h3>PPEL (Physical Plant and Equipment Levy)</h3><div class="fgrid">
           ${f('ppel_receipts', 'PPEL receipts per year, $', moneyIn(s.ppel_receipts), 'From the certified budget or the general ledger')}
-          ${fOng('ppel', 'Ongoing PPEL commitments', s.ppel_ongoing, s.ppel_ongoing_pct, s.ppel_receipts, 'Yearly purchases already paid from PPEL, not debt or building projects: buses, devices, repairs. In dollars, or as a share of receipts.')}
+          ${fOng('ppel', 'Held back each year from PPEL', s.ppel_ongoing, s.ppel_ongoing_pct, s.ppel_holdback_split, s.ppel_receipts, 'Comes off the top of each year’s PPEL before projects: buses, devices, repairs and a cushion for things not listed as initiatives.')}
           ${f('ppel_growth', 'Taxable valuation growth, % a year', pctIn(s.ppel_growth == null ? 0.03 : s.ppel_growth))}
           ${f('ppel_rate', 'PPEL rate, $ per $1,000', s.ppel_rate == null ? '' : s.ppel_rate, 'From the certified budget (Iowa Department of Management); used to check receipts')}
           ${f('taxable_valuation', 'Taxable valuation, $', moneyIn(s.taxable_valuation), 'For tax estimates: the valuation the county auditor certifies for the debt service levy')}
@@ -4807,7 +5033,7 @@
         <div class="card"><h3>V-PPEL (voter-approved PPEL)</h3><div class="fgrid">
           <label class="field">Status<select name="vppel_status" ${dis}>${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s.vppel_status || 'none') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           ${f('vppel_annual', 'V-PPEL receipts per year, $', moneyIn(s.vppel_annual))}
-          ${fOng('vppel', 'Ongoing V-PPEL commitments', s.vppel_ongoing, s.vppel_ongoing_pct, s.vppel_annual, 'Yearly purchases the vote pays for, taken out only in the years it’s collected. In dollars, or as a share of receipts.')}
+          ${fOng('vppel', 'Held back each year from V-PPEL', s.vppel_ongoing, s.vppel_ongoing_pct, s.vppel_holdback_split, s.vppel_annual, 'Comes off the top of V-PPEL, only in the years it’s collected: the purchases the vote names and a cushion.')}
           ${f('vppel_first_fy', 'First fiscal year', s.vppel_first_fy || '', '', 'int')}
           ${f('vppel_last_fy', 'Last fiscal year', s.vppel_last_fy || '', 'Up to 10 years after the first', 'int')}</div></div>
 
@@ -4836,6 +5062,16 @@
        the field (part of the setup wizard) leaves both alone. */
     const ongoingRead = (k, label) => {
       if (!form.querySelector(`[name="${k}_ongoing"]`)) return {};
+      const sp = form.querySelector(`[name="${k}_holdback_split"]`);
+      if (sp && sp.checked) {   // split: recurring dollars + a cushion share, both held back
+        const r = money(k + '_recurring', label + ': recurring costs') || 0, x = toNum(v(k + '_cushion'));
+        if (x != null && (isNaN(x) || x < 0 || x > 100)) { errs.push(`${label}: the cushion must be a share of receipts between 0% and 100%.`); return {}; }
+        return { [k + '_ongoing']: r, [k + '_ongoing_pct']: x == null ? null : +(x / 100).toFixed(4), [k + '_holdback_split']: true };
+      }
+      if (sp) return Object.assign(ongoingReadCombined(k, label), { [k + '_holdback_split']: false });
+      return ongoingReadCombined(k, label);
+    };
+    const ongoingReadCombined = (k, label) => {
       if (ongoingMode(form, k) !== 'pct') { const out = { [k + '_ongoing']: money(k + '_ongoing', label) || 0 }; if (form.querySelector(`[name="${k}_ongoing_mode"]`)) out[k + '_ongoing_pct'] = null; return out; }
       const x = toNum(v(k + '_ongoing'));
       if (x == null) return { [k + '_ongoing']: 0, [k + '_ongoing_pct']: null };
@@ -4851,11 +5087,11 @@
       construction_inflation: pctv('construction_inflation', 'Construction inflation', 0, 25) || 0,
       save_receipts: money('save_receipts', 'SAVE receipts', true),
       save_receipts_fy: intv('save_receipts_fy', 'The SAVE receipts year', 2000, 2100),
-      ...ongoingRead('save', 'Ongoing SAVE commitments'),
+      ...ongoingRead('save', 'SAVE held back each year'),
       save_trend: pctv('save_trend', 'SAVE trend', -25, 25) || 0,
       sf2472: !!form.querySelector('[name="sf2472"]').checked,
       ppel_receipts: money('ppel_receipts', 'PPEL receipts', true),
-      ...ongoingRead('ppel', 'Ongoing PPEL commitments'),
+      ...ongoingRead('ppel', 'PPEL held back each year'),
       ppel_growth: pctv('ppel_growth', 'Valuation growth', -25, 25),
       ppel_rate: (() => { const x = toNum(v('ppel_rate')); if (x === null) return null; if (isNaN(x) || x < 0 || x > 5) { errs.push('PPEL rate must be dollars per $1,000, like 0.33.'); return null; } return x; })(),
       taxable_valuation: money('taxable_valuation', 'Taxable valuation'),
@@ -4864,7 +5100,7 @@
       go_outstanding: money('go_outstanding', 'General-obligation debt outstanding'),
       vppel_status: v('vppel_status') || 'none',
       vppel_annual: money('vppel_annual', 'V-PPEL receipts'),
-      ...ongoingRead('vppel', 'Ongoing V-PPEL commitments'),
+      ...ongoingRead('vppel', 'V-PPEL held back each year'),
       vppel_first_fy: intv('vppel_first_fy', 'V-PPEL first year', 2000, 2100),
       vppel_last_fy: intv('vppel_last_fy', 'V-PPEL last year', 2000, 2100),
       grants_avg: money('grants_avg', 'Average grants') || 0,
@@ -5373,6 +5609,10 @@
     async rpDelete(el) { if (!confirm('Delete this board report? Later reports will compare with the one before it.')) return; await HG.db.remove('report_snapshot', `id=eq.${enc(el.dataset.id)}`); RP.open = null; toast('Deleted'); here(); },
     async baFund(el) { BA.fund = el.dataset.k; here(); },
     async piOpen(el) { PI.open = PI.open === el.dataset.id ? null : el.dataset.id; here(); },
+    async contractEdit(el) { PI.contractEdit = el.dataset.id || null; here(); },
+    async contractDelete(el) { if (!confirm('Remove this contract and every pay application recorded for it? This can’t be undone (the activity log keeps a copy).')) return;
+      await HG.db.remove('contract_progress', `initiative_id=eq.${enc(el.dataset.id)}&district_id=eq.${S.district.id}`); await HG.db.remove('initiative_contract', `initiative_id=eq.${enc(el.dataset.id)}`); PI.contractEdit = null; toast('Contract removed', ''); here(); },
+    async payAppDelete(el) { if (!confirm('Delete this pay application?')) return; await HG.db.remove('contract_progress', `id=eq.${enc(el.dataset.id)}`); toast('Pay application deleted', ''); here(); },
     async piSavePhase(el) { await piSavePhase(el); },
     async piUseLedger(el) { const tr = el.closest('[data-pi-phase]'); tr.querySelector('[name=actual]').value = Number(el.dataset.amount).toLocaleString('en-US'); tr.querySelector('[name=status]').value = 'done'; },
     async piLink(el) { const sel = document.querySelector(`[data-pi-link="${el.dataset.id}"]`); await piLink(el.dataset.id, sel.value || null); toast(sel.value ? 'Linked' : 'Marked as not an initiative'); here(); },
@@ -5566,6 +5806,8 @@
     },
   };
   const FORMS = {
+    async saveContract(f, form) { await saveContract(f, form); },
+    async savePayApp(f, form) { await savePayApp(f, form); },
     async deleteDistrict(f, form) { await deleteDistrict(form); },
     async saveGf(f, form) { await saveGf(f, form); },
     async saveSurvey(f, form) { await saveSurvey(f, form); },
@@ -5731,6 +5973,8 @@
   document.addEventListener('change', (e) => {
     const om = e.target.closest('select[data-ongoing-mode]');
     if (om) { switchOngoingMode(om); return; }
+    const hbs = e.target.closest('input[data-hb-split-toggle]');
+    if (hbs) { toggleHoldbackSplit(hbs); return; }
     const pf2 = e.target.closest('form[data-form=saveProject]');
     if (pf2) setTimeout(() => updateEdDouble(pf2), 0);   // after the editor's own change handlers (a fund added or switched)
     const fmo = e.target.closest('select[name=fmode]');
