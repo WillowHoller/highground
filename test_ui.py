@@ -1725,13 +1725,22 @@ async def main():
     n0=len(calls); await pg.click("button[data-action=loadDemo]"); await pg.wait_for_timeout(900)
     posts=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="POST"]
     locks=[c for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1] and "is_locked" in (c[2] or "")]
-    want=["district_settings","fund_balance","debt_obligation","initiative","scenario","scenario_initiative","phase","phase_funding","import_batch","gl_account","gl_amount","apply_import","apply_import","apply_import"]
+    want=["district_settings","fund_balance","debt_obligation","initiative","scenario","scenario_initiative","phase","phase_funding","import_batch","gl_account","gl_amount","apply_import","apply_import","apply_import",
+          "import_batch","register_line"]+["apply_import"]*6+["register_check_all"]
     check("staff loads demo data in dependency order, then locks the baseline", posts==want and len(locks)==1, str(posts))
     ap=[c for c in calls[n0:] if "/rpc/apply_import" in c[1]]; bts=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/import_batch"]
     ga=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/gl_account"]
     check("demo data: a July–September month-end ledger goes in and is applied, so Budget vs. actual has figures (no balance-sheet accounts)",
-          len(ap)==3 and bts and [b["period_end"] for b in bts[0]]==["2026-07-31","2026-08-31","2026-09-30"] and all(b["status"]=="uploaded" for b in bts[0])
+          len(ap)==9 and bts and [b["period_end"] for b in bts[0]]==["2026-07-31","2026-08-31","2026-09-30"] and all(b["status"]=="uploaded" for b in bts[0])
           and ga and all(a["maps_to"] in ("revenue","expense","initiative") for a in ga[0]) and "Demo ledger not loaded" not in await pg.inner_text("#toasts"), str(bts)[:300])
+    rb=[b for x in bts[1:] for b in x if b.get("kind")=="check_register"]
+    rl=[l for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/register_line" for l in json.loads(c[2])]
+    check("demo data: a made-up check register, April–September, goes in, is applied and checked, so Track → Check register has months and questions",
+          [b["period_end"] for b in rb]==["2026-04-30","2026-05-31","2026-06-30","2026-07-31","2026-08-31","2026-09-30"] and len(rl)==sum(b["row_count"] for b in rb)
+          and any("/rpc/register_check_all" in c[1] for c in calls[n0:]) and "check register not loaded" not in await pg.inner_text("#toasts"), str(rb)[:300])
+    check("demo data: the check register's planted cases are there (duplicate, look-alike, name change, salary on SAVE, round amount, weekend)",
+          sum(1 for l in rl if l["vendor_name"]=="Fox Run Utilities" and l["pay_date"].startswith("2026-08"))==2 and any(l["vendor_name"]=="Northwind Schol Supply" for l in rl)
+          and any(l["vendor_name"]=="Sunrise Tech Partners LLC" for l in rl) and any(l["fund"]=="33" and l["obj"].startswith("1") for l in rl) and any(l["amount"]==10000 for l in rl), "")
     # reset a demo district to Bridger Hollow
     await pg.goto("http://localhost:8765/#/staff"); await pg.wait_for_timeout(600)
     check("staff: Bridger Hollow is offered first", (await pg.locator("select[data-demo-set] option").first.inner_text()).startswith("Bridger Hollow Community School District (925 students)"))
