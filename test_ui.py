@@ -488,6 +488,8 @@ async def main():
     bp=[(c[1].split("id=eq.")[1], json.loads(c[2])) for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1]]
     check("board version: old one cleared first, then the new one set", bp==[(board_id,{"is_board_version":False}),(phased_id,{"is_board_version":True})], str(bp))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/share/community"); await pg.wait_for_timeout(400)
+    try: await pg.wait_for_function("document.querySelector('#view').innerText.includes('Nothing is published')", timeout=4000)   # 15 Oct: the page also loads the priorities now; give it a moment
+    except Exception: pass
     check("community page: nothing published yet", "Nothing is published" in await pg.inner_text("#view"))
     check("publish: holding back with nothing approved would show nothing, so Publish waits", "Nothing would show" in await pg.inner_text("#view") and await pg.is_disabled("button[data-action=publishBoard]"))
     appr=[i for i in TABLES["initiative"] if i["name"].startswith("Middle school HVAC") or i["name"].startswith("Secure entrances")]
@@ -1363,12 +1365,22 @@ async def main():
     al=await pg.evaluate("(()=>{const a=document.querySelector('[data-modal] input[name=name]').getBoundingClientRect(),b=document.querySelector('[data-modal] input[name=closed_on]').getBoundingClientRect();return Math.abs(a.top-b.top)})()")
     check("survey editor (15 Oct, second pass): the name and open-until boxes line up; (optional) sits on its label's line", al<=2 and await pg.locator("[data-modal] .field > span .opt").count()>=2, str(al))
     await pg.fill("[data-modal] input[name=name]","Community survey, fall 2026")
+    # the district's own questions (15 Oct): a rating and a pick-one, added in the editor
+    await pg.click("[data-modal] button[data-action=cqAdd]"); await pg.click("[data-modal] button[data-action=cqAdd]"); await pg.click("[data-modal] button[data-action=cqAdd]")
+    await pg.locator("[data-modal] [data-cq-row]").nth(2).locator("button[data-action=cqRemove]").click()
+    await pg.fill("[data-modal] input[name=cq_0_text]","How satisfied are you with school communication?")
+    await pg.fill("[data-modal] input[name=cq_1_text]","How do you hear about school news?"); await pg.select_option("[data-modal] select[name=cq_1_type]","choice")
+    optvis=await pg.locator("[data-modal] [data-cq-row='1'] .cq-opts").is_visible()
+    await pg.fill("[data-modal] textarea[name=cq_1_opts]","Newsletter\nFacebook\nWord of mouth")
     n0=len(calls); await pg.click("[data-modal] button[name=go][value=open]"); await pg.wait_for_timeout(700)
     sp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/survey"]
     svb=sp[0] if sp else {}
     check("survey (15 Oct): Open it now saves a live survey, open, asking all three things, with the ideas not yet approved and every priority",
           svb.get("mode")=="live" and svb.get("status")=="open" and sorted(svb.get("focus",[]))==["ideas","new_ideas","rating"] and len(svb.get("items",{}).get("ideas",[]))>0
           and len(svb["items"]["priorities"])==len(TABLES["priority"]) and svb.get("opened_on"), str(svb)[:300])
+    cqs=svb.get("items",{}).get("custom",[])
+    check("survey (15 Oct): the district can write its own questions (rating, pick one from a list, yes/no, written); the list's choices show only for pick-one; a removed question is dropped",
+          optvis and len(cqs)==2 and cqs[0]["type"]=="rating" and cqs[1]["type"]=="choice" and cqs[1]["options"]==["Newsletter","Facebook","Word of mouth"] and all(q.get("id") for q in cqs), str(cqs))
     TABLES["survey"].append(dict(svb,id="sv-live",created_at="2026-10-15T00:00:00Z"))
     await pg.reload(); await pg.wait_for_timeout(1000)
     lk=await pg.input_value("[data-sv-link]") if await pg.locator("[data-sv-link]").count() else ""
@@ -1378,13 +1390,14 @@ async def main():
     await sq.goto("http://localhost:8765/#/s/ironwood-valley"); await sq.wait_for_timeout(900)
     nq=await sq.locator(".sv-form fieldset.sv-q").count()
     check("survey page (15 Oct): anyone can open it without signing in: a rating per priority and per idea, an ideas box, an optional role; no name or email asked",
-          nq==len(TABLES["priority"])+len(svb["items"]["ideas"]) and await sq.locator("textarea[name=idea]").count()==1 and await sq.locator("input[type=email], input[name=name]").count()==0, str(nq))
+          nq==len(TABLES["priority"])+len(svb["items"]["ideas"])+2 and await sq.locator("textarea[name=idea]").count()==1 and await sq.locator("input[type=email], input[name=name]").count()==0, str(nq))
     await sq.click(".sv-form fieldset.sv-q >> nth=0 >> text=4"); await sq.fill("textarea[name=idea]","More after-school tutoring")
+    await sq.click(".sv-form .sv-choices >> text=Facebook")
     await sq.select_option("select[name=role]","parent")
     n0=len(calls); await sq.click(".sv-form button[type=submit]"); await sq.wait_for_timeout(700)
     subm=[json.loads(c[2]) for c in calls[n0:] if "/rpc/submit_survey" in c[1]]
     check("survey page (15 Oct): answers go through the public function only, with a random device id, no table writes", subm and subm[0]["p_answers"]["idea"]=="More after-school tutoring" and len(subm[0]["p_device"])==32
-          and list(subm[0]["p_answers"]["ratings"].values())==[4] and await sq.locator("[data-sv-done=saved]").count()==1
+          and list(subm[0]["p_answers"]["ratings"].values())==[4] and list(subm[0]["p_answers"]["custom"].values())==["Facebook"] and await sq.locator("[data-sv-done=saved]").count()==1
           and not [c for c in calls[n0:] if c[0] in ("POST","PATCH") and "/rest/v1/" in c[1] and "/rpc/" not in c[1]], str(subm)[:300])
     await sq.reload(); await sq.wait_for_timeout(800); await sq.click(".sv-form fieldset.sv-q >> nth=0 >> text=2"); await sq.click(".sv-form button[type=submit]"); await sq.wait_for_timeout(600)
     check("survey page (15 Oct): one answer per device", await sq.locator("[data-sv-done=already]").count()==1)
@@ -1413,11 +1426,13 @@ async def main():
     await tx.close()
     await pg.reload(); await pg.wait_for_timeout(1000)
     lv=await pg.inner_text("[data-sv-live]")
+    check("survey (15 Oct): planners see their own questions' answers (counts for a pick-one)", "How do you hear about school news?" in lv and await pg.evaluate("(()=>{const r=[...document.querySelectorAll('.cq-res tr')].find(t=>t.cells[0].innerText.trim()=='Facebook');return !!r && r.cells[1].innerText.replace(/\\s+/g,' ').trim()=='1 100%'})()"), lv[lv.find("Your questions"):lv.find("Your questions")+300])
     check("survey (15 Oct): planners see the answers so far: ratings by priority, the ideas people wrote, who answered", "1 answer" in lv and "More after-school tutoring" in lv and "1 parents or guardians" in lv and "4.0" in lv, lv[:400])
     n0=len(calls); await pg.click("button[data-action=closeLiveSurvey]"); await pg.wait_for_timeout(900)
     pt=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and c[1].split("?")[0]=="/rest/v1/survey"]
     rr=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/survey_result"]
-    check("survey (15 Oct): Close saves the results as averages (a rating per priority answered), never the individual answers", pt and pt[0]["status"]=="closed" and rr and all(x["kind"] in ("rating","support") for x in rr[0]) and any(x["kind"]=="rating" and x["value"]==4 for x in rr[0]) and "answers" not in json.dumps(rr), str(rr)[:300])
+    check("survey (15 Oct): Close also saves the district's own pick-one question as counts per choice", rr and any(x["kind"]=="question" and x["label"]=="How do you hear about school news?: Facebook" and x["value"]==1 for x in rr[0]), str(rr)[:300])
+    check("survey (15 Oct): Close saves the results as averages (a rating per priority answered), never the individual answers", pt and pt[0]["status"]=="closed" and rr and all(x["kind"] in ("rating","support","question") for x in rr[0]) and any(x["kind"]=="rating" and x["value"]==4 for x in rr[0]) and "answers" not in json.dumps(rr), str(rr)[:300])
     TABLES["survey"]=[x for x in TABLES["survey"] if x["id"]!="sv-live"]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/priorities"); await pg.wait_for_timeout(700)
     check("priorities: community importance from the latest survey", "Community: 4.7 of 5" in await pg.inner_text(".pc-row"))

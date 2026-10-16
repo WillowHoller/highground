@@ -1175,6 +1175,57 @@
     await HG.db.upsert('measure_value', [{ district_id: S.district.id, measure_id: tr.dataset.mv, period, period_end: HGDirection.periodEnd(period), value, note: v('note') || null }], 'measure_id,period');
     toast('Result saved', `${period}: ${value}`); here();
   }
+  /* ---- the district's own survey questions (15 Oct): up to 10, any mix of a 1–5 rating, one choice from a list, yes/no,
+     or a short written answer. Stored with the survey (items.custom), so changing them later doesn't change an open survey. ---- */
+  const CQ_TYPES = [['rating', '1 to 5 rating'], ['choice', 'Pick one from a list'], ['yesno', 'Yes or no'], ['text', 'Short written answer']];
+  const CQ_MAX = 10;
+  function cqRowHtml(q, k, locked) {
+    return `<div class="cq-row" data-cq-row="${k}"><input type="hidden" name="cq_${k}_id" value="${esc(q.id || '')}">
+      <div class="fgrid"><label class="field"><span>Question ${k + 1}</span><input name="cq_${k}_text" maxlength="200" value="${esc(q.text || '')}" placeholder="How satisfied are you with school communication?" ${locked ? 'disabled' : ''}></label>
+        <label class="field"><span>Answer as</span><select name="cq_${k}_type" data-cq-type ${locked ? 'disabled' : ''}>${CQ_TYPES.map(([v, l]) => `<option value="${v}" ${v === (q.type || 'rating') ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      <label class="field cq-opts" ${(q.type || 'rating') === 'choice' ? '' : 'hidden'}><span>Choices, one per line <span class="opt">(2 to 8)</span></span><textarea name="cq_${k}_opts" rows="3" maxlength="600" ${locked ? 'disabled' : ''}>${esc((q.options || []).join('\n'))}</textarea></label>
+      ${locked ? '' : `<button type="button" class="btn small" data-action="cqRemove">Remove this question</button>`}</div>`;
+  }
+  /** the questions from the editor's fields, checked */
+  function cqFromForm(f) {
+    const out = [], errs = [];
+    for (let k = 0; k < CQ_MAX + 5; k++) {
+      if (!(('cq_' + k + '_text') in f)) continue;
+      const text = String(f['cq_' + k + '_text'] || '').trim(); if (!text) continue;
+      const type = CQ_TYPES.some(([v]) => v === f['cq_' + k + '_type']) ? f['cq_' + k + '_type'] : 'rating';
+      const q = { id: f['cq_' + k + '_id'] || ('q' + Math.random().toString(36).slice(2, 10)), type, text: text.slice(0, 200) };
+      if (type === 'choice') { q.options = String(f['cq_' + k + '_opts'] || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 8).map((x) => x.slice(0, 80));
+        if (q.options.length < 2) errs.push(`“${text.slice(0, 40)}” needs at least two choices, one per line.`); }
+      out.push(q);
+    }
+    if (out.length > CQ_MAX) errs.push(`Up to ${CQ_MAX} questions of your own.`);
+    return { list: out.slice(0, CQ_MAX), errs };
+  }
+  /** one custom question on the public survey page */
+  function cqAskHtml(q) {
+    const nm = 'c:' + q.id;
+    if (q.type === 'rating') return `<fieldset class="sv-q"><legend>${esc(q.text)}</legend><div class="sv-scale">${[1, 2, 3, 4, 5].map((v) => `<label><input type="radio" name="${esc(nm)}" value="${v}"><span>${v}</span></label>`).join('')}</div><div class="small muted">1 = lowest, 5 = highest</div></fieldset>`;
+    if (q.type === 'yesno') return `<fieldset class="sv-q"><legend>${esc(q.text)}</legend><div class="sv-choices">${['Yes', 'No'].map((v) => `<label><input type="radio" name="${esc(nm)}" value="${v}"><span>${v}</span></label>`).join('')}</div></fieldset>`;
+    if (q.type === 'choice') return `<fieldset class="sv-q"><legend>${esc(q.text)}</legend><div class="sv-choices">${(q.options || []).map((v) => `<label><input type="radio" name="${esc(nm)}" value="${esc(v)}"><span>${esc(v)}</span></label>`).join('')}</div></fieldset>`;
+    return `<fieldset class="sv-q"><legend>${esc(q.text)}</legend><textarea name="${esc(nm)}" maxlength="500" rows="3" placeholder="Optional"></textarea></fieldset>`;
+  }
+  /** answers to the custom questions, summed up for planners */
+  function cqSummary(sv, resp) {
+    return ((sv.items || {}).custom || []).map((q) => {
+      const vals = resp.map((r) => ((r.answers || {}).custom || {})[q.id]).filter((v) => v != null && v !== '');
+      if (q.type === 'rating') { const n = vals.map(Number).filter((v) => v >= 1 && v <= 5); return { q, n: n.length, avg: n.length ? n.reduce((a, b) => a + b, 0) / n.length : null }; }
+      if (q.type === 'text') return { q, n: vals.length, texts: vals.map(String) };
+      const opts = q.type === 'yesno' ? ['Yes', 'No'] : (q.options || []);
+      return { q, n: vals.length, counts: opts.map((o) => [o, vals.filter((v) => v === o).length]) };
+    });
+  }
+  function cqResultHtml(x) {
+    const bar = (share) => `<span class="ubar ub-pace"><i style="width:${(share * 100).toFixed(0)}%"></i></span>`;
+    const head = `<div class="cq-res-q"><b>${esc(x.q.text)}</b> <span class="small muted">· ${x.n} answer${x.n === 1 ? '' : 's'}</span></div>`;
+    if (x.q.type === 'rating') return head + (x.avg != null ? `<div>${bar(x.avg / 5)} <b>${x.avg.toFixed(1)}</b> <span class="small muted">of 5</span></div>` : '<p class="small muted">No answers yet.</p>');
+    if (x.q.type === 'text') return head + (x.texts.length ? `<ul class="sv-ideas">${x.texts.slice(0, 50).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : '<p class="small muted">No answers yet.</p>');
+    return head + `<table class="data"><tbody>${x.counts.map(([o, n]) => `<tr><td>${esc(o)}</td><td style="width:50%">${bar(x.n ? n / x.n : 0)} <b>${n}</b> <span class="small muted">${x.n ? Math.round(n / x.n * 100) + '%' : ''}</span></td></tr>`).join('')}</tbody></table>`;
+  }
   /* ---- live surveys, the planner's side (15 Oct) ---- */
   const CADENCE = [['monthly', 'Every month', 1], ['quarterly', 'Every quarter', 3], ['semiannual', 'Every six months', 6], ['annual', 'Every year', 12], ['off', 'Don’t remind me', 0]];
   const SV_FOCUS = [['rating', 'How are we doing?', 'People rate the district on each priority, 1 to 5.'], ['ideas', 'Ideas we’re considering', 'People rate their support for initiatives that aren’t approved yet.'], ['new_ideas', 'Your ideas', 'People suggest what the district should do, fix or start.']];
@@ -1209,6 +1260,7 @@
         <label class="field small">Ready to paste into a newsletter<textarea readonly rows="2" data-sv-blurb>${esc(blurb)}</textarea></label><button type="button" class="btn small" data-action="svCopy" data-text="${esc(blurb)}">Copy the paragraph</button></div>` : ''}
       ${S2.ratings.length ? `<h4>How we’re doing, by priority</h4>${bars(S2.ratings)}` : ''}
       ${S2.support.length ? `<h4>Support for ideas being considered</h4>${bars(S2.support.slice().sort((a, b) => (b.avg || 0) - (a.avg || 0)))}` : ''}
+      ${((sv.items || {}).custom || []).length ? `<h4>Your questions</h4><div class="cq-res">${cqSummary(sv, resp).map(cqResultHtml).join('')}</div>` : ''}
       ${(sv.focus || []).includes('new_ideas') ? `<h4>Ideas people wrote · ${S2.ideas.length}</h4>${S2.ideas.length ? `<ul class="sv-ideas">${S2.ideas.slice(0, 50).map((x) => `<li>${esc(x.text)}${x.priority && P[x.priority] ? ` <span class="small muted">· ${esc(P[x.priority])}</span>` : ''}</li>`).join('')}</ul>${S2.ideas.length > 50 ? `<p class="small muted">Showing the latest 50 of ${S2.ideas.length}.</p>` : ''}` : '<p class="small muted">None yet.</p>'}` : ''}
       ${S2.n ? `<p class="small muted">Who answered: ${[['parent', 'parents or guardians'], ['staff', 'staff'], ['community', 'community members'], ['student', 'students'], ['none', 'didn’t say']].filter(([k]) => S2.roles[k]).map(([k, l]) => `${S2.roles[k]} ${l}`).join(' · ')}. Open input, not a scientific poll: anyone with the link can answer, once per device.</p>` : ''}
     </div>`;
@@ -1234,6 +1286,10 @@
         ${SV_FOCUS.map(([k, l, h]) => `<label class="row"><input type="checkbox" name="focus_${k}" ${(sv.focus || []).includes(k) ? 'checked' : ''}> <span><b>${l}</b> <span class="small muted">${h}</span></span></label>`).join('')}</fieldset>
       <fieldset class="field" ${locked ? 'disabled' : ''}><legend>Ideas to ask about <span class="small muted">(initiatives not approved yet)</span></legend>
         ${cand.length ? cand.map((i) => `<label class="row"><input type="checkbox" name="idea_${esc(i.id)}" ${chosen.has(i.id) ? 'checked' : ''}> ${esc(i.name)}</label>`).join('') : '<p class="small muted">Every initiative is approved or decided; there are no ideas to ask about.</p>'}</fieldset>
+      <fieldset class="field cq-set"><legend>Your own questions <span class="opt">(optional, up to ${CQ_MAX})${locked ? ', fixed once it opens' : ''}</span></legend>
+        <div data-cq-list>${((sv.items || {}).custom || []).map((q, k) => cqRowHtml(q, k, locked)).join('')}</div>
+        ${locked ? '' : '<button type="button" class="btn small" data-action="cqAdd">Add a question</button>'}
+        <p class="small muted">Write questions in plain words. Don’t ask for names, addresses or anything that identifies a student or staff member.</p></fieldset>
       <p class="small muted">Every priority is included in “How are we doing?”. No names or emails are collected.</p>
       <div class="notice error" data-form-errors hidden></div>
       <div class="row">${!id || sv.status === 'draft' ? '<button type="submit" class="btn primary" name="go" value="open">Open it now</button><button type="submit" class="btn" name="go" value="draft">Save as a draft</button>' : '<button type="submit" class="btn primary">Save</button>'}
@@ -1246,10 +1302,12 @@
     const row = { name: name.slice(0, 120), intro: (f.intro || '').trim().slice(0, 600) || null, closed_on: f.closed_on || null };
     if (!old || old.status === 'draft') {
       const focus = SV_FOCUS.map(([k]) => k).filter((k) => f['focus_' + k]);
-      if (!focus.length) { box.hidden = false; box.textContent = 'Choose at least one thing to ask.'; return; }
+      const cq = cqFromForm(f);
+      if (cq.errs.length) { box.hidden = false; box.textContent = cq.errs.join(' '); return; }
+      if (!focus.length && !cq.list.length) { box.hidden = false; box.textContent = 'Choose at least one thing to ask, or write a question of your own.'; return; }
       const ideas = D.rows.initiatives.filter((i) => f['idea_' + i.id]).map((i) => ({ id: i.id, name: i.name }));
       if (focus.includes('ideas') && !ideas.length) { box.hidden = false; box.textContent = 'Tick at least one idea to ask about, or untick “Ideas we’re considering”.'; return; }
-      Object.assign(row, { mode: 'live', focus, items: { ideas: focus.includes('ideas') ? ideas : [], priorities: D.priorities.map((p) => ({ id: p.id, name: p.name })) } });
+      Object.assign(row, { mode: 'live', focus, items: { ideas: focus.includes('ideas') ? ideas : [], priorities: D.priorities.map((p) => ({ id: p.id, name: p.name })), custom: cq.list } });
       const go = (submitter && submitter.value) || 'draft';
       row.status = go === 'open' ? 'open' : 'draft'; if (go === 'open') row.opened_on = new Date().toISOString().slice(0, 10);
     }
@@ -1261,9 +1319,12 @@
     const resp = await HG.db.selectAll('survey_response', `select=answers,role,submitted_at&survey_id=eq.${enc(id)}`).catch(() => []), S2 = surveySummary(sv, resp);
     if (!confirm(`Close “${sv.name}” and save its results (${S2.n} answer${S2.n === 1 ? '' : 's'})? People won’t be able to answer after this.`)) return;
     await HG.db.update('survey', `id=eq.${enc(id)}`, { status: 'closed', closed_on: new Date().toISOString().slice(0, 10), response_count: S2.n });
-    await HG.db.remove('survey_result', `survey_id=eq.${enc(id)}&kind=in.(rating,support)`).catch(() => {});
+    await HG.db.remove('survey_result', `survey_id=eq.${enc(id)}&kind=in.(rating,support,question)`).catch(() => {});
     const rows2 = S2.ratings.filter((x) => x.avg != null).map((x, k) => ({ district_id: S.district.id, survey_id: id, kind: 'rating', label: x.name, value: Math.round(x.avg * 100) / 100, mentions: x.n, position: k, priority_id: x.id }))
       .concat(S2.support.filter((x) => x.avg != null).map((x, k) => ({ district_id: S.district.id, survey_id: id, kind: 'support', label: x.name, value: Math.round(x.avg * 100) / 100, mentions: x.n, position: k, initiative_id: x.id })));
+    let pos = rows2.length;
+    cqSummary(sv, resp).forEach((x) => { if (x.q.type === 'rating' && x.avg != null) rows2.push({ district_id: S.district.id, survey_id: id, kind: 'question', label: x.q.text, value: Math.round(x.avg * 100) / 100, mentions: x.n, position: pos++ });
+      if (x.counts) x.counts.forEach(([o, n]) => rows2.push({ district_id: S.district.id, survey_id: id, kind: 'question', label: `${x.q.text}: ${o}`, value: n, mentions: n, position: pos++ })); });
     if (rows2.length) await HG.db.insert('survey_result', rows2);
     toast('Closed. The results are saved.'); here();
   }
@@ -5664,6 +5725,7 @@
       ${s.intro ? `<p>${esc(s.intro)}</p>` : ''}
       ${F.includes('rating') && (it.priorities || []).length ? `<div class="card"><h3>How are we doing?</h3><p class="small muted">1 = not well at all, 5 = very well. Skip any you’re not sure about.</p>${it.priorities.map((p) => scale('r:' + p.id, p.name)).join('')}</div>` : ''}
       ${F.includes('ideas') && (it.ideas || []).length ? `<div class="card"><h3>Ideas we’re considering</h3><p class="small muted">How much would you support each? 1 = not at all, 5 = strongly. Skip any you’re not sure about.</p>${it.ideas.map((x) => scale('s:' + x.id, x.name)).join('')}</div>` : ''}
+      ${(it.custom || []).length ? `<div class="card"><h3>${F.length ? 'A few more questions' : 'Questions'}</h3>${it.custom.map(cqAskHtml).join('')}</div>` : ''}
       ${F.includes('new_ideas') ? `<div class="card"><h3>Your ideas</h3><label class="field">What should the district do, fix or start?<textarea name="idea" maxlength="1000" rows="4" placeholder="Optional"></textarea></label>
         ${(it.priorities || []).length ? `<label class="field"><span>Which priority is it closest to? <span class="opt">(optional)</span></span><select name="idea_priority"><option value="">Not sure</option>${it.priorities.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label>` : ''}
         <p class="small muted">Please don’t include names or anything that identifies a student or staff member.</p></div>` : ''}
@@ -5700,10 +5762,11 @@
   }
   async function submitSurvey(f, form) {
     const s = SV_PUB.s, box = form.querySelector('[data-form-errors]'); if (!s) return;
-    const a = { ratings: {}, support: {} };
-    Object.entries(f).forEach(([k, v]) => { if (k.startsWith('r:') && v) a.ratings[k.slice(2)] = Number(v); if (k.startsWith('s:') && v) a.support[k.slice(2)] = Number(v); });
+    const a = { ratings: {}, support: {}, custom: {} }, CQ = Object.fromEntries(((s.items || {}).custom || []).map((q) => [q.id, q]));
+    Object.entries(f).forEach(([k, v]) => { if (k.startsWith('r:') && v) a.ratings[k.slice(2)] = Number(v); if (k.startsWith('s:') && v) a.support[k.slice(2)] = Number(v);
+      if (k.startsWith('c:') && String(v).trim() && CQ[k.slice(2)]) { const q = CQ[k.slice(2)]; a.custom[q.id] = q.type === 'rating' ? Number(v) : String(v).trim().slice(0, 500); } });
     const idea = String(f.idea || '').trim().slice(0, 1000); if (idea) { a.idea = idea; if (f.idea_priority) a.idea_priority = f.idea_priority; }
-    if (!Object.keys(a.ratings).length && !Object.keys(a.support).length && !a.idea) { box.hidden = false; box.textContent = 'Answer at least one question, or write an idea.'; return; }
+    if (!Object.keys(a.ratings).length && !Object.keys(a.support).length && !Object.keys(a.custom).length && !a.idea) { box.hidden = false; box.textContent = 'Answer at least one question, or write an idea.'; return; }
     let r;
     if (surveyBotKey()) {
       if (!SV_BOT.token) { box.hidden = false; box.textContent = 'One moment: the check above confirms you’re a person. Try again in a second.'; return; }
@@ -5931,6 +5994,11 @@
       const c = ctx(); box.innerHTML = prioDetailHtml(p, S.district.slug, true) + (c.plan ? `<div class="pd-edit"><a href="#" data-action="editPriority" data-id="${esc(p.id)}">Edit this priority</a></div>` : '');
     },
     prioArrange() { PR.arrange = !PR.arrange; here(); },
+    cqAdd(el) { const list = el.closest('form').querySelector('[data-cq-list]'), n = list.querySelectorAll('[data-cq-row]').length;
+      if (n >= CQ_MAX) { toast(`Up to ${CQ_MAX} questions of your own.`); return; }
+      const k = Math.max(-1, ...[...list.querySelectorAll('[data-cq-row]')].map((r) => Number(r.dataset.cqRow))) + 1;
+      list.insertAdjacentHTML('beforeend', cqRowHtml({}, k, false)); const t = list.querySelector(`[name="cq_${k}_text"]`); if (t) t.focus(); },
+    cqRemove(el) { const r = el.closest('[data-cq-row]'); if (r) r.remove(); },
     async prioRetire(el) {
       const D = DIR.D, pr = D && D.priorities.find((x) => x.id === el.dataset.id); if (!pr) return;
       const m = (PR.list || []).find((x) => x.id === pr.id), open = m ? m.inits.filter((i) => !['done', 'declined'].includes(i.status)).length : 0;
@@ -6399,6 +6467,8 @@
     if (ph2) { CP.holdBack = ph2.checked; CP.note = (document.querySelector('[data-pub-note]') || {}).value; here(); return; }
     const psv = e.target.closest('[data-pub-survey]');
     if (psv) { CP.survey = psv.checked; CP.note = (document.querySelector('[data-pub-note]') || {}).value; here(); return; }
+    const cqt = e.target.closest('[data-cq-type]');
+    if (cqt) { const o = cqt.closest('[data-cq-row]').querySelector('.cq-opts'); if (o) o.hidden = cqt.value !== 'choice'; return; }
     const scad = e.target.closest('[data-sv-cadence]');
     if (scad) { run(async () => { await HG.db.update('district', `id=eq.${enc(S.district.id)}`, { survey_cadence: scad.value }); S.district.survey_cadence = scad.value; toast('Saved.'); here(); }, scad); return; }
     const ppl = e.target.closest('[data-pub-plan]');

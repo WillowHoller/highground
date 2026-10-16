@@ -21,10 +21,36 @@
 8. **Logo:** if Bridger Hollow's logo still looks small, upload it again on Settings → District.
 
 
+## New in (g): write your own survey questions
+In the survey editor, under **Your own questions**, click **Add a question** (up to 10). For each, write the question and choose how people answer:
+- **1 to 5 rating**
+- **Pick one from a list** (type 2 to 8 choices, one per line; the box appears when you choose this)
+- **Yes or no**
+- **Short written answer** (up to 500 characters)
+
+A survey can be only your own questions: the three built-in sections are now optional. Your questions appear on the survey page after the built-in ones ("A few more questions"), or on their own ("Questions"). Like the rest of the survey, they're fixed once it opens.
+
+Results: an average for ratings, a count and percentage per choice for pick-one and yes/no, and the written answers listed. **Close and save the results** keeps the averages and counts; written answers stay with the answers (visible to planners), never in the published results.
+
+No SQL change for this: the questions are stored with the survey.
+
 ## New in (f): survey reminder emails and a bot check
 - **Reminder emails.** Every morning, right after the health check, the same GitHub job emails the people who can start a survey (admins, superintendent, editors) when their district is due to ask the community. It follows each district's setting (quarterly unless changed; off means never), skips demo districts, districts with no priorities yet and districts with a survey open, and sends each district at most one reminder every 30 days. One email per person (nobody sees the others' addresses), with a **Start a survey** button straight to Community input. It uses the Postmark account and GitHub secrets the health check already has: nothing new to set up beyond step 2.
   To run it now instead of waiting for the morning: GitHub → Actions → Daily health check → Run workflow (this sends real reminders to any district that's due); the last step's log lists each district it emailed. To only list who would get one, run `python3 loader/survey_reminders.py --dry-run` with DATABASE_URL set.
 - **Survey bot check (optional; switch on before promoting a survey widely).** Cloudflare Turnstile, free. Most people see nothing, or one tick box. Answers then go through a small Supabase function that checks Cloudflare's answer before saving. Setup is at the end of this file. Until it's on, surveys work as in (e), with the database's own limits.
+
+## New in (g): write your own survey questions
+In the survey editor, under **Your own questions**, click **Add a question** (up to 10). For each, write the question and choose how people answer:
+- **1 to 5 rating**
+- **Pick one from a list** (type 2 to 8 choices, one per line; the box appears when you choose this)
+- **Yes or no**
+- **Short written answer** (up to 500 characters)
+
+A survey can be only your own questions: the three built-in sections are now optional. Your questions appear on the survey page after the built-in ones ("A few more questions"), or on their own ("Questions"). Like the rest of the survey, they're fixed once it opens.
+
+Results: an average for ratings, a count and percentage per choice for pick-one and yes/no, and the written answers listed. **Close and save the results** keeps the averages and counts; written answers stay with the answers (visible to planners), never in the published results.
+
+No SQL change for this: the questions are stored with the survey.
 
 ## New in (f)
 - **Priorities, calmer detail.** The cards across the top are unchanged. The selected priority below is now three plain parts, separated clearly:
@@ -124,7 +150,7 @@ Builds on 14 Oct (f), the version in your highground-main download. **No SQL.**
 
 ## Tests
 - Unit tests: 30 files, all pass. Golden engine cases: 32, 0 differences (the engine and the money math are unchanged).
-- Browser: **548 pass, 0 fail** (was 507 pass, 5 fail on the downloaded code: four expected the 14g demo check register, one was a phone overflow on All funds, now fixed). New checks cover each change above, plus one that the check register is hidden by default.
+- Browser: **551 pass, 0 fail** (was 507 pass, 5 fail on the downloaded code: four expected the 14g demo check register, one was a phone overflow on All funds, now fixed). New checks cover each change above, plus one that the check register is hidden by default.
 
 ## Survey bot check: switching it on (optional, about 15 minutes)
 Do these in order. Surveys keep working at every step; step 5 is what makes the check required.
