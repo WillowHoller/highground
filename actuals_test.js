@@ -34,6 +34,6 @@ check('“through” date per year', act.through['2027'] === '2026-09-30');
 const rows = { district: { name: 'x' }, settings: R.district_settings[0], balances: R.fund_balance, debts: R.debt_obligation, scenarios: R.scenario, initiatives: R.initiative,
   phases: R.phase, funding: R.phase_funding, financing: R.financing, recurring: R.recurring_cost };
 const inp = C.buildInputs(rows, R.scenario[0].id), plan = A.planned(inp.projects, inp.levers, inp.cfg, 2027);
-check('planned cost this year: the roof’s first phase', Math.abs(plan[byName('High school roof replacement')] - 410000) < 1, plan[byName('High school roof replacement')]);
+check('planned cost this year: the roof’s first phase', Math.abs(plan[byName('High school roof replacement')] - 407850) < 1, plan[byName('High school roof replacement')]);
 console.log(`Roof FY2027: planned $${Math.round(plan[byName('High school roof replacement')]).toLocaleString()}, spent $${roof.spent.toLocaleString()}, encumbered $${roof.encumbered.toLocaleString()}`);
 console.log(`actuals tests: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

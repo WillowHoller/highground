@@ -13,7 +13,8 @@ const amounts = (batch, scale) => P.lines.map((l, k) => ({ batch_id: batch, acco
 const aug = { id: 'aug', kind: 'gl_monthly', status: 'applied', period_end: '2026-08-31', fiscal_year: 2027 }, sep = { id: 'sep', kind: 'gl_monthly', status: 'applied', period_end: '2026-09-30', fiscal_year: 2027 };
 const balancesAug = R.fund_balance.concat([{ fund: 'save', as_of: '2026-08-31', amount: 1352000 }, { fund: 'ppel', as_of: '2026-08-31', amount: 801000 }]);
 const prev = Rp.build({ district: rows.district, rows, periodEnd: '2026-08-31', batch: aug, accounts, amounts: amounts('aug', 0.5), batches: [aug], balances: balancesAug });
-check('August report: dated, board version, plan figures', prev.periodEnd === '2026-08-31' && prev.fiscalYear === 2027 && prev.scenario.name === 'District baseline' && Math.abs(prev.plan.gap - 3818185) < 1000, prev.plan.gap);   // 13 Oct: $3.818M once Bridger Hollow carries realistic ongoing SAVE/PPEL/V-PPEL commitments (was $2.918M); $3.018M before the SF 2472 cut was figured on projected SAVE (rule G7, 10 Oct 2026)
+check('August report: dated, board version, plan figures', prev.periodEnd === '2026-08-31' && prev.fiscalYear === 2027 && prev.scenario.name === 'District baseline' && Math.abs(prev.plan.gap - 3773029) < 1000, prev.plan.gap);   // 15 Oct: $3.773M with the less tidy demo costs (was $3.818M)
+//   // 13 Oct: $3.818M once Bridger Hollow carries realistic ongoing SAVE/PPEL/V-PPEL commitments (was $2.918M); $3.018M before the SF 2472 cut was figured on projected SAVE (rule G7, 10 Oct 2026)
 check('first report says there is nothing to compare', Rp.changes(prev, null).first);
 // during September: the vestibules finished, CTE moved to approved, and the September ledger came in
 const vest = rows.phases.find((p) => p.scenario_id === R.scenario[0].id && p.initiative_id === nameId('Secure entry vestibules (two buildings)'));
@@ -24,7 +25,7 @@ const now = Rp.build({ district: rows.district, rows, periodEnd: '2026-09-30', b
 check('September report: balances as of the month end', now.balances.save.amount === 1309086 && now.balances.ppel.as_of === '2026-09-30');
 check('September report: budget vs. actual from the ledger', now.budget.find((f) => f.key === 'general').revenue.actual > 2.9e6 && now.ledgerThrough === '2026-09-30');
 const roof = now.progress.find((x) => x.name === 'High school roof replacement');
-check('September report: progress against the plan, with spending from the ledger', roof && Math.round(roof.planned) === 410000 && roof.spent === 262750 && roof.encumbered === 147250, roof);
+check('September report: progress against the plan, with spending from the ledger', roof && Math.round(roof.planned) === 407850 && roof.spent === 262750 && roof.encumbered === 147250, roof);
 check('September report: decisions ahead, unapproved only, largest first', now.pending.every((x) => ['idea', 'proposed', 'analysis'].includes(x.status)) && !now.pending.some((x) => x.name.startsWith('CTE')) && now.pending.every((x, k, a) => !k || a[k - 1].cost >= x.cost));
 const ch = Rp.changes(now, prev), text = ch.items.join(' | ');
 check('changes: the finished phase, with its date and cost', /Finished: Secure entry vestibules \(two buildings\), on 2026-09-25, at \$210k/.test(text), text);

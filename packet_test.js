@@ -11,13 +11,13 @@ check('what it is: name, status, priority, owner', P.initiative.name === 'CTE an
 check('five years from the plan’s start', P.years.join() === '2027,2028,2029,2030,2031');
 const infl = 0.035, save = P.byFund.find((r) => r.fund === 'save'), camp = P.byFund.find((r) => r.fund === 'camp');
 // design FY2029 (plan year 2): 180,000 × 1.035² · construction FY2030 (year 3): 2,400,000 × 1.035³, split 75% campaign / 25% SAVE
-check('costs by fund and year, in each year’s dollars', near(save.values[2], 180000 * Math.pow(1 + infl, 2)) && near(save.values[3], 2400000 * Math.pow(1 + infl, 3) * 0.25) && near(camp.values[3], 2400000 * Math.pow(1 + infl, 3) * 0.75), [save.values, camp.values]);
-check('effect on the gap: at least the unpaid campaign share comes off without it', P.gap.effect >= 2400000 * Math.pow(1 + infl, 3) * 0.75 - 1 && near(P.gap.with - P.gap.without, P.gap.effect), P.gap);
+check('costs by fund and year, in each year’s dollars', near(save.values[2], 184600 * Math.pow(1 + infl, 2)) && near(save.values[3], 2386000 * Math.pow(1 + infl, 3) * 0.25) && near(camp.values[3], 2386000 * Math.pow(1 + infl, 3) * 0.75), [save.values, camp.values]);
+check('effect on the gap: at least the unpaid campaign share comes off without it', P.gap.effect >= 2386000 * Math.pow(1 + infl, 3) * 0.75 - 1 && near(P.gap.with - P.gap.without, P.gap.effect), P.gap);
 check('lowest SAVE balance with and without it', P.lows.length === 1 && P.lows[0].fund === 'save' && P.lows[0].without >= P.lows[0].with, P.lows);
 check('funding line: its place in the list', P.fundingLine && P.fundingLine.position > 0 && P.fundingLine.of === 14);
 check('other scenarios that include it', P.others.length === 2 && P.others.some((o) => /bond/.test(o.name)));
 const F = K.build(rows, idOf('FFA program'), board);
-check('yearly costs by year (teacher and supplies from FY2028)', F.yearly[0] === 0 && near(F.yearly[1], 68000 + 7500) && F.recur.length === 2, F.yearly);
+check('yearly costs by year (teacher and supplies from FY2028)', F.yearly[0] === 0 && near(F.yearly[1], 67400 + 7350) && F.recur.length === 2, F.yearly);
 check('a program’s yearly general-fund costs leave the capital gap alone', Math.abs(F.gap.effect - (F.oneTimeAll > 0 ? F.gap.effect : 0)) < 1e-9 && F.lows.every((l) => l.fund !== 'general'));
 const Bnd = K.build(rows, idOf('CTE and ag building addition'), R.scenario[1].id);
 check('in the bond scenario: the added tax with and without it is reported', Bnd.tax.hasValuation && Bnd.tax.with >= Bnd.tax.without);

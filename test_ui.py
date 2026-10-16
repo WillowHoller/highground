@@ -50,7 +50,7 @@ def gold(scen,patch): return next(c for c in GOLD["cases"] if c["scenario"]==sce
 PUB={}
 TABLES["publication"]=[]
 TABLES["import_row"]=[]; TABLES["import_issue"]=[]
-for t in ["assumption_set","outcome","measure_value","survey","survey_result","recurring_cost","project_request","report_snapshot","budget_line"]: TABLES.setdefault(t,[])
+for t in ["survey_response","assumption_set","outcome","measure_value","survey","survey_result","recurring_cost","project_request","report_snapshot","budget_line"]: TABLES.setdefault(t,[])
 TABLES["initiative"]=TABLES["initiative"]+[{"id":"ini-ffa","district_id":"d1","name":"FFA program","type":"program","status":"approved","cost_confidence":"estimate"}]
 _bp=[p for p in TABLES["phase"] if p["scenario_id"]!=_ph_sid][0]; _bp["label"]="Unit ventilators"
 TABLES["recurring_cost"]=[{"id":"rc1","district_id":"d1","scenario_id":_ph_sid,"initiative_id":_init0,"kind":"contract","fund":"ppel","first_fy":2028,"last_fy":None,"annual_amount":12000,"grows_with":"none"}]
@@ -159,6 +159,15 @@ async def handler(route):
   if path=="/rest/v1/ia_district": return await ok([{"de_district":"7777","name":"Ironwood Valley","aea":"267"}])
   if path=="/rest/v1/register_rule" and req.method=="GET": return await ok(TABLES["register_rule"])
   if path=="/rest/v1/rpc/apply_import": return await ok({"status":"applied"})
+  if path=="/rest/v1/rpc/public_survey":
+    b=json.loads(body); sv=[x for x in TABLES.get("survey",[]) if x.get("district_id")=="d1" and x.get("mode")=="live" and x.get("status")=="open"]
+    return await ok({"district":D1,"survey":{k:sv[0].get(k) for k in ("id","name","intro","focus","items","closed_on")}} if b["p_slug"]=="ironwood-valley" and sv else None)
+  if path=="/rest/v1/rpc/submit_survey":
+    b=json.loads(body); sv=[x for x in TABLES.get("survey",[]) if x.get("id")==b["p_survey"] and x.get("status")=="open"]
+    if not sv: return await ok("closed")
+    if any(r["device"]==b["p_device"] and r["survey_id"]==b["p_survey"] for r in TABLES["survey_response"]): return await ok("already")
+    TABLES["survey_response"].append({"id":"sr%d"%len(TABLES["survey_response"]),"district_id":"d1","survey_id":b["p_survey"],"answers":b["p_answers"],"device":b["p_device"],"role":b.get("p_role"),"submitted_at":"2026-10-15T12:00:00Z"})
+    return await ok("saved")
   if path=="/rest/v1/rpc/public_publication":
     b=json.loads(body)
     if b["p_slug"]=="ironwood-valley" and "d1" in PUB: return await ok({"district":D1,"kind":"board_plan","title":PUB["d1"]["title"],"published_at":"2026-09-29T12:00:00Z","payload":PUB["d1"]["payload"]})
@@ -253,6 +262,9 @@ async def main():
     for s in secs:
       await pg.goto("http://localhost:8765/#/d/ironwood-valley/"+s); await pg.wait_for_timeout(250)
       v=await pg.inner_text("#view"); visited+=1
+      for _ in range(12):   # 15 Oct: a slow screen gets up to 3 more seconds before it counts as stuck (one run caught All funds mid-load)
+        if "Loading" not in v: break
+        await pg.wait_for_timeout(250); v=await pg.inner_text("#view")
       if "couldn’t load" in v or "Loading" in v: bad.append(s+": "+v[:80])
       if s in("money/capital","settings/people","settings/uploads","resources/funds"): await pg.screenshot(path=SHOTS+"/"+s.replace("/","-")+".png",full_page=True)
     check("all 24 screens render", visited==24 and not bad, "; ".join(bad))
@@ -1173,7 +1185,17 @@ async def main():
     for i0 in TABLES["initiative"]:
       if i0["name"].startswith("Secure entrances"): i0["priority_id"]=DIRR["priority"][1]["id"]
     await pg.reload(); await pg.wait_for_timeout(800)
-    t=await pg.inner_text("#view")
+    # 15 Oct: a card per priority across the top; clicking one shows its detail (outcomes, measures with status, initiatives) without reloading
+    t=await pg.inner_text("#view"); ncards=await pg.locator(".pc-row button.pc").count(); n0=len(calls)
+    for k in range(ncards):
+      await pg.locator(".pc-row button.pc").nth(k).click(); await pg.wait_for_timeout(150); t+=await pg.inner_text("#prio-detail")
+    sel=await pg.evaluate("[...document.querySelectorAll('.pc-row button.pc')].map(b=>b.getAttribute('aria-selected'))")
+    check("priorities (15 Oct): a card per priority with its big on-track number; clicking a card swaps the detail in place (no reload); the arrows sit behind Arrange",
+          ncards==len(TABLES["priority"]) and sel[-1]=="true" and sel.count("true")==1 and not [c for c in calls[n0:] if c[0]=="GET"] and await pg.locator(".pc .pc-big").count()>=1
+          and await pg.locator("button[data-action=prioMove]").count()==0, str(sel))
+    await pg.click("button[data-action=prioArrange]"); await pg.wait_for_timeout(600)
+    check("priorities (15 Oct): Arrange priorities shows the order with ▲▼", await pg.locator("ol.prio-arrange button[data-action=prioMove]").count()==2*len(TABLES["priority"]))
+    await pg.click("button[data-action=prioArrange]"); await pg.wait_for_timeout(600)
     check("priorities: each with outcomes, measures and their status, and initiatives serving it", "Every graduate ready for what’s next" in t and "Career and technical pathways" in t and "On track" in t and "Off track" in t and "Secure entrances — three buildings" in t, t[:500])
     # Reports → Plans: one plan, three views
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/share/plans"); await pg.wait_for_timeout(900)
@@ -1204,6 +1226,7 @@ async def main():
     check("plans: academic goals view explains how to tag CSIP goals", "No priorities are tagged as CSIP goals yet" in await ptext())
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/priorities"); await pg.wait_for_timeout(700)
     pid=TABLES["priority"][0]["id"]
+    await pg.click(f".pc-row button.pc[data-id='{pid}']"); await pg.wait_for_timeout(200)
     await pg.click(f"a[data-action=editPriority][data-id='{pid}']"); await pg.wait_for_timeout(300)
     await pg.check("[data-modal] input[name=csip_goal]")
     n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(700)
@@ -1212,7 +1235,7 @@ async def main():
     for p0 in TABLES["priority"]:
       if p0["id"]==pid: p0["csip_goal"]=True
     await pg.reload(); await pg.wait_for_timeout(700)
-    check("priorities: the CSIP badge shows", "CSIP goal" in await ptext())
+    check("priorities: the CSIP badge shows", "csip goal" in (await ptext()).lower())
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/share/plans"); await pg.wait_for_timeout(800)
     await pg.click("button[data-action=planView][data-v=csip]"); await pg.wait_for_timeout(600)
     t=await ptext()
@@ -1306,8 +1329,61 @@ async def main():
     n0=len(calls); await pg.click("button[data-action=publishBoard]"); await pg.wait_for_timeout(700)
     ps=[json.loads(c[2])["payload"] for c in calls[n0:] if c[0]=="POST" and "/rest/v1/publication" in c[1]]
     check("community page: the published copy carries the survey summary, not individual answers", ps and ps[0]["survey"]["responses"]==612 and len(ps[0]["survey"]["themes"])==6 and "results" not in ps[0]["survey"], str(ps[0].get("survey") if ps else None)[:200])
+    bpx=ps[0].get("blueprint") if ps else None
+    shown_ok=True
+    if bpx:
+      appr={i0["name"] for i0 in TABLES["initiative"] if (i0.get("status") or "proposed") in ("approved","underway","done")}
+      allnames={i0["name"] for i0 in TABLES["initiative"]}
+      # hold-back is unticked for this publish (above), so proposals may show, as on the capital plan; with it ticked only approved work shows
+      shown_ok=all(i1["name"] in (appr if ps[0].get("holdBack") else allnames) for p1 in bpx["priorities"] for i1 in p1["inits"])
+    check("community page (15 Oct): the published copy carries the district blueprint: priorities, measures as text, and initiatives under the same hold-back rule as the capital plan",
+          bpx and len(bpx["priorities"])==len(TABLES["priority"]) and shown_ok and all("id" not in m1 for p1 in bpx["priorities"] for m1 in p1["measures"]),
+          "n=%s/%s shown_ok=%s inits=%s"%(len(bpx["priorities"]) if bpx else None, len(TABLES["priority"]), shown_ok, [(i1["name"],i1["status"]) for p1 in (bpx or {}).get("priorities",[]) for i1 in p1["inits"]]))
+    # ---- 15 Oct: live community survey ----
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pg.wait_for_timeout(800)
+    check("survey reminder (15 Oct): Home says it's time to ask the community when the last survey is older than the reminder setting (quarterly by default)", "Time to ask the community" in await pg.inner_text("#view"))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/community"); await pg.wait_for_timeout(900)
+    check("survey (15 Oct): Community input offers to run a survey, says it's due, and has the reminder setting", await pg.locator("button[data-action=editLiveSurvey][data-id='']").count()==1 and await pg.locator("[data-sv-due]").count()==1 and await pg.locator("select[data-sv-cadence]").count()==1)
+    await pg.click("button[data-action=editLiveSurvey][data-id='']"); await pg.wait_for_timeout(300)
+    await pg.fill("[data-modal] input[name=name]","Community survey, fall 2026")
+    n0=len(calls); await pg.click("[data-modal] button[name=go][value=open]"); await pg.wait_for_timeout(700)
+    sp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/survey"]
+    svb=sp[0] if sp else {}
+    check("survey (15 Oct): Open it now saves a live survey, open, asking all three things, with the ideas not yet approved and every priority",
+          svb.get("mode")=="live" and svb.get("status")=="open" and sorted(svb.get("focus",[]))==["ideas","new_ideas","rating"] and len(svb.get("items",{}).get("ideas",[]))>0
+          and len(svb["items"]["priorities"])==len(TABLES["priority"]) and svb.get("opened_on"), str(svb)[:300])
+    TABLES["survey"].append(dict(svb,id="sv-live",created_at="2026-10-15T00:00:00Z"))
+    await pg.reload(); await pg.wait_for_timeout(1000)
+    lk=await pg.input_value("[data-sv-link]") if await pg.locator("[data-sv-link]").count() else ""
+    check("survey (15 Oct): an open survey shows its link and a newsletter paragraph to copy; no reminder while it's open", lk.endswith("#/s/ironwood-valley") and await pg.locator("[data-sv-blurb]").count()==1 and await pg.locator("[data-sv-due]").count()==0, lk)
+    sx=await b.new_context(viewport={"width":390,"height":844}); await sx.route("**/config.js",cfg); await sx.route(SB+"/**",handler); await sx.route("**/fonts.g*/**",lambda r:r.abort())
+    sq=await sx.new_page(); sq.on("pageerror",lambda e:errs.append(str(e)))
+    await sq.goto("http://localhost:8765/#/s/ironwood-valley"); await sq.wait_for_timeout(900)
+    nq=await sq.locator(".sv-form fieldset.sv-q").count()
+    check("survey page (15 Oct): anyone can open it without signing in: a rating per priority and per idea, an ideas box, an optional role; no name or email asked",
+          nq==len(TABLES["priority"])+len(svb["items"]["ideas"]) and await sq.locator("textarea[name=idea]").count()==1 and await sq.locator("input[type=email], input[name=name]").count()==0, str(nq))
+    await sq.click(".sv-form fieldset.sv-q >> nth=0 >> text=4"); await sq.fill("textarea[name=idea]","More after-school tutoring")
+    await sq.select_option("select[name=role]","parent")
+    n0=len(calls); await sq.click(".sv-form button[type=submit]"); await sq.wait_for_timeout(700)
+    subm=[json.loads(c[2]) for c in calls[n0:] if "/rpc/submit_survey" in c[1]]
+    check("survey page (15 Oct): answers go through the public function only, with a random device id, no table writes", subm and subm[0]["p_answers"]["idea"]=="More after-school tutoring" and len(subm[0]["p_device"])==32
+          and list(subm[0]["p_answers"]["ratings"].values())==[4] and await sq.locator("[data-sv-done=saved]").count()==1
+          and not [c for c in calls[n0:] if c[0] in ("POST","PATCH") and "/rest/v1/" in c[1] and "/rpc/" not in c[1]], str(subm)[:300])
+    await sq.reload(); await sq.wait_for_timeout(800); await sq.click(".sv-form fieldset.sv-q >> nth=0 >> text=2"); await sq.click(".sv-form button[type=submit]"); await sq.wait_for_timeout(600)
+    check("survey page (15 Oct): one answer per device", await sq.locator("[data-sv-done=already]").count()==1)
+    await sq.goto("http://localhost:8765/#/p/ironwood-valley"); await sq.wait_for_timeout(1000)
+    check("community page (15 Oct): while a survey is open, the page invites people to take it", await sq.locator("[data-sv-invite] a[href='#/s/ironwood-valley']").count()==1)
+    await sx.close()
+    await pg.reload(); await pg.wait_for_timeout(1000)
+    lv=await pg.inner_text("[data-sv-live]")
+    check("survey (15 Oct): planners see the answers so far: ratings by priority, the ideas people wrote, who answered", "1 answer" in lv and "More after-school tutoring" in lv and "1 parents or guardians" in lv and "4.0" in lv, lv[:400])
+    n0=len(calls); await pg.click("button[data-action=closeLiveSurvey]"); await pg.wait_for_timeout(900)
+    pt=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and c[1].split("?")[0]=="/rest/v1/survey"]
+    rr=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/survey_result"]
+    check("survey (15 Oct): Close saves the results as averages (a rating per priority answered), never the individual answers", pt and pt[0]["status"]=="closed" and rr and all(x["kind"] in ("rating","support") for x in rr[0]) and any(x["kind"]=="rating" and x["value"]==4 for x in rr[0]) and "answers" not in json.dumps(rr), str(rr)[:300])
+    TABLES["survey"]=[x for x in TABLES["survey"] if x["id"]!="sv-live"]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/priorities"); await pg.wait_for_timeout(700)
-    check("priorities: community importance from the latest survey", "Community importance: 4.7 out of 5" in await pg.inner_text("#view"))
+    check("priorities: community importance from the latest survey", "Community: 4.7 of 5" in await pg.inner_text(".pc-row"))
     gcsv=b"Priority,Outcome,Measure,Unit,Better,Start,Start period,Target,Target period,Owner,Cadence\r\nStrong partnerships,Business partners,Active business partners,partners,Higher,4,2024-25,12,2027-28,Superintendent,Yearly\r\n\"Safe, modern places to learn\",Safe and secure buildings,Buildings with a secure entry,buildings,Higher,1,2024-25,3,2026-27,,Yearly\r\n"
     await pg.set_input_files("input[data-dir-upload=goals]", files=[{"name":"goals.csv","mimeType":"text/csv","buffer":gcsv}]); await pg.wait_for_timeout(500)
     n0=len(calls); await pg.click("button[data-action=dirUploadApply]"); await pg.wait_for_timeout(800)
@@ -2112,9 +2188,14 @@ async def main():
     pub=await anonctx.new_page(); pub.on("pageerror",lambda e:errs.append(str(e)))
     n0=len(calls); await pub.goto("http://localhost:8765/#/p/ironwood-valley"); await pub.wait_for_timeout(700)
     t=await pub.inner_text("body")
-    authed=[c for c in calls[n0:] if "/rest/v1/" in c[1] and "rpc/public_publication" not in c[1]]
+    authed=[c for c in calls[n0:] if "/rest/v1/" in c[1] and "rpc/public_publication" not in c[1] and "rpc/public_survey" not in c[1]]   # 15 Oct: it also asks whether a survey is open (public function)
     check("public link: plan shows with no account ($5.35M)", "Ironwood Valley" in t and "$5.35M" in t and "Sign in" in t and "Sign out" not in t, t[:200])
-    check("public link: only the public function is called", not authed, str(authed[:2]))
+    check("public link: only the public functions are called (the plan, and whether a survey is open)", not authed, str(authed[:2]))
+    secs=await pub.evaluate("[...document.querySelectorAll('.pub-sec')].map(x=>x.id)")
+    check("public link (15 Oct): the community page is the district blueprint: a hero, then our focus, what you told us, what we're doing, how we're doing, and how it's paid for (the capital plan, levers still work)",
+          await pub.locator(".pub-hero").count()==1 and secs[:1]==["bp-focus"] and "bp-money" in secs and "bp-doing" in secs and await pub.locator("#bp-money #cap-results").count()==1 and await pub.locator("#bp-focus .pc").count()>=1, str(secs))
+    await pub.click("[data-action=pubJump][data-id=bp-money]"); await pub.wait_for_timeout(500)
+    check("public link (15 Oct): the section links scroll the page and don't change the address", pub.url.endswith("#/p/ironwood-valley"), pub.url)
     check("public link (15 Oct): no Sign in in the header; a small staff line at the foot; no back bar for residents",
           await pub.locator(".pub-top a[href='#/signin']").count()==0 and await pub.locator("[data-pub-foot] a[href='#/signin']").count()==1 and await pub.locator("[data-pub-back]").count()==0)
     await pg.goto("http://localhost:8765/#/p/ironwood-valley"); await pg.wait_for_timeout(700)

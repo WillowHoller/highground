@@ -14,7 +14,7 @@ for (const D2 of Object.keys(D)) {
 }
 check('three scenarios: board version locked, a bond, a delay', R.scenario.length === 3 && R.lock.length === 1 && R.financing.some((f) => f.kind === 'go'));
 check('initiatives carry type, status, owner and priority', R.initiative.every((x) => x.type && x.status && x.tier) && R.initiative.some((x) => x.owner_name));
-check('yearly costs load and belong to their initiatives', R.recurring_cost.length === 9 && R.recurring_cost.every((r) => R.initiative.some((x) => x.id === r.initiative_id)));
+check('yearly costs load and belong to their initiatives', R.recurring_cost.length === 12 && R.recurring_cost.every((r) => R.initiative.some((x) => x.id === r.initiative_id)));
 // consistency with Iowa rules
 const s = B.settings, perStudent = s.save.receipts / B.enrollment;
 check('SAVE per student near the FY2026 statewide amount (~$1,358)', Math.abs(perStudent / 1358 - 1) < 0.05, perStudent.toFixed(0));
