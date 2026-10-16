@@ -222,6 +222,7 @@ async def main():
     ctx=await b.new_context(viewport={"width":1360,"height":900})
     async def cfg(route): await route.fulfill(content_type="application/javascript",body="window.HG_CONFIG={supabaseUrl:'%s',publishableKey:'sb_publishable_TESTKEY_abcdefghijklmnop'};"%SB)
     await ctx.route("**/config.js",cfg); await ctx.route(SB+"/**",handler); await ctx.route("**/fonts.g*/**",lambda r:r.abort())
+    await ctx.add_init_script("window.HG_SWITCH={register:true}")
     pg=await ctx.new_page(); pg.on("dialog",lambda dl: asyncio.ensure_future(dl.accept(PROMPT["text"] if PROMPT["text"] is not None else dl.default_value) if dl.type=="prompt" else dl.accept())); pg.on("pageerror",lambda e:errs.append(str(e))); pg.on("console",lambda m: errs.append("console: "+m.text) if m.type=="error" and "fonts" not in m.text and "ERR_FAILED" not in m.text else None)
     await pg.goto("http://localhost:8765/"); await pg.wait_for_timeout(500)
     check("no session goes to sign in", "Sign in" in await pg.inner_text("h1"))
@@ -703,6 +704,10 @@ async def main():
     await pg.select_option("select[data-why=a]", index=1); await pg.wait_for_timeout(300)
     w=await pg.inner_text("#cmp-why")
     check("compare: either direction can be explained", "raises the gap by $4.20M" in w, w[:200])
+    sn=await pg.evaluate("[...document.querySelectorAll('a[data-action=openScenario]')].map(a=>a.innerText.trim())")
+    nlock=sum(1 for x in TABLES["scenario"] if x.get("is_locked"))
+    check("scenarios (15 Oct): each name is the link (no column of Open links); locked ones show a lock icon, not the word", sn and "Open" not in sn and all(sn)
+          and await pg.locator(".lockic svg").count()==nlock and nlock>0 and "Locked" not in await pg.inner_text("#view table"), str(sn)+" locks %d"%nlock)
     await pg.click("a[data-action=openScenario] >> nth=1"); await pg.wait_for_timeout(600)
     check("compare: Open goes to that scenario on the capital plan", "/money/capital" in pg.url)
     # Phase 2B: All initiatives
@@ -923,7 +928,7 @@ async def main():
     t=await pg.inner_text("#view")
     roof_init=next(i["id"] for i in TABLES["initiative"] if i["name"].startswith("High school roof"))
     roof_acct=next(a["id"] for a in GL if a["code"]=="33-0000-4700-000-1001-450")
-    check("progress: link card suggests initiatives for capital spending", "Link spending to initiatives" in t and await pg.input_value("select[data-pi-link='%s']"%roof_acct)==roof_init and "through Sep 30, 2026" in t, t[:300])
+    check("progress: link card suggests initiatives for capital spending", "Project spending in the ledger" in t and await pg.input_value("select[data-pi-link='%s']"%roof_acct)==roof_init and "through Sep 30, 2026" in t, t[:300])
     check("progress: debt payments and General Fund aren't offered for linking", await pg.locator("select[data-pi-link='%s']"%next(a["id"] for a in GL if a["code"]=="36-0000-5000-000-0000-831")).count()==0
           and await pg.locator("select[data-pi-link='%s']"%next(a["id"] for a in GL if a["code"].startswith("10-0109"))).count()==0)
     n0=len(calls); await pg.click("button[data-action=piLinkAll]"); await pg.wait_for_timeout(900)
@@ -933,6 +938,8 @@ async def main():
       if a["id"]==roof_acct: a["initiative_id"]=roof_init; a["maps_to"]="initiative"
     await pg.reload(); await pg.wait_for_timeout(900)
     t=await pg.inner_text("table.pitable")
+    ths=await pg.evaluate("[...document.querySelectorAll('table.pitable thead th')].map(x=>x.innerText.trim())")
+    check("progress (15 Oct): no unlabelled last column; 'No spending yet' gone", len(ths)==8 and all(ths) and "No spending yet" not in t, str(ths))
     check("progress: spending and encumbrances from the ledger, flagged when nothing was planned this year", "$262,750" in t and "$147,250" in t and "Spending, but nothing planned this year" in t, t[:500])
     await pg.click("a[data-action=piOpen][data-id='%s']"%roof_init); await pg.wait_for_timeout(500)
     await pg.locator("#view").screenshot(path=SHOTS+"/progress.png")
@@ -1001,6 +1008,11 @@ async def main():
     if hb: await pg.locator("[data-holdback-card]").screenshot(path=SHOTS+"/holdback-card.png")
     check("held back: the card's terms have a ? (what's held back, what counts as used)", await pg.locator("[data-holdback-card] button.defn[data-term=holdback]").count()==1 and await pg.locator("[data-holdback-card] button.defn[data-term=holdback_used]").count()==1)
     check("budget: by default, the year ends at budget unless already exceeded (no false alarms)", "$12,300,000" in t and "$2,909,551" in t and "over by" not in t and "on budget" in t, t[:600])
+    if await pg.locator("table.batable").count():
+      lastcol=await pg.evaluate("[...document.querySelectorAll('table.batable tbody tr td:last-child')].map(x=>x.innerText.trim())")
+      check("budget (15 Oct): spending by function colours each bar, with one key under the table; no 'on budget' down the last column",
+            await pg.locator("[data-ubar-key]").count()==1 and "on budget" not in " ".join(lastcol) and await pg.locator("table.batable .ubar.ub-pace, table.batable .ubar.ub-ahead, table.batable .ubar.ub-over").count()>0, str(lastcol))
+    else: check("budget (15 Oct): fund detail with spending by function shown", False, "no table.batable")
     await pg.select_option("select[data-ba=method]","pace"); await pg.wait_for_timeout(600); t=await pg.inner_text("#view")
     check("budget: rest of the year at the budget's pace", "$12,134,551" in t and "short by $165,449" in t)
     check("budget: spending by function, with what's still available", "Instruction" in t and "$5,275,000" in t and "$880,634" in t and "Operation and maintenance of plant" in t and "$4,394,366" in t, t[t.find("Spending by function"):t.find("Spending by function")+400])
@@ -1725,22 +1737,14 @@ async def main():
     n0=len(calls); await pg.click("button[data-action=loadDemo]"); await pg.wait_for_timeout(900)
     posts=[c[1].split("?")[0].split("/")[-1] for c in calls[n0:] if c[0]=="POST"]
     locks=[c for c in calls[n0:] if c[0]=="PATCH" and "/rest/v1/scenario?" in c[1] and "is_locked" in (c[2] or "")]
-    want=["district_settings","fund_balance","debt_obligation","initiative","scenario","scenario_initiative","phase","phase_funding","import_batch","gl_account","gl_amount","apply_import","apply_import","apply_import",
-          "import_batch","register_line"]+["apply_import"]*6+["register_check_all"]
+    want=["district_settings","fund_balance","debt_obligation","initiative","scenario","scenario_initiative","phase","phase_funding","import_batch","gl_account","gl_amount","apply_import","apply_import","apply_import"]
     check("staff loads demo data in dependency order, then locks the baseline", posts==want and len(locks)==1, str(posts))
     ap=[c for c in calls[n0:] if "/rpc/apply_import" in c[1]]; bts=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/import_batch"]
     ga=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/gl_account"]
     check("demo data: a July–September month-end ledger goes in and is applied, so Budget vs. actual has figures (no balance-sheet accounts)",
-          len(ap)==9 and bts and [b["period_end"] for b in bts[0]]==["2026-07-31","2026-08-31","2026-09-30"] and all(b["status"]=="uploaded" for b in bts[0])
+          len(ap)==3 and bts and [b["period_end"] for b in bts[0]]==["2026-07-31","2026-08-31","2026-09-30"] and all(b["status"]=="uploaded" for b in bts[0])
           and ga and all(a["maps_to"] in ("revenue","expense","initiative") for a in ga[0]) and "Demo ledger not loaded" not in await pg.inner_text("#toasts"), str(bts)[:300])
-    rb=[b for x in bts[1:] for b in x if b.get("kind")=="check_register"]
-    rl=[l for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/register_line" for l in json.loads(c[2])]
-    check("demo data: a made-up check register, April–September, goes in, is applied and checked, so Track → Check register has months and questions",
-          [b["period_end"] for b in rb]==["2026-04-30","2026-05-31","2026-06-30","2026-07-31","2026-08-31","2026-09-30"] and len(rl)==sum(b["row_count"] for b in rb)
-          and any("/rpc/register_check_all" in c[1] for c in calls[n0:]) and "check register not loaded" not in await pg.inner_text("#toasts"), str(rb)[:300])
-    check("demo data: the check register's planted cases are there (duplicate, look-alike, name change, salary on SAVE, round amount, weekend)",
-          sum(1 for l in rl if l["vendor_name"]=="Fox Run Utilities" and l["pay_date"].startswith("2026-08"))==2 and any(l["vendor_name"]=="Northwind Schol Supply" for l in rl)
-          and any(l["vendor_name"]=="Sunrise Tech Partners LLC" for l in rl) and any(l["fund"]=="33" and l["obj"].startswith("1") for l in rl) and any(l["amount"]==10000 for l in rl), "")
+    # the demo check register (14 Oct (g) package) isn't in this source tree; its checks return with it
     # reset a demo district to Bridger Hollow
     await pg.goto("http://localhost:8765/#/staff"); await pg.wait_for_timeout(600)
     check("staff: Bridger Hollow is offered first", (await pg.locator("select[data-demo-set] option").first.inner_text()).startswith("Bridger Hollow Community School District (925 students)"))
@@ -1816,6 +1820,9 @@ async def main():
     key=await pg.evaluate("[...document.querySelectorAll('.cbar-row')].map(r=>[[...r.querySelectorAll('.cbar span')].map(x=>x.style.background),[...r.querySelectorAll('.cbar-key i')].map(x=>x.style.background),r.querySelector('.cbar-key').innerText])")
     check("funds: funding vs. committed, per fund, each bar with a key in the same colours and amounts", "Funding vs. committed" in t and "available" in t and key and all(k[0]==k[1] and "$" in k[2] for k in key), str(key)[:300])
     await pg.locator(".cbars").screenshot(path=SHOTS+"/funds-committed.png")
+    fill=await pg.evaluate("[...document.querySelectorAll('.cbar')].map(b=>[...b.querySelectorAll('span')].reduce((a,x)=>a+parseFloat(x.style.width),0))")
+    check("funds (15 Oct): each bar is its own fund's money, so it's full (no blank track); 'not committed yet' replaces 'left over'", fill and all(99<=w<=100.5 for w in fill)
+          and "Not committed yet" in t and "Left over" not in t and "drawn to the same scale" in t, str(fill))
     sb=await pg.locator("svg[aria-label*='balance at the end of each year']").bounding_box(); cb=await pg.locator("svg[aria-label*='balance at the end of each year']").locator("xpath=ancestor::div[contains(@class,'card')][1]").bounding_box(); w=[sb["width"],cb["width"]]
     check("funds: the balance chart fills the card's width", w[0] > w[1]*0.9, str(w))
     bench=[c for c in calls if "/rpc/ia_benchmark" in c[1]]
@@ -1931,6 +1938,8 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking/list"); await pg.wait_for_timeout(1000)
     await pg.select_option("select[data-rank-sid]", _bsid); await pg.wait_for_timeout(900)
     t=await pg.inner_text("#view"); lead=await pg.inner_text(".lead") if await pg.locator(".lead").count() else ""
+    w7=await pg.evaluate("(()=>{const td=document.querySelector('table.ranktable tbody tr.rk-row td:nth-child(7)');return td?td.getBoundingClientRect().width:0})()")
+    check("rank & fund (15 Oct): the funding-line column stays narrow", 100<w7<=215, str(w7))
     check("rank & fund: a General Fund cost the General Fund can't carry stops the line there, and says why", "Below the line: General Fund" in t and "stops at the General Fund" in lead and ("solvency would fall" in t or "spending authority" in t)
           and "SAVE, PPEL, V-PPEL, grants and the General Fund" in lead, lead[:400])
     check("rank & fund: the yearly column says it's General Fund money; the list explains the General Fund test", "General Fund" in await pg.inner_text("table.ranktable") and "count against the" in t and "solvency stays at or above 5%" in t, t[:900])
@@ -1938,6 +1947,10 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await pg.wait_for_timeout(900)
     dc=await pg.inner_text("[data-double-count]") if await pg.locator("[data-double-count]").count() else ""
+    if dc:
+      sb2=await pg.locator("[data-double-count] > summary").bounding_box()
+      ic=await pg.evaluate("(()=>{const d=document.querySelector('[data-double-count]'),r=d.getBoundingClientRect(),cs=getComputedStyle(d,'::before'),sm=d.querySelector('summary').getBoundingClientRect();return [parseFloat(cs.top)+r.top, sm.top, sm.bottom]})()")
+      check("double count (15 Oct): the warning's icon, arrow and words sit on one line", sb2["height"]<=46 and ic[1]<=ic[0]<=ic[2], str(sb2)+str(ic))
     check("capital plan: repeating bus and device purchases on PPEL are flagged against PPEL's ongoing amount", "may be counted twice" in dc and "Bus fleet replacement" in dc and "PPEL already holds back $40k a year" in dc and "Roof" not in dc, dc[:600])
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/general"); await pg.wait_for_timeout(600)
     await pg.click("button[data-action=gfEdit]"); await pg.wait_for_timeout(700)
@@ -1997,6 +2010,7 @@ async def main():
         "plan":{"need":14790000,"levyFunded":9190000,"financed":0,"gap":5350000,"overflow":0,"start":2027,"years":10},"balances":{},"budget":[],"progress":[],"initiatives":{},"done":[],"pending":[],"pendingCount":0,"tax":None,"gf":None}}]
     async def session(email):
       cx=await b.new_context(viewport={"width":1360,"height":900}); await cx.route("**/config.js",cfg); await cx.route(SB+"/**",handler); await cx.route("**/fonts.g*/**",lambda r:r.abort())
+      await cx.add_init_script("window.HG_SWITCH={register:true}")
       pp=await cx.new_page(); pp.on("pageerror",lambda e:errs.append(str(e)))
       await pp.goto("http://localhost:8765/"); await pp.evaluate("localStorage.clear()"); await pp.goto("http://localhost:8765/"); await pp.wait_for_timeout(400)
       await pp.fill("input[name=email]",email); await pp.fill("input[name=password]",PW); await pp.click("button[type=submit]"); await pp.wait_for_timeout(900)
@@ -2085,6 +2099,12 @@ async def main():
     authed=[c for c in calls[n0:] if "/rest/v1/" in c[1] and "rpc/public_publication" not in c[1]]
     check("public link: plan shows with no account ($5.35M)", "Ironwood Valley" in t and "$5.35M" in t and "Sign in" in t and "Sign out" not in t, t[:200])
     check("public link: only the public function is called", not authed, str(authed[:2]))
+    check("public link (15 Oct): no Sign in in the header; a small staff line at the foot; no back bar for residents",
+          await pub.locator(".pub-top a[href='#/signin']").count()==0 and await pub.locator("[data-pub-foot] a[href='#/signin']").count()==1 and await pub.locator("[data-pub-back]").count()==0)
+    await pg.goto("http://localhost:8765/#/p/ironwood-valley"); await pg.wait_for_timeout(700)
+    check("public link (15 Oct): someone signed in gets a way back to HighGround (the home-screen app has no back button)",
+          await pg.locator("[data-pub-back] a[href='#/d/ironwood-valley']").count()==1 and await pg.locator("[data-pub-foot]").count()==0)
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pg.wait_for_timeout(500)
     check("public link: branded, with the community note", "The board adopts the plan in October" in await pub.inner_text("body") and await pub.locator(".pub-top .pub-mono, .pub-top .pub-dlogo").count()==1
       and "Willow Holler" not in await pub.inner_text("body") and await pub.locator(".pub-top img.logo-img").count()==0)
     check("public link: nothing to edit or publish", await pub.locator("[data-notbuilt], [data-action=publishBoard], form").count()==0)
@@ -2098,6 +2118,7 @@ async def main():
     check("unpublished link", "Nothing published here yet" in await pub.inner_text("body"))
     # phone
     ph=await b.new_context(viewport={"width":375,"height":812},is_mobile=True,has_touch=True,device_scale_factor=3); await ph.route("**/config.js",cfg); await ph.route(SB+"/**",handler); await ph.route("**/fonts.g*/**",lambda r:r.abort())
+    await ph.add_init_script("window.HG_SWITCH={register:true}")
     pp=await ph.new_page(); pp.on("pageerror",lambda e:errs.append(str(e)))
     await pp.goto("http://localhost:8765/#/signin"); await pp.fill("input[name=email]","admin@example.test"); await pp.fill("input[name=password]",PW); await pp.click("button[type=submit]"); await pp.wait_for_timeout(700)
     sw=await pp.evaluate("document.documentElement.scrollWidth"); check("phone: no sideways scroll", sw<=375, str(sw))
@@ -2109,6 +2130,9 @@ async def main():
       sw2,els=await pp.evaluate(WIDE_JS)
       if sw2>375 or els: wide.append(f"{path}:{sw2}:{els}")
     check("phone: nothing on any screen runs past the edge or is cut off (wide tables scroll in their own box)", not wide, "\n".join(wide))
+    await pp.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking"); await pp.wait_for_timeout(800)
+    hb2=await pp.evaluate("(()=>{const h=document.querySelector('.page-head h1'),t=document.querySelector('nav.tabs');return [h?h.getBoundingClientRect().height:-1, t?t.getBoundingClientRect().top:-1, t?getComputedStyle(t).display:'']})()")
+    check("phone (15 Oct): the breadcrumb, title and description step aside when the sub-menu shows where you are; the sub-menu sits near the top", hb2[0]<=1 and hb2[2]=="flex" and 0<hb2[1]<170, str(hb2))
     await pp.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pp.wait_for_timeout(700)
     await pp.click("button.defn >> nth=0"); await pp.wait_for_timeout(300)
     tb=await pp.evaluate("(()=>{const t=document.querySelector('.defpop'),r=t.getBoundingClientRect(),cs=getComputedStyle(t);return [r.left,r.right,innerWidth,r.width,t.scrollWidth<=t.clientWidth+1,cs.backgroundColor,cs.borderRadius]})()")
@@ -2175,6 +2199,21 @@ async def main():
     check("phone sign-in: fields are 16px so iPhone doesn't zoom; the card stays put when fields are tapped", fs and min(fs)>=16 and abs(top1-top0)<1 and await sp.evaluate("getComputedStyle(document.querySelector('.auth-main')).alignItems")=="flex-start", f"{fs} {top0}->{top1}")
     check("phone sign-in: the logo shows above the form", await sp.locator(".auth-mobile-brand img").is_visible())
     await sp.screenshot(path=SHOTS+"/phone-signin.png")
+    # 15 Oct: the check register is switched off by default (code kept): no menu item, no upload type, no Home line
+    ox=await b.new_context(viewport={"width":1360,"height":900}); await ox.route("**/config.js",cfg); await ox.route(SB+"/**",handler); await ox.route("**/fonts.g*/**",lambda r:r.abort())
+    op=await ox.new_page(); op.on("pageerror",lambda e:errs.append(str(e)))
+    await op.goto("http://localhost:8765/#/signin"); await op.fill("input[name=email]","admin@example.test"); await op.fill("input[name=password]",PW); await op.click("button[type=submit]"); await op.wait_for_timeout(800)
+    await op.goto("http://localhost:8765/#/d/ironwood-valley/track/registers"); await op.wait_for_timeout(800)
+    rail=await op.inner_text(".rail"); body=await op.inner_text("#view")
+    await op.goto("http://localhost:8765/#/d/ironwood-valley/settings/uploads"); await op.wait_for_timeout(800)
+    kinds=await op.inner_text("select[data-upload-kind]") if await op.locator("select[data-upload-kind]").count() else ""
+    await op.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await op.wait_for_timeout(800)
+    home=await op.inner_text("#view")
+    check("check register hidden by default (15 Oct): not in the menu, its address goes elsewhere, not an upload type, nothing on Home",
+          "Check register" not in rail and "No check registers yet" not in body and kinds and "Check register" not in kinds and "check-register" not in home, rail[-200:]+" | "+kinds)
+    await op.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await op.wait_for_timeout(800)
+    tsel=await op.inner_text("select[data-ini-type]") if await op.locator("select[data-ini-type]").count() else ""
+    check("initiative types (15 Oct): named for what the money buys", "Building, site or major equipment" in tsel and "Curriculum or instructional materials" in tsel and "Capital project" not in tsel, tsel)
     await b.close()
   srv.terminate()
   for n,okk,d in R: print(("PASS " if okk else "FAIL ")+n+(("  ["+d+"]") if d and not okk else ""))

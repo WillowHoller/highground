@@ -42,7 +42,7 @@ const roof = full.list.find((x) => x.id === 'roof');
 check('cost only from the board version, inside the plan years', near(roof.cost, 1000000), roof.cost);
 check('funding split by phase funding', near(roof.byFund.save, 800000) && near(roof.byFund.ppel, 200000) && roof.funding === 'SAVE, PPEL', roof);
 check('completion is the board version’s years', roof.completion === 'FY2027–FY2035', roof.completion);
-check('columns: priority, owner, category, goal', roof.priority === 'Must-have' && roof.owner === 'Facilities director' && roof.category === 'Capital project · Facilities' && roof.goal === 'Great places to learn');
+check('columns: priority, owner, category, goal', roof.priority === 'Must-have' && roof.owner === 'Facilities director' && roof.category === 'Building, site or equipment · Facilities' && roof.goal === 'Great places to learn');
 const bus = full.list.find((x) => x.id === 'bus');
 check('finished phases use the actual cost and the done date', near(bus.cost, 250000) && bus.completion === '2026-08-15', bus);
 const coach = full.list.find((x) => x.id === 'coach');

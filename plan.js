@@ -20,7 +20,7 @@
   const GROUP_OF = { done: 'done', underway: 'underway', approved: 'approved', idea: 'proposed', proposed: 'proposed', analysis: 'proposed', deferred: 'deferred' };
   const COUNTED = new Set(['done', 'underway', 'approved']);
   const STATUS_WORD = { idea: 'Idea', proposed: 'Proposed', analysis: 'Being analysed', approved: 'Approved', underway: 'In progress', done: 'Completed', deferred: 'Deferred', declined: 'Declined' };
-  const TYPE_WORD = { capital: 'Capital project', program: 'Program', staff: 'Staff or hire', curriculum: 'Curriculum', technology: 'Technology', other: 'Other' };
+  const TYPE_WORD = { capital: 'Building, site or equipment', program: 'Program or service', staff: 'Staff or hire', curriculum: 'Curriculum or materials', technology: 'Technology', other: 'Other' };
   const TIER_WORD = { must: 'Must-have', strategic: 'Strategic', nice: 'Nice to have' };
   const FROM_ENGINE = { High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' };
   const FUND_WORD = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants and donations', boost: 'Boosters', camp: 'Capital campaign', general: 'General Fund', other: 'Other', debt_levy: 'Debt service levy' };
