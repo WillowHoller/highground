@@ -18,6 +18,10 @@
 --   submit_survey(slug, id, answers, device)   saves one answer, with limits: open surveys only, one answer per device
 --                      per survey (a random id the browser keeps; not a fingerprint), size limits, at most 5,000 answers a day.
 --   survey_result.kind gains 'support' (an initiative's average support) and 'rating' (a priority's average rating).
+--
+-- Also: priority.retired_on. A priority the district has completed or stopped working toward can be retired (Plan →
+-- Priorities → Edit priorities). It leaves the plan, Home, reports and the community page; its measures and initiatives
+-- are kept, and it can be brought back.
 
 set search_path = public, extensions;
 
@@ -27,6 +31,8 @@ alter table public.survey
   add column if not exists focus  text[] not null default '{}',
   add column if not exists intro  text check (length(intro) <= 600),
   add column if not exists items  jsonb not null default '{}'::jsonb;
+
+alter table public.priority add column if not exists retired_on date;
 
 alter table public.district
   add column if not exists survey_cadence text not null default 'quarterly'
@@ -117,6 +123,9 @@ select 'survey has mode, status, focus, intro and items' as test,
 union all
 select 'district has a survey reminder setting',
        case when exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'district' and column_name = 'survey_cadence') then 'PASS' else 'FAIL' end
+union all
+select 'priorities can be retired',
+       case when exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'priority' and column_name = 'retired_on') then 'PASS' else 'FAIL' end
 union all
 select 'answers table exists with row level security on',
        case when to_regclass('public.survey_response') is not null and (select relrowsecurity from pg_class where oid = 'public.survey_response'::regclass) then 'PASS' else 'FAIL' end

@@ -901,14 +901,15 @@
     const [outcomes, measures, values, surveys, results, balances, reports] = await Promise.all([q('outcome', '&order=position'), q('measure', '&order=name'), q('measure_value'),
       q('survey', '&order=closed_on.desc.nullslast,created_at.desc'), q('survey_result', '&order=position'), q('fund_balance'),
       HG.db.select('report_snapshot', `select=period_end,payload->plan&district_id=eq.${d.id}&kind=eq.board_monthly&order=period_end`).catch(() => [])]);
-    const priorities = (rows.priorities || []).slice().sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+    const allPri = (rows.priorities || []).slice().sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+    const priorities = allPri.filter((p) => !p.retired_on), retired = allPri.filter((p) => p.retired_on);   // 15 Oct: a priority the district has completed
     // automatic measures: values worked out from HighGround's own data, never typed in
     const board = rows.scenarios.find((x) => x.is_board_version);
     let auto = { phases: [], balances, reports: reports.map((r) => ({ period_end: r.period_end, payload: { plan: r.plan } })), inflation: 0, startFY: null };
     if (board && rows.settings) { const bi = HGCapital.buildInputs(rows, board.id); auto = Object.assign(auto, { phases: rows.phases.filter((p) => p.scenario_id === board.id), inflation: bi.levers.infl, startFY: bi.cfg.start }); }
     const valuesOf = (m) => (m.auto_metric ? HGDirection.autoValues(m.auto_metric, auto) : values.filter((v) => v.measure_id === m.id));
     const st = new Map(measures.map((m) => { const x = HGDirection.status(m, valuesOf(m)); if (m.auto_metric) x.owed = false; return [m.id, x]; }));
-    return { rows, priorities, outcomes, measures, values, st, surveys, results, balances, reports };
+    return { rows, priorities, retired, outcomes, measures, values, st, surveys, results, balances, reports };
   }
   /** a measure's name as a link to its row on Track → Measures (the row is scrolled to and highlighted) */
   const measureLink = (slug, m) => `<a href="#/d/${enc(slug)}/track/measures" data-measure-go="${esc(m.id)}" class="mlink">${esc(m.name)}</a>`;
@@ -970,31 +971,31 @@
       return link ? `<button type="button" class="pc ${sel ? 'on' : ''}" style="--g:${p.color}" role="tab" aria-selected="${sel}" data-action="prioSel" data-id="${esc(p.id)}">${inner}</button>`
         : `<div class="pc" style="--g:${p.color}" role="listitem">${inner}</div>`; }).join('')}</div>`;
   }
-  /** one measure as one line: name, latest → target, progress from where it started, trend, status */
-  function prioMeasureHtml(m, slug) {
-    const pill = MS_PILL[m.state] || MS_PILL.nodata;
-    return `<li class="pm ms-${m.state}"><div class="pm-name">${slug ? measureLink(slug, m) : esc(m.name)}${m.owed ? ' <span class="pill p-ahead">Update owed</span>' : ''}</div>
-      <div class="pm-val">${m.latest != null ? `<b>${esc(m.latest)}</b>${m.period ? ` <span class="muted small">${esc(m.period)}</span>` : ''}` : '<span class="muted">no data yet</span>'}${m.target != null ? ` <span class="muted">→ ${esc(m.target)}${m.targetPeriod ? ' by ' + esc(m.targetPeriod) : ''}</span>` : ''}${m.lower ? ' <span class="small muted">(lower is better)</span>' : ''}</div>
-      <div class="pm-bar">${m.progress != null ? `<span class="bp-mbar" title="${Math.round(m.progress * 100)}% of the way from where it started to the target"><i style="width:${(m.progress * 100).toFixed(0)}%"></i></span>` : ''}</div>
-      <div class="pm-trend">${m.spark || ''}</div><div class="pm-st"><span class="pill ${pill[0]}">${pill[1]}</span></div></li>`;
+  /** the selected priority, kept calm (15 Oct, second pass): three plain sections (the priority, its outcomes with their
+      measures, the initiatives serving it); colour only on the small status dot, red words only for what's off track */
+  const MS_WORD = { met: 'Met', ontrack: 'On track', offtrack: 'Off track', tracking: 'Recorded', nodata: 'No data yet' };
+  const MS_DOTC = { met: 'met', ontrack: 'on', offtrack: 'off', tracking: 'nd', nodata: 'nd' };
+  function prioMeasureRow(m, slug) {
+    return `<tr class="pm-row${m.state === 'offtrack' ? ' is-off' : ''}"><td class="pm-n">${slug ? measureLink(slug, m) : esc(m.name)}${m.owed ? ' <span class="small muted">· update owed</span>' : ''}</td>
+      <td class="pm-v">${m.latest != null ? `${esc(m.latest)}${m.period ? ` <span class="muted">(${esc(m.period)})</span>` : ''}` : '<span class="muted">No data yet</span>'}</td>
+      <td class="pm-t">${m.target != null ? `${esc(m.target)}${m.targetPeriod ? ` <span class="muted">by ${esc(m.targetPeriod)}</span>` : ''}${m.lower ? ' <span class="muted">(lower is better)</span>' : ''}` : '<span class="muted">—</span>'}</td>
+      <td class="pm-s"><span class="dots"><i class="dot ${MS_DOTC[m.state] || 'nd'}"></i></span> ${esc(MS_WORD[m.state] || '')}</td></tr>`;
   }
-  /** the selected priority: needs attention first, then outcomes with their measures, then the initiatives serving it */
   function prioDetailHtml(p, slug, money) {
-    const off = prioOff(p), owed = p.measures.filter((m) => m.owed && m.state !== 'offtrack'), f = HGReport.fmt;
-    const groups = []; const seen = new Set();
+    const f = HGReport.fmt, seen = new Set(), groups = [];
     p.outcomes.forEach((o) => { const ms = p.measures.filter((m) => m.outcome === o); ms.forEach((m) => seen.add(m.id)); groups.push([o, ms]); });
     const loose = p.measures.filter((m) => !seen.has(m.id)); if (loose.length) groups.push([p.outcomes.length ? 'Other measures' : 'Measures', loose]);
     const tot = p.inits.reduce((a, i) => a + (i.cost || 0), 0);
+    const mhead = '<thead><tr><th>Measure</th><th>Latest</th><th>Target</th><th>Status</th></tr></thead>';
     return `<div class="pd" style="--g:${p.color}">
-      <div class="pd-head"><div class="pc-n">Priority ${p.n}${p.csip ? ' · CSIP goal' : ''}</div><h2>${esc(p.name)}</h2>${p.statement ? `<p class="pd-why">${esc(p.statement)}</p>` : ''}
+      <div class="pd-head"><div class="pd-label">Priority ${p.n}${p.csip ? ' · CSIP goal' : ''}</div><h2>${esc(p.name)}</h2>${p.statement ? `<p class="pd-why">${esc(p.statement)}</p>` : ''}
         ${p.importance ? `<div class="small muted">Community importance ${p.importance.value.toLocaleString('en-US', { maximumFractionDigits: 2 })}${p.importance.of5 ? ' out of 5' : ''} · ${esc(p.importance.survey)}</div>` : ''}
         ${p.rating ? `<div class="small muted">How we’re doing, as the community rated it: ${p.rating.value.toLocaleString('en-US', { maximumFractionDigits: 1 })} out of 5${p.rating.n ? ` (${p.rating.n} answers)` : ''} · ${esc(p.rating.survey)}</div>` : ''}</div>
-      ${p.measures.length ? (off.length || owed.length ? `<div class="pd-attn"><h4>Needs attention</h4><ul class="pm-list">${off.concat(owed).map((m) => prioMeasureHtml(m, slug)).join('')}</ul></div>`
-        : '<div class="pd-ok">Nothing needs attention: every measure with data is on track or met.</div>') : ''}
-      ${groups.length ? groups.map(([o, ms]) => `<div class="pd-out"><h4>${esc(o)}</h4>${ms.length ? `<ul class="pm-list">${ms.map((m) => prioMeasureHtml(m, slug)).join('')}</ul>` : '<p class="small muted">No measures for this outcome yet.</p>'}</div>`).join('')
-        : '<p class="small muted">No outcomes or measures yet.</p>'}
-      <div class="pd-out"><h4>Initiatives serving it <span class="small muted">· ${p.inits.length}${money && tot > 0.5 ? ` · ${f(tot)}` : ''}</span></h4>
-        ${p.inits.length ? `<div class="pi-cards">${p.inits.map((i) => `<div class="pi st-edge-${esc(i.status)}"><div class="pi-name">${esc(i.name)}</div><div class="small"><span class="st st-${esc(i.status)}">${esc(i.word)}</span>${money && i.cost > 0.5 ? ` · ${f(i.cost)}` : ''}</div></div>`).join('')}</div>` : '<p class="small muted">None linked yet.</p>'}</div>
+      <section class="pd-sec"><h3 class="pd-sec-h">Outcomes and how we measure them</h3>
+        ${groups.length ? groups.map(([o, ms]) => `<div class="pd-outcome"><div class="pd-oname">${esc(o)}</div>${ms.length ? `<div class="scroll"><table class="pd-mt">${mhead}<tbody>${ms.map((m) => prioMeasureRow(m, slug)).join('')}</tbody></table></div>` : '<p class="small muted">No measures for this outcome yet.</p>'}</div>`).join('')
+          : '<p class="small muted">No outcomes or measures yet.</p>'}</section>
+      <section class="pd-sec"><h3 class="pd-sec-h">Initiatives serving it <span class="muted">· ${p.inits.length}${money && tot > 0.5 ? ` · ${f(tot)}` : ''}</span></h3>
+        ${p.inits.length ? `<div class="scroll"><table class="pd-it"><thead><tr><th>Initiative</th><th>Status</th>${money ? '<th class="num">Cost</th>' : ''}</tr></thead><tbody>${p.inits.map((i) => `<tr><td>${esc(i.name)}</td><td>${esc(i.word)}</td>${money ? `<td class="num">${i.cost > 0.5 ? f(i.cost) : '<span class="muted">—</span>'}</td>` : ''}</tr>`).join('')}</tbody></table></div>` : '<p class="small muted">None linked yet.</p>'}</section>
     </div>`;
   }
   async function vPriorities(c) {
@@ -1011,15 +1012,21 @@
     if (!list.some((p) => p.id === PR.sel)) PR.sel = list[0].id;
     PR.list = list;
     const tools = `<div class="row prio-tools">${c.plan ? '<button type="button" class="btn primary" data-action="editPriority" data-id="">Add a priority</button>' : ''}
+        ${c.plan ? `<button type="button" class="btn ${PR.arrange ? 'on' : ''}" data-action="prioArrange" aria-pressed="${PR.arrange}">${PR.arrange ? 'Done editing' : 'Edit priorities'}</button>` : ''}
         <a class="btn" href="#/d/${enc(c.district.slug)}/track/measures">Measures</a>
-        ${c.plan ? `<button type="button" class="btn ${PR.arrange ? 'on' : ''}" data-action="prioArrange" aria-pressed="${PR.arrange}">${PR.arrange ? 'Done arranging' : 'Arrange priorities'}</button>
-        <label class="btn">Upload goals<input type="file" data-dir-upload="goals" accept=".csv,.xlsx" hidden></label> <a href="#" class="small" data-action="dirTemplate" data-k="goals">template</a>` : ''}</div>`;
-    const arrange = c.plan && PR.arrange ? `<div class="card"><h3>Arrange priorities</h3><p class="small muted">The order here is the order everywhere: Home, the district plan, the board report and the community page.</p>
-      <ol class="prio-arrange">${D.priorities.map((pr, k) => `<li><span>${esc(pr.name)}</span><span class="row moves"><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="-1" ${k ? '' : 'disabled'} aria-label="Move ${esc(pr.name)} up">▲</button><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="1" ${k < D.priorities.length - 1 ? '' : 'disabled'} aria-label="Move ${esc(pr.name)} down">▼</button></span></li>`).join('')}</ol></div>` : '';
+        ${c.plan ? `<label class="btn">Upload goals<input type="file" data-dir-upload="goals" accept=".csv,.xlsx" hidden></label> <a href="#" class="small" data-action="dirTemplate" data-k="goals">template</a>` : ''}</div>`;
+    /* 15 Oct: one place to change the priorities: rename or describe one (its editor), put them in order, or retire one the
+       district has completed. A retired priority leaves the plan, Home, reports and the community page, and can come back. */
+    const edit = c.plan && PR.arrange ? `<div class="card prio-edit"><h3>Edit priorities</h3><p class="small muted">Click a name to change it, what it means, or its outcomes. The order here is the order everywhere: Home, the district plan, the board report and the community page.</p>
+      <ol class="prio-arrange">${D.priorities.map((pr, k) => `<li><div class="pe-name"><a href="#" data-action="editPriority" data-id="${esc(pr.id)}">${esc(pr.name)}</a>${pr.statement ? `<div class="small muted">${esc(pr.statement)}</div>` : ''}</div>
+        <span class="row moves"><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="-1" ${k ? '' : 'disabled'} aria-label="Move ${esc(pr.name)} up">▲</button><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="1" ${k < D.priorities.length - 1 ? '' : 'disabled'} aria-label="Move ${esc(pr.name)} down">▼</button>
+        <button type="button" class="btn small" data-action="prioRetire" data-id="${esc(pr.id)}">Retire</button></span></li>`).join('')}</ol>
+      <p class="small muted">Retire a priority when the district has achieved it or no longer works toward it. Its measures and initiatives are kept; initiatives linked to it show as not linked to a priority until you link them elsewhere.</p>
+      ${(D.retired || []).length ? `<h4>Retired priorities</h4><ul class="prio-retired">${D.retired.map((pr) => `<li><span>${esc(pr.name)} <span class="small muted">· retired ${esc(day(pr.retired_on))}</span></span><button type="button" class="btn small" data-action="prioRestore" data-id="${esc(pr.id)}">Bring it back</button></li>`).join('')}</ul>` : ''}</div>` : '';
     const sel = list.find((p) => p.id === PR.sel);
-    return `<div id="dir-upload"></div>${tools}${arrange}
+    return `<div id="dir-upload"></div>${tools}${edit}
       ${prioCardsHtml(list, PR.sel, true)}
-      <div class="card" id="prio-detail">${prioDetailHtml(sel, c.district.slug, true)}${c.plan ? `<div class="pd-edit"><a href="#" data-action="editPriority" data-id="${esc(sel.id)}">Edit “${esc(sel.name)}”: its name, what it means and its outcomes</a></div>` : ''}</div>`;
+      <div class="card" id="prio-detail">${prioDetailHtml(sel, c.district.slug, true)}${c.plan ? `<div class="pd-edit"><a href="#" data-action="editPriority" data-id="${esc(sel.id)}">Edit this priority</a></div>` : ''}</div>`;
   }
   const DIR = { D: null };
   function openPriorityEditor(id) {
@@ -1208,11 +1215,11 @@
   }
   function liveSurveyTop(c, D) {
     const due = surveyDue(c.district, D.surveys), cad = c.district.survey_cadence || 'quarterly';
-    return `<div class="card sv-top"><div class="row" style="justify-content:space-between;align-items:center"><div><h3 style="margin:0">Ask the community</h3>
-        <p class="small muted" style="margin:4px 0 0">Run a short survey here: a link anyone can answer, anonymously. Results land on this page and feed the priorities and the community page.</p></div>
-        ${c.plan ? '<button type="button" class="btn primary" data-action="editLiveSurvey" data-id="">Start a survey</button>' : ''}</div>
-      ${due ? `<div class="notice warn" data-sv-due>Time to ask the community: ${due.last ? `the last survey was ${esc(day(due.last))}` : 'no survey yet'}, and the district asks every ${due.months === 1 ? 'month' : due.months + ' months'}.</div>` : ''}
-      <div class="row small" style="margin-top:8px">Remind us to ask: ${c.admin ? `<select data-sv-cadence aria-label="How often to ask the community">${CADENCE.map(([k, l]) => `<option value="${k}" ${k === cad ? 'selected' : ''}>${l}</option>`).join('')}</select>` : `<b>${esc((CADENCE.find((x) => x[0] === cad) || CADENCE[1])[1].toLowerCase())}</b> <span class="muted">(a district admin can change it)</span>`}</div></div>`;
+    const remind = `<label class="sv-remind small">Remind us to ask ${c.admin ? `<select data-sv-cadence aria-label="How often to ask the community">${CADENCE.map(([k, l]) => `<option value="${k}" ${k === cad ? 'selected' : ''}>${l.toLowerCase()}</option>`).join('')}</select>` : `<b>${esc((CADENCE.find((x) => x[0] === cad) || CADENCE[1])[1].toLowerCase())}</b>`}</label>`;
+    return `${due ? `<div class="notice error sv-due" data-sv-due role="status"><b>Time to ask the community.</b> ${due.last ? `The last survey was ${esc(day(due.last))}` : 'There’s no survey yet'}, and the district asks every ${due.months === 1 ? 'month' : due.months + ' months'}.</div>` : ''}
+      <div class="card sv-top"><h3 style="margin:0">Ask the community</h3>
+        <p class="small muted" style="margin:4px 0 10px">Run a short survey here: a link anyone can answer, anonymously. Results land on this page and feed the priorities and the community page.</p>
+        <div class="row sv-top-row">${c.plan ? '<button type="button" class="btn primary" data-action="editLiveSurvey" data-id="">Start a survey</button>' : ''}<span style="flex:1"></span>${remind}</div></div>`;
   }
   function openLiveSurveyEditor(id) {
     const D = DIR.D, sv = id ? D.surveys.find((x) => x.id === id) : { name: '', focus: ['rating', 'ideas', 'new_ideas'], items: {}, intro: '' };
@@ -1221,8 +1228,8 @@
     modal(`<form class="stack" data-form="saveLiveSurvey" data-id="${esc(id || '')}" novalidate>
       <div class="row" style="justify-content:space-between"><h2 id="modal-title">${id ? 'Edit survey' : 'Start a community survey'}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
       <div class="fgrid"><label class="field">Name<input name="name" maxlength="120" value="${esc(sv.name || '')}" placeholder="Community survey, fall 2026" required></label>
-        <label class="field">Open until <span class="small muted">(optional)</span><input type="date" name="closed_on" value="${esc(sv.closed_on || '')}"></label></div>
-      <label class="field">A note at the top <span class="small muted">(optional)</span><textarea name="intro" maxlength="600" placeholder="We’re planning the next five years and want to know what matters to you.">${esc(sv.intro || '')}</textarea></label>
+        <label class="field"><span>Open until <span class="opt">(optional)</span></span><input type="date" name="closed_on" value="${esc(sv.closed_on || '')}"></label></div>
+      <label class="field"><span>A note at the top <span class="opt">(optional)</span></span><textarea name="intro" maxlength="600" placeholder="We’re planning the next five years and want to know what matters to you.">${esc(sv.intro || '')}</textarea></label>
       <fieldset class="field" ${locked ? 'disabled' : ''}><legend>What it asks${locked ? ' <span class="small muted">(fixed once it opens)</span>' : ''}</legend>
         ${SV_FOCUS.map(([k, l, h]) => `<label class="row"><input type="checkbox" name="focus_${k}" ${(sv.focus || []).includes(k) ? 'checked' : ''}> <span><b>${l}</b> <span class="small muted">${h}</span></span></label>`).join('')}</fieldset>
       <fieldset class="field" ${locked ? 'disabled' : ''}><legend>Ideas to ask about <span class="small muted">(initiatives not approved yet)</span></legend>
@@ -3458,7 +3465,7 @@
         <label class="field">Needed by, fiscal year<input name="need_by" inputmode="numeric" placeholder="2031" value="${i.need_by_fy == null ? '' : i.need_by_fy}"><span class="hint">The latest year it can wait until. Suggestions never move it later.</span></label>
         ${dec ? `
         <label class="field">Owner<input name="owner_name" maxlength="80" value="${esc(i.owner_name || '')}" placeholder="Name or role"></label>
-        <label class="field">Strategic priority<select name="priority_id"><option value="">None</option>${(rows.priorities || []).map((p) => `<option value="${esc(p.id)}" ${i.priority_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+        <label class="field">Strategic priority<select name="priority_id"><option value="">None</option>${(rows.priorities || []).filter((p) => !p.retired_on || p.id === i.priority_id).map((p) => `<option value="${esc(p.id)}" ${i.priority_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
           ${(rows.priorities || []).length ? '' : '<span class="hint">Add strategic priorities on Plan → Priorities.</span>'}</label>
         <label class="field"><span>Board approved it on ${def('board_approved')}</span><input name="approved_on" type="date" value="${esc(i.approved_on || '')}"><span class="hint">Optional. The date of the board vote, from the minutes. Leave it empty until the board has voted.</span></label>` : ''}
       </div>
@@ -5658,10 +5665,11 @@
       ${F.includes('rating') && (it.priorities || []).length ? `<div class="card"><h3>How are we doing?</h3><p class="small muted">1 = not well at all, 5 = very well. Skip any you’re not sure about.</p>${it.priorities.map((p) => scale('r:' + p.id, p.name)).join('')}</div>` : ''}
       ${F.includes('ideas') && (it.ideas || []).length ? `<div class="card"><h3>Ideas we’re considering</h3><p class="small muted">How much would you support each? 1 = not at all, 5 = strongly. Skip any you’re not sure about.</p>${it.ideas.map((x) => scale('s:' + x.id, x.name)).join('')}</div>` : ''}
       ${F.includes('new_ideas') ? `<div class="card"><h3>Your ideas</h3><label class="field">What should the district do, fix or start?<textarea name="idea" maxlength="1000" rows="4" placeholder="Optional"></textarea></label>
-        ${(it.priorities || []).length ? `<label class="field">Which priority is it closest to? <span class="small muted">(optional)</span><select name="idea_priority"><option value="">Not sure</option>${it.priorities.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label>` : ''}
+        ${(it.priorities || []).length ? `<label class="field"><span>Which priority is it closest to? <span class="opt">(optional)</span></span><select name="idea_priority"><option value="">Not sure</option>${it.priorities.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label>` : ''}
         <p class="small muted">Please don’t include names or anything that identifies a student or staff member.</p></div>` : ''}
-      <div class="card"><label class="field">I am a… <span class="small muted">(optional)</span><select name="role"><option value="">Prefer not to say</option><option value="parent">Parent or guardian</option><option value="staff">District staff</option><option value="community">Community member</option><option value="student">Student</option></select></label>
+      <div class="card"><label class="field"><span>I am a… <span class="opt">(optional)</span></span><select name="role"><option value="">Prefer not to say</option><option value="parent">Parent or guardian</option><option value="staff">District staff</option><option value="community">Community member</option><option value="student">Student</option></select></label>
         <p class="small muted">Answers are anonymous: no names, emails or addresses are collected. The district sees the totals and the ideas people write.</p>
+        ${surveyBotKey() ? '<div class="sv-bot" data-sv-bot></div>' : ''}
         <div class="notice error" data-form-errors hidden></div>
         <button type="submit" class="btn primary">Send my answers</button></div></form>`;
   }
@@ -5676,6 +5684,19 @@
         <div id="sv-body">${surveyFormHtml(s)}</div>`
       : `<div class="card"><h2>No survey open right now</h2><p>${d ? 'This district isn’t asking for answers at the moment.' : 'This link doesn’t have a survey.'} ${d ? `<a href="#/p/${enc(slug)}">See the district’s plan</a>.` : ''}</p></div>`;
     app.innerHTML = `<div class="main"><header class="topbar pub-top">${d ? pubBrand(d) : ''}</header><main class="content">${body}</main></div>`;
+    if (s && surveyBotKey()) surveyBotMount();
+  }
+  /* the bot check (Cloudflare Turnstile), when config.js has turnstileSiteKey: the visitor usually sees nothing or one tick;
+     the answer then goes to the submit-survey function, which checks it with Cloudflare before saving */
+  const surveyBotKey = () => ((window.HG_CONFIG || {}).turnstileSiteKey || '').trim();
+  const SV_BOT = { token: null, id: null };
+  function surveyBotMount() {
+    SV_BOT.token = null;
+    const go = () => { const el = document.querySelector('[data-sv-bot]'); if (!el || !window.turnstile) return;
+      SV_BOT.id = window.turnstile.render(el, { sitekey: surveyBotKey(), callback: (t) => { SV_BOT.token = t; }, 'expired-callback': () => { SV_BOT.token = null; }, 'error-callback': () => { SV_BOT.token = null; } }); };
+    if (window.turnstile) return go();
+    if (!document.getElementById('cf-turnstile')) { const sc = document.createElement('script'); sc.id = 'cf-turnstile'; sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; sc.async = true; sc.onload = go; document.head.appendChild(sc); }
+    else document.getElementById('cf-turnstile').addEventListener('load', go);
   }
   async function submitSurvey(f, form) {
     const s = SV_PUB.s, box = form.querySelector('[data-form-errors]'); if (!s) return;
@@ -5683,7 +5704,16 @@
     Object.entries(f).forEach(([k, v]) => { if (k.startsWith('r:') && v) a.ratings[k.slice(2)] = Number(v); if (k.startsWith('s:') && v) a.support[k.slice(2)] = Number(v); });
     const idea = String(f.idea || '').trim().slice(0, 1000); if (idea) { a.idea = idea; if (f.idea_priority) a.idea_priority = f.idea_priority; }
     if (!Object.keys(a.ratings).length && !Object.keys(a.support).length && !a.idea) { box.hidden = false; box.textContent = 'Answer at least one question, or write an idea.'; return; }
-    const r = await HG.db.rpc('submit_survey', { p_slug: SV_PUB.slug, p_survey: s.id, p_answers: a, p_device: surveyDevice(), p_role: f.role || null }, { auth: false });
+    let r;
+    if (surveyBotKey()) {
+      if (!SV_BOT.token) { box.hidden = false; box.textContent = 'One moment: the check above confirms you’re a person. Try again in a second.'; return; }
+      const cfg = window.HG_CONFIG, res = await fetch(`${cfg.supabaseUrl}/functions/v1/submit-survey`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: cfg.publishableKey },
+        body: JSON.stringify({ slug: SV_PUB.slug, survey: s.id, answers: a, device: surveyDevice(), role: f.role || null, token: SV_BOT.token }) });
+      const out = await res.json().catch(() => ({}));
+      if (out.result === 'bot') { box.hidden = false; box.textContent = 'The check didn’t go through. Reload the page and try again.'; if (window.turnstile && SV_BOT.id != null) window.turnstile.reset(SV_BOT.id); SV_BOT.token = null; return; }
+      if (!res.ok) throw new UserError(out.error || 'Your answers couldn’t be sent. Try again in a minute.');
+      r = out.result;
+    } else r = await HG.db.rpc('submit_survey', { p_slug: SV_PUB.slug, p_survey: s.id, p_answers: a, p_device: surveyDevice(), p_role: f.role || null }, { auth: false });
     const msg = r === 'saved' ? '<h2>Thank you</h2><p>Your answers are in. The district will share what it heard.</p>'
       : r === 'already' ? '<h2>You’ve already answered</h2><p>This survey takes one set of answers from each device. Thank you for taking part.</p>'
       : '<h2>This survey has closed</h2><p>Thank you for your interest.</p>';
@@ -5898,9 +5928,16 @@
     prioSel(el) {   // switch the detail without reloading
       PR.sel = el.dataset.id; const p = (PR.list || []).find((x) => x.id === PR.sel), box = document.getElementById('prio-detail'); if (!p || !box) return here();
       document.querySelectorAll('.pc-row .pc').forEach((b) => { const on = b.dataset.id === PR.sel; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
-      const c = ctx(); box.innerHTML = prioDetailHtml(p, S.district.slug, true) + (c.plan ? `<div class="pd-edit"><a href="#" data-action="editPriority" data-id="${esc(p.id)}">Edit “${esc(p.name)}”: its name, what it means and its outcomes</a></div>` : '');
+      const c = ctx(); box.innerHTML = prioDetailHtml(p, S.district.slug, true) + (c.plan ? `<div class="pd-edit"><a href="#" data-action="editPriority" data-id="${esc(p.id)}">Edit this priority</a></div>` : '');
     },
     prioArrange() { PR.arrange = !PR.arrange; here(); },
+    async prioRetire(el) {
+      const D = DIR.D, pr = D && D.priorities.find((x) => x.id === el.dataset.id); if (!pr) return;
+      const m = (PR.list || []).find((x) => x.id === pr.id), open = m ? m.inits.filter((i) => !['done', 'declined'].includes(i.status)).length : 0;
+      if (!confirm(`Retire “${pr.name}”?${open ? ` ${open} of its initiatives aren’t finished yet.` : ''} It leaves the plan, Home, reports and the community page (after you next publish). You can bring it back.`)) return;
+      await HG.db.update('priority', `id=eq.${enc(pr.id)}`, { retired_on: new Date().toISOString().slice(0, 10) }); toast('Retired.'); here();
+    },
+    async prioRestore(el) { await HG.db.update('priority', `id=eq.${enc(el.dataset.id)}`, { retired_on: null }); toast('Back in the plan.'); here(); },
     async editLiveSurvey(el) { if (!DIR.D) DIR.D = await loadDirection(S.district); openLiveSurveyEditor(el.dataset.id || null); },
     async openLiveSurvey(el) { await HG.db.update('survey', `id=eq.${enc(el.dataset.id)}`, { status: 'open', opened_on: new Date().toISOString().slice(0, 10) }); toast('Survey open: copy the link to share it.'); here(); },
     async closeLiveSurvey(el) { await closeLiveSurvey(el.dataset.id); },

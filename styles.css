@@ -1064,3 +1064,44 @@ h3.sec-h{margin:18px 0 4px;font-size:16px;color:var(--muted)}
 .sv-scale input:checked+span{background:#2F6B4F;color:#fff;border-color:#2F6B4F}
 .sv-scale input:focus-visible+span{outline:3px solid #2F5D9E;outline-offset:2px}
 .sv-done h2{margin-top:0}
+
+/* 15 Oct, second pass ---------------------------------------------------------- */
+/* "(optional)" stays on its label's line */
+.field .opt{font-weight:400;color:var(--muted);font-size:12.5px}
+.fgrid{align-items:end}
+/* folded warnings: the heading keeps its colour; the explanation reads as normal text */
+details.fold.notice>*:not(summary){color:var(--text)}
+details.fold.notice li{color:var(--text)}
+details.fold.notice li::marker{color:#C2410C}
+/* Community input: the reminder sits on its own above the card; the reminder setting lines up with the button */
+.sv-due{margin-bottom:0}
+.sv-top-row{align-items:center;flex-wrap:wrap;gap:10px}
+.sv-remind{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+.sv-remind select{font-size:13px}
+/* Priorities detail, calmer: plain sections, neutral tables, colour only on the status dot */
+.pd{gap:20px}
+.pd-head{border-left:0;padding-left:0;border-bottom:1px solid var(--border);padding-bottom:12px}
+.pd-label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--g)}
+.pd-head h2{font-size:21px;margin:2px 0 4px}
+.pd-sec-h{font-size:13px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.pd-outcome{margin-bottom:14px}
+.pd-oname{font-weight:700;font-size:15px;margin-bottom:4px}
+table.pd-mt,table.pd-it{width:100%;border-collapse:collapse;font-size:14px}
+table.pd-mt th,table.pd-it th{font-size:12px;font-weight:600;color:var(--muted);text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--border)}
+table.pd-mt td,table.pd-it td{padding:7px 8px 7px 0;border-bottom:1px solid #EFEDE7;vertical-align:top}
+table.pd-mt tr:last-child td,table.pd-it tr:last-child td{border-bottom:0}
+table.pd-mt td.pm-n{width:34%}
+table.pd-mt td.pm-s{white-space:nowrap;width:110px}
+table.pd-mt tr.is-off td.pm-s{color:#B42318;font-weight:600}
+table.pd-it th.num,table.pd-it td.num{text-align:right}
+.pd-edit{border-top:1px solid var(--border);padding-top:10px}
+/* Edit priorities */
+ol.prio-arrange li{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)}
+ol.prio-arrange li:last-child{border-bottom:0}
+.pe-name a{font-weight:600}
+ul.prio-retired{list-style:none;padding:0;margin:0}
+ul.prio-retired li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0}
+/* measure tables under each outcome share the same column widths, so they line up down the page */
+table.pd-mt{table-layout:fixed}
+table.pd-mt th:nth-child(1){width:36%}table.pd-mt th:nth-child(2){width:20%}table.pd-mt th:nth-child(3){width:28%}table.pd-mt th:nth-child(4){width:16%}
+@media (max-width: 820px){ table.pd-mt{table-layout:auto} }

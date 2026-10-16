@@ -1194,7 +1194,19 @@ async def main():
           ncards==len(TABLES["priority"]) and sel[-1]=="true" and sel.count("true")==1 and not [c for c in calls[n0:] if c[0]=="GET"] and await pg.locator(".pc .pc-big").count()>=1
           and await pg.locator("button[data-action=prioMove]").count()==0, str(sel))
     await pg.click("button[data-action=prioArrange]"); await pg.wait_for_timeout(600)
-    check("priorities (15 Oct): Arrange priorities shows the order with ▲▼", await pg.locator("ol.prio-arrange button[data-action=prioMove]").count()==2*len(TABLES["priority"]))
+    check("priorities (15 Oct): Edit priorities shows each one's name (opens its editor), the order with ▲▼, and Retire", await pg.locator("ol.prio-arrange button[data-action=prioMove]").count()==2*len(TABLES["priority"])
+          and await pg.locator("ol.prio-arrange a[data-action=editPriority]").count()==len(TABLES["priority"]) and await pg.locator("ol.prio-arrange button[data-action=prioRetire]").count()==len(TABLES["priority"]))
+    rid=TABLES["priority"][-1]["id"]
+    n0=len(calls); await pg.click(f"button[data-action=prioRetire][data-id='{rid}']"); await pg.wait_for_timeout(700)
+    rp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and c[1].split("?")[0]=="/rest/v1/priority"]
+    check("priorities (15 Oct): Retire marks the priority retired (after a confirmation), kept for the record", rp and rp[0].get("retired_on"), str(rp))
+    TABLES["priority"][-1]["retired_on"]="2026-10-15"; await pg.reload(); await pg.wait_for_timeout(900)
+    await pg.click("button[data-action=prioArrange]"); await pg.wait_for_timeout(700)
+    check("priorities (15 Oct): a retired priority leaves the cards and is listed under Retired priorities with Bring it back",
+          await pg.locator(".pc-row button.pc").count()==len(TABLES["priority"])-1 and await pg.locator(f"button[data-action=prioRestore][data-id='{rid}']").count()==1)
+    TABLES["priority"][-1].pop("retired_on"); await pg.reload(); await pg.wait_for_timeout(900)
+    dt=await pg.evaluate("(()=>{const d=document.querySelector('#prio-detail');return d?[d.querySelectorAll('.pd-sec').length, d.querySelectorAll('.pill, .bp-mbar, .pm-trend svg').length, d.querySelectorAll('table.pd-mt').length]:null})()")
+    check("priorities (15 Oct, calmer): the detail is three plain parts (the priority, outcomes with measure tables, initiatives); no pills, bars or trend lines in it", dt and dt[0]==2 and dt[1]==0 and dt[2]>=1, str(dt))
     await pg.click("button[data-action=prioArrange]"); await pg.wait_for_timeout(600)
     check("priorities: each with outcomes, measures and their status, and initiatives serving it", "Every graduate ready for what’s next" in t and "Career and technical pathways" in t and "On track" in t and "Off track" in t and "Secure entrances — three buildings" in t, t[:500])
     # Reports → Plans: one plan, three views
@@ -1343,8 +1355,13 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pg.wait_for_timeout(800)
     check("survey reminder (15 Oct): Home says it's time to ask the community when the last survey is older than the reminder setting (quarterly by default)", "Time to ask the community" in await pg.inner_text("#view"))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/community"); await pg.wait_for_timeout(900)
+    order=await pg.evaluate("(()=>{const a=document.querySelector('[data-sv-due]'),b=document.querySelector('.sv-top');return !!(a&&b&&(a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING)&&!b.contains(a))})()")
+    rowok=await pg.evaluate("(()=>{const b=document.querySelector('.sv-top button[data-action=editLiveSurvey]'),r=document.querySelector('.sv-top .sv-remind');if(!b||!r)return false;const x=b.getBoundingClientRect(),y=r.getBoundingClientRect();return Math.abs((x.top+x.bottom)/2-(y.top+y.bottom)/2)<8 && y.right>x.right+100})()")
+    check("survey (15 Oct, second pass): the reminder is its own red box above Ask the community; Remind us to ask sits on the button's line, at the right", order and rowok, str([order,rowok]))
     check("survey (15 Oct): Community input offers to run a survey, says it's due, and has the reminder setting", await pg.locator("button[data-action=editLiveSurvey][data-id='']").count()==1 and await pg.locator("[data-sv-due]").count()==1 and await pg.locator("select[data-sv-cadence]").count()==1)
     await pg.click("button[data-action=editLiveSurvey][data-id='']"); await pg.wait_for_timeout(300)
+    al=await pg.evaluate("(()=>{const a=document.querySelector('[data-modal] input[name=name]').getBoundingClientRect(),b=document.querySelector('[data-modal] input[name=closed_on]').getBoundingClientRect();return Math.abs(a.top-b.top)})()")
+    check("survey editor (15 Oct, second pass): the name and open-until boxes line up; (optional) sits on its label's line", al<=2 and await pg.locator("[data-modal] .field > span .opt").count()>=2, str(al))
     await pg.fill("[data-modal] input[name=name]","Community survey, fall 2026")
     n0=len(calls); await pg.click("[data-modal] button[name=go][value=open]"); await pg.wait_for_timeout(700)
     sp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/survey"]
@@ -1374,6 +1391,26 @@ async def main():
     await sq.goto("http://localhost:8765/#/p/ironwood-valley"); await sq.wait_for_timeout(1000)
     check("community page (15 Oct): while a survey is open, the page invites people to take it", await sq.locator("[data-sv-invite] a[href='#/s/ironwood-valley']").count()==1)
     await sx.close()
+    # 15 Oct: with the bot check on (config.js turnstileSiteKey), answers go to the submit-survey function with Cloudflare's token, never straight to the database
+    tx=await b.new_context(viewport={"width":390,"height":844})
+    async def cfg_bot(route): await route.fulfill(content_type="application/javascript",body="window.HG_CONFIG={supabaseUrl:'%s',publishableKey:'sb_publishable_TESTKEY_abcdefghijklmnop',turnstileSiteKey:'0x4AAAAtest'};"%SB)
+    BOT={"calls":[],"result":"saved"}
+    async def fn(route):
+      BOT["calls"].append(json.loads(route.request.post_data or "{}")); r0=BOT["result"]
+      await route.fulfill(status=403 if r0=="bot" else 200, content_type="application/json", body=json.dumps({"result":r0}))
+    await tx.route("**/config.js",cfg_bot); await tx.route(SB+"/**",handler); await tx.route(SB+"/functions/v1/submit-survey",fn);   # the later route wins await tx.route("**/fonts.g*/**",lambda r:r.abort())
+    await tx.route("https://challenges.cloudflare.com/**",lambda r:r.fulfill(content_type="application/javascript",body="window.turnstile={render:(el,o)=>{el.textContent='[bot check]';setTimeout(()=>o.callback('cf-token-123'),50);return 1},reset:()=>{}};"))
+    tq=await tx.new_page(); tq.on("pageerror",lambda e:errs.append(str(e)))
+    await tq.goto("http://localhost:8765/#/s/ironwood-valley"); await tq.wait_for_timeout(900)
+    widget=await tq.locator("[data-sv-bot]").count()==1 and "[bot check]" in await tq.inner_text("[data-sv-bot]")
+    await tq.click(".sv-form fieldset.sv-q >> nth=0 >> text=5"); n0=len(calls); await tq.click(".sv-form button[type=submit]"); await tq.wait_for_timeout(700)
+    check("survey bot check (15 Oct): with a Turnstile site key, the widget shows and the answer goes to the submit-survey function with its token, not straight to the database",
+          widget and BOT["calls"] and BOT["calls"][0].get("token")=="cf-token-123" and BOT["calls"][0]["answers"]["ratings"]
+          and not [c for c in calls[n0:] if "/rpc/submit_survey" in c[1]] and await tq.locator("[data-sv-done=saved]").count()==1, str(BOT["calls"])[:200])
+    BOT["result"]="bot"; await tq.reload(); await tq.wait_for_timeout(900)
+    await tq.click(".sv-form fieldset.sv-q >> nth=0 >> text=5"); await tq.click(".sv-form button[type=submit]"); await tq.wait_for_timeout(600)
+    check("survey bot check (15 Oct): a failed check says so and keeps the answers on the page", "didn’t go through" in await tq.inner_text("[data-form-errors]") and await tq.locator("[data-sv-done]").count()==0)
+    await tx.close()
     await pg.reload(); await pg.wait_for_timeout(1000)
     lv=await pg.inner_text("[data-sv-live]")
     check("survey (15 Oct): planners see the answers so far: ratings by priority, the ideas people wrote, who answered", "1 answer" in lv and "More after-school tutoring" in lv and "1 parents or guardians" in lv and "4.0" in lv, lv[:400])
@@ -2043,6 +2080,9 @@ async def main():
       sb2=await pg.locator("[data-double-count] > summary").bounding_box()
       ic=await pg.evaluate("(()=>{const d=document.querySelector('[data-double-count]'),r=d.getBoundingClientRect(),cs=getComputedStyle(d,'::before'),sm=d.querySelector('summary').getBoundingClientRect();return [parseFloat(cs.top)+r.top, sm.top, sm.bottom]})()")
       check("double count (15 Oct): the warning's icon, arrow and words sit on one line", sb2["height"]<=46 and ic[1]<=ic[0]<=ic[2], str(sb2)+str(ic))
+      await pg.evaluate("document.querySelector('[data-double-count]').open=true"); await pg.wait_for_timeout(200)
+      lc=await pg.evaluate("(()=>{const li=document.querySelector('[data-double-count] li'),sm=document.querySelector('[data-double-count] > summary');return li?[getComputedStyle(li).color,getComputedStyle(sm).color]:null})()")
+      check("double count (15 Oct, second pass): the heading stays orange; the explanation is normal text, not red", lc and lc[0]!=lc[1], str(lc))
     check("capital plan: repeating bus and device purchases on PPEL are flagged against PPEL's ongoing amount", "may be counted twice" in dc and "Bus fleet replacement" in dc and "PPEL already holds back $40k a year" in dc and "Roof" not in dc, dc[:600])
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/general"); await pg.wait_for_timeout(600)
     await pg.click("button[data-action=gfEdit]"); await pg.wait_for_timeout(700)

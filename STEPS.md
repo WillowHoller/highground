@@ -1,21 +1,42 @@
-# HighGround update, 15 Oct (e): live community surveys, less tidy demo figures, new Priorities page, community blueprint
+# HighGround update, 15 Oct (f): survey reminder emails and bot check, live community surveys, less tidy demo figures, new Priorities page, community blueprint
 
-(e) includes everything in (a) to (d). **This one has SQL** (step 1).
+(f) includes everything in (a) to (e). **It has SQL** (steps 1–2) and two optional pieces set up outside GitHub (the end of this file).
 
 ## Install
-1. **Supabase → SQL Editor:** paste `30_live_survey.sql` and Run. Every line of the result should say PASS. Do this **before** step 2.
-2. **GitHub → the HighGround repository → Add file → Upload files.** Drag in:
+1. **Supabase → SQL Editor:** paste `30_live_survey.sql` and Run. Every line of the result should say PASS (six lines: the surveys, plus retiring priorities). Do this **before** uploading.
+2. **Supabase → SQL Editor:** paste `31_survey_reminders.sql` and Run (all PASS). Don't run `32_survey_bot_check.sql` yet: see "Survey bot check" at the end.
+3. **GitHub → the HighGround repository → Add file → Upload files.** Drag in:
    - `app.js`, `styles.css`, `plan.js`, `demo_data.js`
-   - `STEPS.md`, `30_live_survey.sql` (to keep it with the others)
-   - Tests: `test_ui.py`, `plan_test.js`, `actuals_test.js`, `demo_test.js`, `packet_test.js`, `report_test.js`
+   - `STEPS.md`, `30_live_survey.sql`, `31_survey_reminders.sql`, `32_survey_bot_check.sql`, `submit-survey.ts` (kept with the others)
+   - Tests: `test_ui.py`, `plan_test.js`, `actuals_test.js`, `demo_test.js`, `packet_test.js`, `report_test.js`, `submit_survey_test.mjs`
+   - Open the **loader** folder in GitHub and upload `survey_reminders.py` and `survey_reminders_test.py` there.
+   - **The workflow file:** in GitHub open `.github/workflows/daily-health.yml` → the pencil (Edit) → replace everything with this package's `daily-health.yml` (in the `.github/workflows` folder of the zip; on a Mac that folder is hidden in Finder: press Cmd+Shift+. to show it) → Commit.
+   - **Don't upload `config.js`** unless you're switching on the bot check (below).
 
    Commit to `main`.
-3. **Tidy up (recommended):** delete the nine `HighGround-update-2026-10-…` folders from the repository. GitHub Pages publishes everything in the repository, so old copies of the app are reachable on the web. Open each folder in GitHub → the **…** menu → **Delete directory**.
-4. In Safari, press **Cmd+Option+R**. On the iPhone, close the home-screen app from the app switcher and reopen it.
-5. **Republish the community page** (Share → Community page → Publish) so it shows the blueprint.
-6. **Reset Bridger Hollow** (Admin Portal → the demo districts box → **Reset to this demo**) to load the new figures.
-7. **Logo:** if Bridger Hollow's logo still looks small, upload it again on Settings → District.
+4. **Tidy up (recommended):** delete the nine `HighGround-update-2026-10-…` folders from the repository. GitHub Pages publishes everything in the repository, so old copies of the app are reachable on the web. Open each folder in GitHub → the **…** menu → **Delete directory**.
+5. In Safari, press **Cmd+Option+R**. On the iPhone, close the home-screen app from the app switcher and reopen it.
+6. **Republish the community page** (Share → Community page → Publish) so it shows the blueprint.
+7. **Reset Bridger Hollow** (Admin Portal → the demo districts box → **Reset to this demo**) to load the new figures.
+8. **Logo:** if Bridger Hollow's logo still looks small, upload it again on Settings → District.
 
+
+## New in (f): survey reminder emails and a bot check
+- **Reminder emails.** Every morning, right after the health check, the same GitHub job emails the people who can start a survey (admins, superintendent, editors) when their district is due to ask the community. It follows each district's setting (quarterly unless changed; off means never), skips demo districts, districts with no priorities yet and districts with a survey open, and sends each district at most one reminder every 30 days. One email per person (nobody sees the others' addresses), with a **Start a survey** button straight to Community input. It uses the Postmark account and GitHub secrets the health check already has: nothing new to set up beyond step 2.
+  To run it now instead of waiting for the morning: GitHub → Actions → Daily health check → Run workflow (this sends real reminders to any district that's due); the last step's log lists each district it emailed. To only list who would get one, run `python3 loader/survey_reminders.py --dry-run` with DATABASE_URL set.
+- **Survey bot check (optional; switch on before promoting a survey widely).** Cloudflare Turnstile, free. Most people see nothing, or one tick box. Answers then go through a small Supabase function that checks Cloudflare's answer before saving. Setup is at the end of this file. Until it's on, surveys work as in (e), with the database's own limits.
+
+## New in (f)
+- **Priorities, calmer detail.** The cards across the top are unchanged. The selected priority below is now three plain parts, separated clearly:
+  1. the priority (its name and why it matters);
+  2. **Outcomes and how we measure them**: each outcome in bold, its measures in a simple table (Measure · Latest · Target · Status);
+  3. **Initiatives serving it**: a simple table (Initiative · Status · Cost) with the total.
+  Colour appears only on the small status dot; only "Off track" is in red. The red "Needs attention" box, progress bars, trend lines and coloured pills are gone from this view (the cards already flag what's off track).
+- **Edit priorities** replaces Arrange. It lists every priority: click a name to change its name, description or outcomes; ▲▼ to reorder; **Retire** for one the district has achieved or stopped working toward.
+- **Retiring a priority** (new; needs the SQL): it leaves the cards, Home, the district plan, reports and the community page (after you next publish). Its measures and initiatives are kept; initiatives linked to it show as not linked to a priority. Retired priorities are listed under Edit priorities with **Bring it back**.
+- **Worth a second look:** the box and heading are unchanged; the explanation underneath is normal dark text instead of orange.
+- **Community input:** "Time to ask the community" is its own red box at the top of the page, above Ask the community. "Remind us to ask" sits on the same line as Start a survey, at the right.
+- **Survey editor:** the Name and Open until boxes line up; "(optional)" sits on the same line as its label (also on the survey page itself).
 
 ## New in (e): live community surveys
 Plan → Community input now runs surveys inside HighGround (the old way, typing in results from a survey run elsewhere, still works under "Surveys run elsewhere").
@@ -77,9 +98,9 @@ Builds on 14 Oct (f), the version in your highground-main download. **No SQL.**
 - **Budget vs. actual, every table speaks the same colours:** Every fund has a budget-used bar and coloured status pills (On pace, Running ahead, Over by …; revenue On budget, Ahead by …, Short by …), labelled columns and the key. The held-back card's status is a pill too.
 - **The name is the link, everywhere:** measures, assumption sets, financing (bonds, leases, campaigns) and priorities now open their editor from the name, like initiatives and scenarios. The "Edit" links at the far right are gone. On Measures, the Record button stays, under a "Result" heading.
 
-## Not yet changed (next packages)
-- The community survey (collected in HighGround, with reminders).
-- The demo data refresh (Bridger Hollow less tidy; vestibules with a yearly General Fund cost).
+## Still open
+- A QR code for the survey link (for printed flyers and posters), if wanted.
+- The 14 Oct (g) demo check register, when the check register comes back.
 
 ## What changed
 - **Warning cards** ("4 costs may be counted twice"): icon, arrow and words on one line.
@@ -103,4 +124,13 @@ Builds on 14 Oct (f), the version in your highground-main download. **No SQL.**
 
 ## Tests
 - Unit tests: 30 files, all pass. Golden engine cases: 32, 0 differences (the engine and the money math are unchanged).
-- Browser: **540 pass, 0 fail** (was 507 pass, 5 fail on the downloaded code: four expected the 14g demo check register, one was a phone overflow on All funds, now fixed). New checks cover each change above, plus one that the check register is hidden by default.
+- Browser: **548 pass, 0 fail** (was 507 pass, 5 fail on the downloaded code: four expected the 14g demo check register, one was a phone overflow on All funds, now fixed). New checks cover each change above, plus one that the check register is hidden by default.
+
+## Survey bot check: switching it on (optional, about 15 minutes)
+Do these in order. Surveys keep working at every step; step 5 is what makes the check required.
+1. **Cloudflare** (free account at dash.cloudflare.com) → **Turnstile** → **Add widget**. Name: HighGround surveys. Hostname: `highground.willowholler.com`. Widget mode: **Managed**. Create. Copy the **Site key** and the **Secret key**.
+2. **Supabase → Edge Functions → Deploy a new function**, name it exactly `submit-survey`, paste the whole of `submit-survey.ts`, Deploy. In the function's **Settings**, turn **off** "Verify JWT" (visitors aren't signed in; the Cloudflare answer is what's checked). Save.
+3. **Supabase → Edge Functions → Secrets → Add:** `TURNSTILE_SECRET_KEY` = the Secret key from step 1. (Supabase supplies the database URL and its own key to the function automatically.)
+4. **GitHub → `config.js` → Edit:** paste the Site key between the quotes on the `turnstileSiteKey: ''` line. Commit. Hard-refresh. Open the survey link on your phone: you should see the small Cloudflare check above **Send my answers**, and a test answer should say "Thank you".
+5. **Supabase → SQL Editor:** run `32_survey_bot_check.sql` (both lines PASS). From now on answers can only arrive through the checked function.
+To switch it off: run the two "undo" lines at the bottom of `32_survey_bot_check.sql`, then empty `turnstileSiteKey` in `config.js`.
