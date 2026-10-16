@@ -124,7 +124,7 @@
         id: p.id, name: p.name, statement: p.statement || '', csip: !!p.csip_goal,
         outcomes: ((dir && dir.outcomes) || []).filter((x) => x.priority_id === p.id).map((x) => x.name),
         measures: ((dir && dir.measures) || []).filter((m) => (m.priority_id || outcomePri.get(m.outcome_id)) === p.id).map((m) => { const s = st.get(m.id) || {};
-          return { id: m.id, name: m.name, state: s.state || 'nodata', latest: s.latest ? s.latest.value : null, period: s.latest ? s.latest.period || '' : '', target: m.target_value == null ? null : Number(m.target_value), unit: m.unit || '' }; }),
+          return { id: m.id, name: m.name, state: s.state || 'nodata', latest: s.latest ? s.latest.value : null, period: s.latest ? s.latest.period || '' : '', target: m.target_value == null ? null : Number(m.target_value), baseline: m.baseline_value == null ? null : Number(m.baseline_value), unit: m.unit || '' }; }),
         initiatives: items.filter((x) => x.goal === p.name).length,
       }));
     }

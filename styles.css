@@ -910,3 +910,60 @@ table.ranktable td:nth-child(3){min-width:170px}
   .tabs{gap:2px 4px;margin-top:-4px}
   .tabs a{padding:5px 10px;font-size:14px}
 }
+
+/* a title that opens its editor (15 Oct: the name is the link everywhere, no separate Edit column) */
+a.titlelink{color:inherit;text-decoration:none}a.titlelink:hover{color:var(--action);text-decoration:underline;text-underline-offset:3px}
+
+/* status pills on Budget vs. actual: the same three colours as the bars (15 Oct) */
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:10px;white-space:nowrap;border:1px solid transparent}
+.pill.p-pace{background:#EAF3EE;color:#2F6B4F;border-color:#BFDCC9}
+.pill.p-ahead{background:#FFF7ED;color:#B45309;border-color:#FDBA74}
+.pill.p-over{background:#FEF3F2;color:#B42318;border-color:#FECDCA}
+
+/* ---------- District plan, screen version (15 Oct): a plan to look at, not a report; printing uses the tables ---------- */
+.printonly{display:none}
+@media print{ .printonly{display:block} .screenonly{display:none !important} }
+.bp-hero{border-radius:16px;overflow:hidden;background:var(--card);border:1px solid var(--border);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.bp-hero-top{background:var(--bp);color:#fff;padding:22px 24px 20px;background-image:linear-gradient(135deg,rgba(255,255,255,.10),rgba(0,0,0,.12))}
+.bp-hero-top .small{opacity:.85;letter-spacing:.02em}
+.bp-hero-top h2{color:#fff;font-size:28px;line-height:1.15;margin:6px 0 4px}
+.bp-sub{font-size:13.5px;opacity:.85}
+.bp-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.bp-stats>div{padding:16px 22px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
+.bp-stats>div:last-child{border-right:0}
+.bp-stats b{font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+.bp-stats span{font-size:13px;color:var(--muted)}
+.bp-stats .bp-short b{color:#C2410C}.bp-stats .bp-ok b{color:#2F6B4F}
+.bp-goals{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.bp-goal{background:var(--card);border:1px solid var(--border);border-top:6px solid var(--g);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.bp-goal-n{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--g)}
+.bp-goal h3{margin:0;font-size:18px;line-height:1.25}
+.bp-why{margin:0;font-size:14px;color:var(--muted)}
+.bp-score{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px}
+.bp-big{font-size:28px;font-weight:700;color:var(--g);line-height:1}
+.bp-score .dots{display:inline-flex;gap:4px}
+.bp-measures{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.bp-measures li{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:13.5px;padding-left:10px;border-left:3px solid #CBD5E1}
+.bp-measures li.ms-off{border-left-color:#B42318}.bp-measures li.ms-on,.bp-measures li.ms-met{border-left-color:#2F6B4F}
+.bp-mval{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bp-mbar{grid-column:1/-1;height:5px;background:#ECE8DD;border-radius:3px;overflow:hidden}
+.bp-mbar i{display:block;height:100%;background:var(--g)}
+.bp-chip{margin-top:auto;align-self:flex-start;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:999px;background:#F1F5F9;color:#334155}
+.bp-inits{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.bp-init{border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;background:#FCFCFB}
+.bp-init.prop{border-style:dashed}
+.bp-init-name{font-weight:600;font-size:14.5px}
+.bp-init-cost{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+.bp-fund{color:#2F5D9E}
+.bp-years{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+.bp-year{flex:1 0 120px;display:flex;flex-direction:column;gap:4px;min-width:120px}
+.bp-ybar{height:90px;display:flex;align-items:flex-end;background:#F6F4EE;border-radius:6px;overflow:hidden}
+.bp-ybar i{display:block;width:100%;background:var(--ac,#2F6B4F);border-radius:6px 6px 0 0}
+.bp-yfy{font-weight:700;font-size:14px}.bp-ytot{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bp-year ul{margin:2px 0 0;padding-left:16px;font-size:12.5px}
+.bp-funds{display:flex;flex-direction:column;gap:14px}
+.bp-fname{font-weight:600;font-size:14px;margin-bottom:4px}
+.bp-fbars{display:flex;flex-direction:column;gap:3px}
+.bp-fbars span{display:block;height:10px;border-radius:4px;min-width:3px}
+.bp-fbars .in{background:#9DB8DA}.bp-fbars .out{background:#2F6B4F}
+@media (max-width: 820px){ .bp-stats{grid-template-columns:repeat(2,minmax(0,1fr))} .bp-stats>div:nth-child(2){border-right:0} .bp-stats>div:nth-child(-n+2){border-bottom:1px solid var(--border)} .bp-hero-top h2{font-size:22px} }

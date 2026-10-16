@@ -899,6 +899,8 @@ async def main():
     await pg.reload(); await pg.wait_for_timeout(900)
     t=await pg.inner_text("#view")
     check("assumption sets: listed with values and the scenarios using them", "Conservative" in t and "5%" in t and "Addition phased" in t)
+    st_=await pg.evaluate("[...document.querySelectorAll('a[data-action=editSet]')].map(a=>a.innerText.trim())")
+    check("assumption sets (15 Oct): the set's name opens it (no Edit column)", st_ and "Edit" not in st_, str(st_))
     await pg.click("a[data-action=editSet]"); await pg.wait_for_timeout(300)
     await pg.fill("[data-modal] input[name=construction_inflation]","6"); n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(500)
     check("assumption sets: edit saves percentages as fractions", any(c[0]=="PATCH" and "/rest/v1/assumption_set?" in c[1] and json.loads(c[2])["construction_inflation"]==0.06 for c in calls[n0:]))
@@ -1007,14 +1009,18 @@ async def main():
     check("held back: Budget vs. actual shows each capital fund's holdback for the year against unlinked spending, with how much of the year has gone", "Held back each year" in hb and "SAVE" in hb and "Expected by now" in hb and "25% of the year has gone" in hb and ("On pace" in hb or "Running ahead" in hb or "Over" in hb), hb[:600])
     if hb: await pg.locator("[data-holdback-card]").screenshot(path=SHOTS+"/holdback-card.png")
     check("held back: the card's terms have a ? (what's held back, what counts as used)", await pg.locator("[data-holdback-card] button.defn[data-term=holdback]").count()==1 and await pg.locator("[data-holdback-card] button.defn[data-term=holdback_used]").count()==1)
-    check("budget: by default, the year ends at budget unless already exceeded (no false alarms)", "$12,300,000" in t and "$2,909,551" in t and "over by" not in t and "on budget" in t, t[:600])
+    check("budget: by default, the year ends at budget unless already exceeded (no false alarms)", "$12,300,000" in t and "$2,909,551" in t and "over by" not in t.lower() and "On budget" in t and "On pace" in t, t[:600])
+    efh=await pg.evaluate("(()=>{const c=[...document.querySelectorAll('#view .card')].find(x=>x.querySelector('h3')&&x.querySelector('h3').innerText.trim()=='Every fund');return c?[[...c.querySelectorAll('thead th')].map(t=>t.innerText.trim()), c.querySelectorAll('.pill').length, c.querySelectorAll('.ubar').length, c.querySelectorAll('[data-ubar-key]').length]:null})()")
+    hbp=await pg.locator("[data-holdback-card] .pill").count()
+    check("budget (15 Oct): every table on Budget vs. actual uses the same coloured statuses: Every fund has a budget-used bar, status pills, labelled columns and the key; the holdback card's status is a pill",
+          efh and all(efh[0]) and efh[1]>0 and efh[2]>0 and efh[3]==1 and hbp>0, str(efh)+" hb pills %d"%hbp)
     if await pg.locator("table.batable").count():
       lastcol=await pg.evaluate("[...document.querySelectorAll('table.batable tbody tr td:last-child')].map(x=>x.innerText.trim())")
       check("budget (15 Oct): spending by function colours each bar, with one key under the table; no 'on budget' down the last column",
-            await pg.locator("[data-ubar-key]").count()==1 and "on budget" not in " ".join(lastcol) and await pg.locator("table.batable .ubar.ub-pace, table.batable .ubar.ub-ahead, table.batable .ubar.ub-over").count()>0, str(lastcol))
+            await pg.locator("[data-ubar-key]").count()>=1 and "on budget" not in " ".join(lastcol) and await pg.locator("table.batable .ubar.ub-pace, table.batable .ubar.ub-ahead, table.batable .ubar.ub-over").count()>0, str(lastcol))
     else: check("budget (15 Oct): fund detail with spending by function shown", False, "no table.batable")
     await pg.select_option("select[data-ba=method]","pace"); await pg.wait_for_timeout(600); t=await pg.inner_text("#view")
-    check("budget: rest of the year at the budget's pace", "$12,134,551" in t and "short by $165,449" in t)
+    check("budget: rest of the year at the budget's pace", "$12,134,551" in t and "short by $165,449" in t.lower())
     check("budget: spending by function, with what's still available", "Instruction" in t and "$5,275,000" in t and "$880,634" in t and "Operation and maintenance of plant" in t and "$4,394,366" in t, t[t.find("Spending by function"):t.find("Spending by function")+400])
     await pg.locator("#view").screenshot(path=SHOTS+"/budget.png")
     await pg.select_option("select[data-ba=method]","straight"); await pg.wait_for_timeout(600)
@@ -1171,15 +1177,23 @@ async def main():
     check("priorities: each with outcomes, measures and their status, and initiatives serving it", "Every graduate ready for what’s next" in t and "Career and technical pathways" in t and "On track" in t and "Off track" in t and "Secure entrances — three buildings" in t, t[:500])
     # Reports → Plans: one plan, three views
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/share/plans"); await pg.wait_for_timeout(900)
-    t=await pg.inner_text("#view")
+    # 15 Oct: on screen the plan is a designed page (hero, goal cards, initiative cards, timeline, fund bars); the tables are the printed version
+    bp=await pg.evaluate("(()=>{const v=x=>{const e=document.querySelector(x);return !!e&&getComputedStyle(e).display!='none'};return [v('.bp-hero'),document.querySelectorAll('.bp-goal').length,document.querySelectorAll('.bp-init').length,v('.bp-years')||document.querySelectorAll('.bp-year').length>=0,v('.printonly')]})()")
+    st5=await pg.inner_text(".bp-hero") if await pg.locator(".bp-hero").count() else ""
+    check("plans (15 Oct): on screen, a designed plan: a hero with the big numbers, a card per goal, initiatives as cards; the report tables only print",
+          bp[0] and bp[1]>=1 and bp[2]>=1 and not bp[4] and "approved initiative" in st5, str(bp)+st5[:200])
+    await pg.locator("#view").screenshot(path=SHOTS+"/plans-screen.png")
+    async def ptext():
+      await pg.emulate_media(media="print"); tt=await pg.inner_text("#view"); await pg.emulate_media(media="screen"); return tt
+    t=await ptext()
     check("plans: the full plan, with goals, initiatives by status, schedule and capital funds", "District improvement plan" in t and "approved initiative" in t and "Goals" in t and "Every graduate ready for what’s next" in t and "Capital funds, FY" in t and "Totals count approved work only" in t, t[:900])
     check("plans: approved only by default (no proposals listed)", "Proposed, not yet approved by the board" not in t)
     await pg.select_option("select[data-plan-items]","all"); await pg.wait_for_timeout(600)
-    t=await pg.inner_text("#view")
+    t=await ptext()
     npend=len([i for i in TABLES["initiative"] if (i.get("status") or "proposed") in ("idea","proposed","analysis")])
     check("plans: all items shows proposals, labelled and not counted, and the schedule by year", (("Proposed, not yet approved by the board" in t) and "not counted" in t and "Schedule by year" in t and "(proposed)" in t) if npend else True, f"{npend} pending; "+t[:400])
     await pg.click("button[data-action=planView][data-v=capital]"); await pg.wait_for_timeout(600)
-    t=await pg.inner_text("#view")
+    t=await ptext()
     check("plans: the capital improvement plan has capital work and the funding picture, no goals", "Capital improvement plan" in t and "Capital funds, FY" in t and "Coming in" in t and "\nGoals\n" not in t, t[:600])
     async with pg.expect_download() as dl: await pg.click("button[data-action=planXlsx]")
     f=await dl.value
@@ -1187,10 +1201,10 @@ async def main():
     wb=_ox2.load_workbook(_io2.BytesIO(open(await f.path(),"rb").read())).active; hdr=[c.value for c in wb[1]]
     check("plans: Excel in the district's columns", f.suggested_filename.startswith("ironwood-valley-capital-improvement-plan-") and hdr[:3]==["Status","Initiative","Anticipated completion"] and "Funding source" in hdr and wb.max_row>1, str(hdr))
     await pg.click("button[data-action=planView][data-v=csip]"); await pg.wait_for_timeout(600)
-    check("plans: academic goals view explains how to tag CSIP goals", "No priorities are tagged as CSIP goals yet" in await pg.inner_text("#view"))
+    check("plans: academic goals view explains how to tag CSIP goals", "No priorities are tagged as CSIP goals yet" in await ptext())
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/priorities"); await pg.wait_for_timeout(700)
     pid=TABLES["priority"][0]["id"]
-    await pg.click(f"button[data-action=editPriority][data-id='{pid}']"); await pg.wait_for_timeout(300)
+    await pg.click(f"a[data-action=editPriority][data-id='{pid}']"); await pg.wait_for_timeout(300)
     await pg.check("[data-modal] input[name=csip_goal]")
     n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(700)
     up=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and c[1].split("?")[0]=="/rest/v1/priority"]
@@ -1198,19 +1212,19 @@ async def main():
     for p0 in TABLES["priority"]:
       if p0["id"]==pid: p0["csip_goal"]=True
     await pg.reload(); await pg.wait_for_timeout(700)
-    check("priorities: the CSIP badge shows", "CSIP goal" in await pg.inner_text("#view"))
+    check("priorities: the CSIP badge shows", "CSIP goal" in await ptext())
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/share/plans"); await pg.wait_for_timeout(800)
     await pg.click("button[data-action=planView][data-v=csip]"); await pg.wait_for_timeout(600)
-    t=await pg.inner_text("#view")
+    t=await ptext()
     check("plans: the academic goals view shows the CSIP goal with its measures", "Academic goals (CSIP)" in t and TABLES["priority"][0]["name"] in t and "filed with the Department of Education in CASA" in t, t[:700])
     TABLES.setdefault("report_snapshot",[])
     n0=len(calls); await pg.click("button[data-action=planSave]"); await pg.wait_for_timeout(700)
     sv=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/report_snapshot"]
     check("plans: a version is saved exactly as shown", sv and sv[0]["kind"]=="improvement_plan" and sv[0]["payload"]["plan"]["view"]=="csip" and "Academic goals (CSIP)" in sv[0]["title"], str(sv)[:300])
     await pg.wait_for_timeout(300)
-    if "Saved versions" in await pg.inner_text("#view"):
+    if "Saved versions" in await ptext():
       await pg.click("a[data-action=planOpen] >> nth=0"); await pg.wait_for_timeout(500)
-      check("plans: a saved version opens as it was", "Back to the live plan" in await pg.inner_text("#view") and "saved" in await pg.inner_text("#view"))
+      check("plans: a saved version opens as it was", "Back to the live plan" in await ptext() and "saved" in await ptext())
       await pg.click("button[data-action=planBack]"); await pg.wait_for_timeout(500)
     await pg.click("button[data-action=planView][data-v=full]"); await pg.wait_for_timeout(500)
     await pg.fill("form[data-form=savePlanName] input[name=plan_name]","Comprehensive improvement plan")
@@ -1219,12 +1233,14 @@ async def main():
     check("plans: the district names its full plan", pn and pn[0].get("plan_name")=="Comprehensive improvement plan", str(pn)[:200])
     for st0 in TABLES.get("district_settings",[]): st0["plan_name"]="Comprehensive improvement plan"
     await pg.reload(); await pg.wait_for_timeout(800)
-    check("plans: the full plan carries the district's name", "Comprehensive improvement plan" in await pg.inner_text("#view"))
+    check("plans: the full plan carries the district's name", "Comprehensive improvement plan" in await ptext())
     await pg.locator("#view").screenshot(path=SHOTS+"/plans.png")
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/track/measures"); await pg.wait_for_timeout(700)
     t=await pg.inner_text("#view")
     check("measures: start → target, latest, status, progress, owner", "7 measures:" in t and "Four-year graduation rate" in t and "88% 2024-25 → 94% 2028-29" in t.replace("\t"," ").replace("  "," ") and "lower is better" in t and "Principal, high school" in t, t[:600])
     await pg.screenshot(path=SHOTS+"/measures.png", full_page=True)
+    me_=await pg.evaluate("[...document.querySelectorAll('a[data-action=editMeasure]')].map(a=>a.innerText.trim())")
+    check("measures (15 Oct): the measure's name opens its editor (no Edit link at the far right)", me_ and "Edit" not in me_, str(me_))
     await pg.click("a[data-action=editMeasure] >> nth=0"); await pg.wait_for_timeout(300)
     await pg.fill("[data-modal] input[name=target_period]","someday"); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(300)
     check("measures: a period HighGround can't read is explained", "isn’t a period HighGround can read" in await pg.inner_text("[data-modal] [data-form-errors]"))

@@ -947,10 +947,10 @@
       ${D.priorities.map((pr, k) => {
         const outs = D.outcomes.filter((o) => o.priority_id === pr.id), ms = D.measures.filter((m) => m.priority_id === pr.id), inits = rows.initiatives.filter((i) => i.priority_id === pr.id);
         return `<div class="card prio"><div class="row" style="justify-content:space-between;align-items:flex-start">
-          <div><div class="small muted">Priority ${k + 1}${pr.csip_goal ? ' · <span class="st st-approved">CSIP goal</span>' : ''}</div><h3 style="margin:2px 0">${esc(pr.name)}</h3>${pr.statement ? `<p>${esc(pr.statement)}</p>` : ''}
+          <div><div class="small muted">Priority ${k + 1}${pr.csip_goal ? ' · <span class="st st-approved">CSIP goal</span>' : ''}</div><h3 style="margin:2px 0">${c.plan ? `<a href="#" class="titlelink" data-action="editPriority" data-id="${esc(pr.id)}" title="Edit this priority">${esc(pr.name)}</a>` : esc(pr.name)}</h3>${pr.statement ? `<p>${esc(pr.statement)}</p>` : ''}
             ${(() => { const sv = D.surveys[0], imp = sv && D.results.find((r) => r.survey_id === sv.id && r.kind === 'importance' && r.priority_id === pr.id && r.value != null);
               return imp ? `<div class="small">Community importance: <b>${Number(imp.value).toLocaleString('en-US', { maximumFractionDigits: 2 })}</b>${Number(imp.value) <= 5 ? ' out of 5' : ''} <span class="muted">· ${esc(sv.name)}</span></div>` : ''; })()}</div>
-          ${c.plan ? `<div class="row moves"><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="-1" ${k ? '' : 'disabled'} aria-label="Move up">▲</button><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="1" ${k < D.priorities.length - 1 ? '' : 'disabled'} aria-label="Move down">▼</button><button type="button" class="btn small" data-action="editPriority" data-id="${esc(pr.id)}">Edit</button></div>` : ''}</div>
+          ${c.plan ? `<div class="row moves"><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="-1" ${k ? '' : 'disabled'} aria-label="Move up">▲</button><button type="button" class="btn small" data-action="prioMove" data-id="${esc(pr.id)}" data-d="1" ${k < D.priorities.length - 1 ? '' : 'disabled'} aria-label="Move down">▼</button></div>` : ''}</div>
           <div class="pgrid">
             <div><div class="small muted">Outcomes</div>${outs.length ? `<ul>${outs.map((o) => `<li>${esc(o.name)}</li>`).join('')}</ul>` : '<p class="muted small">None yet.</p>'}</div>
             <div><div class="small muted">Measures</div>${ms.length ? `<ul>${ms.map((m) => `<li>${measureLink(c.district.slug, m)} ${stateBadge(D.st.get(m.id))}</li>`).join('')}</ul>` : '<p class="muted small">None yet.</p>'}</div>
@@ -1007,14 +1007,14 @@
 
         <span class="small muted">${D.measures.length} measure${D.measures.length === 1 ? '' : 's'}: ${counts.met} met, ${counts.ontrack} on track, ${counts.offtrack} off track${counts.owed ? `, ${counts.owed} with an update owed` : ''}.</span></div>
       ${D.priorities.map((pr) => { const ms = D.measures.filter((m) => m.priority_id === pr.id); const outs = new Map(D.outcomes.map((o) => [o.id, o.name]));
-        return `<div class="card"><h3>${esc(pr.name)}</h3>${ms.length ? `<div class="scroll"><table class="data"><thead><tr><th>Measure</th><th>Start → target</th><th>Latest</th><th>Status</th><th>Toward target</th><th>Owner</th><th>Updates</th><th></th></tr></thead><tbody>
-          ${ms.map((m) => { const x = D.st.get(m.id); return `<tr data-measure-row="${esc(m.id)}" id="measure-${esc(m.id)}"><td><b>${esc(m.name)}</b>${m.outcome_id ? `<br><span class="small muted">${esc(outs.get(m.outcome_id) || '')}</span>` : ''}</td>
+        return `<div class="card"><h3>${esc(pr.name)}</h3>${ms.length ? `<div class="scroll"><table class="data"><thead><tr><th>Measure</th><th>Start → target</th><th>Latest</th><th>Status</th><th>Toward target</th><th>Owner</th><th>Updates</th>${canRec ? '<th>Result</th>' : '<th></th>'}</tr></thead><tbody>
+          ${ms.map((m) => { const x = D.st.get(m.id); return `<tr data-measure-row="${esc(m.id)}" id="measure-${esc(m.id)}"><td>${c.plan ? `<a href="#" data-action="editMeasure" data-id="${esc(m.id)}" title="Edit this measure"><b>${esc(m.name)}</b></a>` : `<b>${esc(m.name)}</b>`}${m.outcome_id ? `<br><span class="small muted">${esc(outs.get(m.outcome_id) || '')}</span>` : ''}</td>
             <td>${mVal(m, m.baseline_value)} <span class="small muted nw">${esc(m.baseline_period || '')}</span> → <b>${mVal(m, m.target_value)}</b> <span class="small muted nw">${esc(m.target_period || '')}</span>${m.better === 'down' ? '<br><span class="small muted">lower is better</span>' : ''}</td>
             <td>${x.latest ? `${mVal(m, x.latest.value)} <span class="small muted">${esc(x.latest.period)}</span>` : ''} ${spark(m, x)}</td>
             <td>${stateBadge(x)}</td>
             <td>${x.progress != null ? `<span class="ubar"><i style="width:${(x.progress * 100).toFixed(0)}%"></i></span> <span class="small muted">${Math.round(x.progress * 100)}%</span>` : ''}</td>
             <td>${esc(m.owner_name || '')}</td><td class="small">${m.auto_metric ? '<span class="st st-approved">Updates itself</span>' : `${esc(CAD[m.cadence] || '')}${x.due ? `<br><span class="muted">next by <span class="nw">${esc(day(x.due))}</span></span>` : ''}`}</td>
-            <td class="nowrap">${canRec && !m.auto_metric ? `<button type="button" class="btn small" data-action="recordResult" data-id="${esc(m.id)}">Record</button>` : ''} ${c.plan ? `<a href="#" data-action="editMeasure" data-id="${esc(m.id)}">Edit</a>` : ''}</td></tr>`; }).join('')}
+            <td class="nowrap">${canRec && !m.auto_metric ? `<button type="button" class="btn small" data-action="recordResult" data-id="${esc(m.id)}">Record</button>` : ''}</td></tr>`; }).join('')}
         </tbody></table></div>` : '<p class="muted">No measures yet.</p>'}</div>`; }).join('')}
       <div id="dir-upload"></div>
       <p class="small muted">On track: at or ahead of a straight path from the starting point to the target. Update owed: no result within the measure’s cadence, plus a month. Saving a result for a period that already has one replaces it.</p>`;
@@ -2566,8 +2566,7 @@
       ${(() => {
         const list = CAP.pub ? (L.fin || []).map((f) => ({ f })) : (CAP.rows.financing || []).filter((x) => x.scenario_id === CAP.scenarioId)
           .map((x) => ({ id: x.id, f: { name: x.name, kind: x.kind, fy: x.issue_fy, amount: Number(x.amount), rate: Number(x.rate), years: x.years, repay: x.repay_from } }));
-        return list.length ? `<div class="stack">${list.map(({ id, f }) => `<div><b>${esc(f.name)}</b>: ${esc(KIND[f.kind] || f.kind)}, ${fmtK(f.amount)} in FY${f.fy}${f.years ? `, ${f.years} years at ${pct(f.rate, 2)}` : ''}, repaid from ${esc(REPAY[f.repay] || f.repay)}.
-          ${CAP.editable && id ? `<a href="#" data-action="editFinancing" data-id="${esc(id)}">Edit</a>` : ''}</div>`).join('')}</div>` : '<p class="muted">None in this scenario.</p>';
+        return list.length ? `<div class="stack">${list.map(({ id, f }) => `<div>${CAP.editable && id ? `<a href="#" data-action="editFinancing" data-id="${esc(id)}" title="Edit"><b>${esc(f.name)}</b></a>` : `<b>${esc(f.name)}</b>`}: ${esc(KIND[f.kind] || f.kind)}, ${fmtK(f.amount)} in FY${f.fy}${f.years ? `, ${f.years} years at ${pct(f.rate, 2)}` : ''}, repaid from ${esc(REPAY[f.repay] || f.repay)}.</div>`).join('')}</div>` : '<p class="muted">None in this scenario.</p>';
       })()}
       <p class="small">SAVE revenue-bond room is about <b>${fmtK(cap.pv)}</b> (lowest year FY${cap.fy}, 1.20 coverage, 20 years at 4.5%).
       ${go != null ? ` The general-obligation debt limit (5% of actual valuation) leaves about <b>${fmtK(go)}</b>.` : ' Add the district’s actual (100%) valuation to see the general-obligation limit.'}</p>
@@ -2741,11 +2740,11 @@
         : `<p>Set up the starting numbers first.</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/settings/setup">Starting numbers</a>`}</div>`;
     return `${intro}
       <div class="row">${c.plan ? '<button type="button" class="btn primary" data-action="editSet" data-id="">Add a set</button>' : ''}<a class="btn" href="#/d/${enc(c.district.slug)}/money/capital">Choose a set for a scenario on the capital plan</a></div>
-      <div class="card"><div class="scroll"><table class="data"><thead><tr><th>Set</th>${SET_FIELDS.map(([, l]) => `<th class="num">${l}</th>`).join('')}<th>Used by</th><th></th></tr></thead><tbody>
-        ${sets.map((x) => `<tr><td><b>${esc(x.name)}</b>${x.is_default ? ' <span class="st st-approved">Default</span>' : ''}${x.notes ? `<br><span class="small muted">${esc(x.notes)}</span>` : ''}</td>
+      <div class="card"><div class="scroll"><table class="data"><thead><tr><th>Set</th>${SET_FIELDS.map(([, l]) => `<th class="num">${l}</th>`).join('')}<th>Used by</th></tr></thead><tbody>
+        ${sets.map((x) => `<tr><td>${c.plan ? `<a href="#" data-action="editSet" data-id="${esc(x.id)}" title="Edit this set"><b>${esc(x.name)}</b></a>` : `<b>${esc(x.name)}</b>`}${x.is_default ? ' <span class="st st-approved">Default</span>' : ''}${x.notes ? `<br><span class="small muted">${esc(x.notes)}</span>` : ''}</td>
           ${SET_FIELDS.map(([k]) => `<td class="num">${pctTxt(x[k])}</td>`).join('')}
           <td>${usedBy(x.id).map((sc) => esc(sc.name)).join('<br>') || '<span class="muted">No scenario yet</span>'}</td>
-          <td>${c.plan ? `<a href="#" data-action="editSet" data-id="${esc(x.id)}">Edit</a>` : ''}</td></tr>`).join('')}
+</tr>`).join('')}
       </tbody></table></div>
       <p class="small muted" style="margin-top:8px">New scenarios use the default set. Scenarios without a set use the starting numbers directly.</p></div>
 `;
@@ -3015,12 +3014,12 @@
     const H = HGActuals.holdbackUse(accounts, amounts, held, gone);
     if (!H.length) return '';
     const m = (v) => (v < 0 ? '−' : '') + '$' + Math.round(Math.abs(v)).toLocaleString('en-US'), pc = (v) => Math.round(v * 100) + '%';
-    const ST = { pace: '<span class="ok">On pace</span>', ahead: '<span class="warntext">Running ahead</span>', over: '<span class="gaptext">Over</span>', none: '<span class="warntext">Nothing held back</span>' };
+    const ST = { pace: '<span class="pill p-pace">On pace</span>', ahead: '<span class="pill p-ahead">Running ahead</span>', over: '<span class="pill p-over">Over</span>', none: '<span class="pill p-ahead">Nothing held back</span>' };
     const how = (k) => { const st = inp.cfg.settings[k] || {}; return st.split ? 'recurring costs plus a cushion' : st.ongoingPct != null ? `${+(Number(st.ongoingPct) * 100).toFixed(2)}% of receipts` : 'a set amount'; };
     const fac = H.filter((x) => x.facilities > 0.5);
     return `<div class="card" data-holdback-card><h3>Held back each year ${def('holdback')}</h3>
       <p class="small muted">What each capital fund holds back in FY${fy} for recurring costs and a cushion (from the board version “${esc(board.name)}”), and how much of it spending not linked to an initiative has used ${def('holdback_used')}. ${pc(gone)} of the year has gone.</p>
-      <div class="scroll"><table class="data"><thead><tr><th>Fund</th><th>Held back as</th><th class="num">Held back FY${fy}</th><th class="num">Used so far</th><th class="num">Expected by now</th><th class="num">Left</th><th></th></tr></thead><tbody>
+      <div class="scroll"><table class="data"><thead><tr><th>Fund</th><th>Held back as</th><th class="num">Held back FY${fy}</th><th class="num">Used so far</th><th class="num">Expected by now</th><th class="num">Left</th><th>Status</th></tr></thead><tbody>
         ${H.map((x) => `<tr data-hb-fund="${x.fund}"><td>${esc(FUND_NAMES[x.fund])}</td><td class="small">${esc(how(x.fund))}</td><td class="num">${m(x.held)}</td><td class="num">${m(x.used)}${x.onOrder > 0.5 ? `<br><span class="small muted">includes ${m(x.onOrder)} on order</span>` : ''}</td><td class="num">${m(x.expected)}</td><td class="num ${x.left < -0.5 ? 'gaptext' : ''}">${m(x.left)}</td><td class="small">${ST[x.status]}</td></tr>`).join('')}
       </tbody></table></div>
       ${fac.length ? `<p class="small">${fac.map((x) => `${m(x.facilities)} of ${esc(FUND_NAMES[x.fund])}’s is building and site work (function 4xxx)`).join('; ')} not linked to an initiative. If it belongs to a planned project, <a href="#/d/${enc(c.district.slug)}/track/initiatives">link its account to the initiative</a> so it isn’t counted against the holdback and the project too.</p>` : ''}
@@ -3070,6 +3069,7 @@
     { const gfund = S.funds.find((f2) => f2.key === 'general'), over = S.funds.filter((f2) => f2.spending.budget && f2.spending.variance > 0.5);
       setLead(`Through ${esc(day(batch.period_end))}, ${pctTxt(S.gone)} of the year:` + (gfund && gfund.revenue.budget ? ` the General Fund has received <b>${pctTxt(gfund.revenue.used)}</b> of its revenue budget and spent or committed <b>${pctTxt(gfund.spending.used)}</b> of its spending budget.` : ' see each fund below.')
         + (over.length ? ` ${over.map((f2) => esc(f2.name)).join(' and ')} ${over.length === 1 ? 'is' : 'are'} forecast over budget.` : '')); }
+    const fnVar = (o) => (o.budget && o.variance > 0.5 ? `<span class="gaptext">over by ${fmt(o.variance)}</span>` : '');
     /* 15 Oct: the bar carries the status by colour (green on pace, orange running ahead of the year, red forecast over budget),
        explained once in a key under the table; words appear only when something is over */
     const barState = (used, spending, over) => (!spending ? 'pace' : over || used > 1 ? 'over' : used > S.gone + 0.1 ? 'ahead' : 'pace');
@@ -3078,9 +3078,9 @@
       return `<span class="ubar ub-${st}" title="${pctTxt(used)} of budget used; ${pctTxt(S.gone)} of the year gone${spending ? ` (${BAR_WORD[st]})` : ''}">
       <i style="width:${Math.min(100, Math.max(0, used * 100)).toFixed(1)}%"></i><b style="left:${(S.gone * 100).toFixed(1)}%"></b></span>`; };
     const barKey = `<div class="ubar-key" data-ubar-key><span><i class="pace"></i>Budget used, on pace</span><span><i class="ahead"></i>Running ahead of the year</span><span><i class="over"></i>Forecast over budget</span><span><i class="tick"></i>Share of the year gone</span></div>`;
-    const fnVar = (o) => (o.budget && o.variance > 0.5 ? `<span class="gaptext">over by ${fmt(o.variance)}</span>` : '');
-    const spendVar = (o) => (!o.budget ? '' : o.variance > 0.5 ? `<span class="gaptext">over by ${fmt(o.variance)}</span>` : o.variance < -0.5 ? `<span class="ok">under by ${fmt(-o.variance)}</span>` : '<span class="muted">on budget</span>');
-    const revVar = (o) => (!o.budget ? '' : o.variance < -0.5 ? `<span class="gaptext">short by ${fmt(-o.variance)}</span>` : o.variance > 0.5 ? `<span class="ok">ahead by ${fmt(o.variance)}</span>` : '<span class="muted">on budget</span>');
+    const spendVar = (o) => { if (!o.budget) return ''; const st = barState(o.used, true, o.variance > 0.5);
+      return `<span class="pill p-${st}">${st === 'over' ? `Over by ${fmt(o.variance)}` : st === 'ahead' ? 'Running ahead' : 'On pace'}</span>${st !== 'over' && o.variance < -0.5 ? `<br><span class="small muted">under by ${fmt(-o.variance)}</span>` : ''}`; };
+    const revVar = (o) => (!o.budget ? '' : o.variance < -0.5 ? `<span class="pill p-over">Short by ${fmt(-o.variance)}</span>` : o.variance > 0.5 ? `<span class="pill p-pace">Ahead by ${fmt(o.variance)}</span>` : '<span class="pill p-pace">On budget</span>');
     const fns = Object.entries(fund ? fund.byFunction : {}).sort((x, y) => x[0].localeCompare(y[0]));
     return `
       <div class="row">
@@ -3090,11 +3090,11 @@
       </div>
       ${ledgerNote(c, batches)}
       ${S.hasBudget ? '' : '<div class="notice">This month’s export has no budget column, so only actuals show. Include the budget in the export (most systems can), and HighGround will compare against it.</div>'}
-      <div class="card"><h3>Every fund</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Year-end forecast</th><th></th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">On order ${def('encumbered')}</th><th class="num">Year-end forecast</th><th></th></tr></thead><tbody>
+      <div class="card"><h3>Every fund</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Year-end forecast</th><th>Revenue status</th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">On order ${def('encumbered')}</th><th>Budget used</th><th class="num">Year-end forecast</th><th>Spending status</th></tr></thead><tbody>
         ${S.funds.map((f) => `<tr><td><a href="#" data-action="baFund" data-k="${esc(f.key)}">${esc(f.name)}</a></td>
           <td class="num">${fmt(f.revenue.budget)}</td><td class="num">${fmt(f.revenue.actual)}</td><td class="num">${fmt(f.revenue.forecast)}</td><td class="small">${revVar(f.revenue)}</td>
-          <td class="num">${fmt(f.spending.budget)}</td><td class="num">${fmt(f.spending.actual)}</td><td class="num">${fmt(f.spending.encumbered)}</td><td class="num">${fmt(f.spending.forecast)}</td><td class="small">${spendVar(f.spending)}</td></tr>`).join('')}
-      </tbody></table></div></div>
+          <td class="num">${fmt(f.spending.budget)}</td><td class="num">${fmt(f.spending.actual)}</td><td class="num">${fmt(f.spending.encumbered)}</td><td>${bar(f.spending.used, true, f.spending.variance > 0.5)}</td><td class="num">${fmt(f.spending.forecast)}</td><td class="small">${spendVar(f.spending)}</td></tr>`).join('')}
+      </tbody></table></div>${barKey}</div>
       ${hbHtml}
       ${fund ? `<div class="card"><h3>${esc(fund.name)}</h3>
         <div class="grid tiles">
@@ -3967,10 +3967,51 @@
       ${F.borrow.length ? `<p class="small"><b>Borrowing in the plan:</b> ${F.borrow.map((b) => `${esc(b.name)}, ${esc(b.kind)}, ${f(b.amount)} in FY${b.fy}${b.years ? ` over ${b.years} years` : ''}`).join('; ')}.</p>` : ''}
       <p class="small muted">From the board version “${esc(extra.boardName)}” as a whole: spending includes existing debt, ongoing costs and every phase in it${F.pending ? `, including ${F.pending} initiative${F.pending === 1 ? '' : 's'} not yet approved` : ''}.${fundList.length ? ` Approved initiatives in this view: ${fundList.join(', ')}${T.auto > 0.5 ? `, and ${f(T.auto)} the plan assigns across the capital funds` : ''}.` : ''}</p></div>` : '';
     const title = plan.view === 'full' ? (extra.planName) : plan.viewName;
-    return `<div class="card plan-head"><div class="small muted">${esc(d.name)}${saved ? ` · saved ${esc(day(saved.created_at))}` : ''}</div><h2 style="margin:4px 0">${esc(title)}</h2>
+    /* 15 Oct: the screen version reads as a plan, not a report: a hero with the big numbers, one coloured card per goal with
+       its measures as progress, initiatives as cards by status, the years as a timeline, the funds as bars. Printing
+       (Print or save as PDF) still uses the full tables below, which stay hidden on screen. */
+    const accent = /^#[0-9a-f]{6}$/i.test(d.brand_color || '') ? d.brand_color : '#1E3A2F';
+    const GOALC = ['#2F5D9E', '#2F6B4F', '#7A55A8', '#0E9384', '#B98A1E', '#C2410C'];
+    const SDOT = { met: 'met', ontrack: 'on', offtrack: 'off', nodata: 'nd' };
+    const hero = `<div class="bp-hero screenonly" style="--bp:${accent}">
+        <div class="bp-hero-top"><div class="small">${esc(d.name)}${saved ? ` · saved ${esc(day(saved.created_at))}` : ''}</div>
+          <h2>${esc(plan.view === 'full' ? extra.planName : plan.viewName)}</h2>
+          <div class="bp-sub">${esc(yrs)}${plan.board ? ` · costs from “${esc(plan.board.name)}”` : ''} · ${plan.items === 'approved' ? 'approved work only' : 'proposals shown, not counted'}</div></div>
+        <div class="bp-stats">
+          <div><b>${T.count}</b><span>approved initiative${T.count === 1 ? '' : 's'}</span></div>
+          <div><b>${T.cost > 0.5 ? f(T.cost) : '—'}</b><span>one-time, ${esc(yrs)}</span></div>
+          <div><b>${T.yearly > 0.5 ? f(T.yearly) : '—'}</b><span>a year, ongoing</span></div>
+          ${extra && extra.funding && plan.view !== 'csip' ? `<div class="${extra.funding.gap > 0.5 ? 'bp-short' : 'bp-ok'}"><b>${extra.funding.gap > 0.5 ? f(extra.funding.gap) : 'Paid for'}</b><span>${extra.funding.gap > 0.5 ? 'still to find' : 'in the board version'}</span></div>` : `<div><b>${plan.goals.length}</b><span>goal${plan.goals.length === 1 ? '' : 's'}</span></div>`}
+        </div></div>`;
+    const goalCards = plan.goals.length ? `<div class="bp-goals screenonly">${plan.goals.map((g, k) => {
+        const on = g.measures.filter((m) => m.state === 'met' || m.state === 'ontrack').length, col = GOALC[k % GOALC.length];
+        const prog = (m) => { if (m.latest == null || m.target == null || m.baseline == null) return ''; const base = Number(m.baseline), span = Number(m.target) - base;   // from the starting value toward the target, either direction
+         
+          const v = span ? Math.max(0, Math.min(1, (Number(m.latest) - base) / span)) : 1; return `<span class="bp-mbar"><i style="width:${(v * 100).toFixed(0)}%"></i></span>`; };
+        return `<div class="bp-goal" style="--g:${col}"><div class="bp-goal-n">Goal ${k + 1}${g.csip ? ' · CSIP' : ''}</div><h3>${esc(g.name)}</h3>
+          ${g.statement ? `<p class="bp-why">${esc(g.statement)}</p>` : ''}
+          ${g.measures.length ? `<div class="bp-score"><span class="bp-big">${on}</span> of ${g.measures.length} measure${g.measures.length === 1 ? '' : 's'} on track <span class="dots">${g.measures.map((m) => `<i class="dot ${SDOT[m.state] || 'nd'}" title="${esc(m.name)}"></i>`).join('')}</span></div>
+          <ul class="bp-measures">${g.measures.map((m) => `<li class="ms-${SDOT[m.state] || 'nd'}"><span class="bp-mname">${measureLink(d.slug, m)}</span><span class="bp-mval">${m.latest != null ? esc(mVal(m, m.latest)) : '<span class="muted">no data yet</span>'}${m.target != null ? ` <span class="muted">→ ${esc(mVal(m, m.target))}</span>` : ''}</span>${prog(m)}</li>`).join('')}</ul>` : '<p class="small muted">No measures yet.</p>'}
+          <div class="bp-chip">${g.initiatives} initiative${g.initiatives === 1 ? '' : 's'}</div></div>`; }).join('')}</div>` : '';
+    const initCards = plan.groups.length ? plan.groups.map((g) => `<div class="card screenonly"><h3>${esc(g.label)} <span class="small muted">· ${g.items.length}</span></h3><div class="bp-inits">${g.items.map((x) => `<div class="bp-init${x.counted ? '' : ' prop'}">
+        <div class="bp-init-name">${esc(x.name)}${x.counted ? '' : ' <span class="st st-proposed">Proposed</span>'}${x.csip && plan.view !== 'csip' ? ' <span class="st st-approved">CSIP</span>' : ''}</div>
+        <div class="bp-init-cost">${money(x)}</div>
+        <div class="small muted">${[x.completion ? (/^\d{4}-\d{2}-\d{2}$/.test(x.completion) ? 'Done ' + day(x.completion) : x.completion) : '', x.owner].filter(Boolean).map(esc).join(' · ')}</div>
+        ${x.funding ? `<div class="bp-fund small">${esc(x.funding)}</div>` : ''}${x.goal && plan.view !== 'capital' ? `<div class="small muted">${esc(x.goal)}</div>` : ''}</div>`).join('')}</div></div>`).join('') : '';
+    const maxY = Math.max(1, ...plan.schedule.map((y) => y.items.reduce((a2, x) => a2 + (x.cost || 0), 0)));
+    const timeline = plan.schedule.length ? `<div class="card screenonly"><h3>Year by year</h3><div class="bp-years">${plan.schedule.map((y) => { const tot = y.items.reduce((a2, x) => a2 + (x.cost || 0), 0);
+        return `<div class="bp-year"><div class="bp-ybar"><i style="height:${Math.max(4, tot / maxY * 100).toFixed(0)}%"></i></div><div class="bp-yfy">FY${y.fy}</div><div class="bp-ytot">${tot > 0.5 ? f(tot) : ''}</div>
+          <ul>${y.items.map((x) => `<li>${esc(x.name)}${x.counted ? '' : ' <span class="muted">(proposed)</span>'}</li>`).join('')}</ul></div>`; }).join('')}</div></div>` : '';
+    const Fm = extra && extra.funding, fmax = Fm && Fm.funds.length ? Math.max(1, ...Fm.funds.map((x) => Math.max(x.start + x.receipts, x.spend))) : 1;
+    const fundBars = Fm && plan.view !== 'csip' && Fm.funds.length ? `<div class="card screenonly"><h3>Capital funds, ${esc(yrs)}</h3><div class="bp-funds">${Fm.funds.map((x) => `<div class="bp-frow"><div class="bp-fname">${esc(x.name)}</div>
+        <div class="bp-fbars"><span class="in" style="width:${((x.start + x.receipts) / fmax * 100).toFixed(1)}%" title="Start plus coming in"></span><span class="out" style="width:${(x.spend / fmax * 100).toFixed(1)}%" title="Planned spending"></span></div>
+        <div class="small"><b>${f(x.start + x.receipts)}</b> to spend · <b>${f(x.spend)}</b> planned · ends at <b>${f(x.end)}</b>${x.low < 0 ? ` <span class="gaptext">· short in FY${x.lowFY}</span>` : ''}</div></div>`).join('')}</div>
+        <p class="legend small"><span><i style="background:#9DB8DA"></i>Starting balance plus everything coming in</span><span><i style="background:#2F6B4F"></i>Planned spending</span></p></div>` : '';
+    return `${hero}${goalCards}${initCards}${timeline}${fundBars}
+      <div class="printonly"><div class="card plan-head"><div class="small muted">${esc(d.name)}${saved ? ` · saved ${esc(day(saved.created_at))}` : ''}</div><h2 style="margin:4px 0">${esc(title)}</h2>
         <p class="small muted">${esc(yrs)}${plan.board ? ` · costs from the board version “${esc(plan.board.name)}”` : ' · no board version yet, so no costs'} · ${plan.items === 'approved' ? 'approved items only' : 'all items; proposals are labelled and not counted'}</p>
         <p>${lead}</p></div>
-      ${goals}${groups}${sched}${funding}
+      ${goals}${groups}${sched}${funding}</div>
       <p class="small muted">Totals count approved work only (approved, in progress and completed). Costs are the board version’s phases within the plan years, at their planned cost (the actual cost once finished), plus yearly costs.${plan.unlinked ? ` ${plan.unlinked} initiative${plan.unlinked === 1 ? ' isn’t' : 's aren’t'} linked to a goal.` : ''}</p>`;
   }
   async function vPlan(c) {

@@ -1,4 +1,6 @@
-# HighGround update, 15 Oct: screen fixes, check register hidden, clearer money charts
+# HighGround update, 15 Oct (b): screen fixes, check register hidden, clearer money charts, a designed district plan
+
+This replaces the first 15 Oct package. If you already installed that one, install this over it: same files, plus the changes under "New in (b)".
 
 Builds on 14 Oct (f), the version in your highground-main download. **No SQL.**
 
@@ -14,6 +16,19 @@ Builds on 14 Oct (f), the version in your highground-main download. **No SQL.**
 2. **Tidy up (recommended):** delete the nine `HighGround-update-2026-10-…` folders from the repository. GitHub Pages publishes everything in the repository, so old copies of the app are reachable on the web. Open each folder in GitHub → the **…** menu → **Delete directory**.
 3. In Safari, press **Cmd+Option+R**. On the iPhone, close the home-screen app from the app switcher and reopen it.
 4. **Logo:** if Bridger Hollow's logo still looks small, upload it again on Settings → District.
+
+## New in (b)
+- **District plan (Share → District plan), on screen:** a designed page instead of a report.
+  - A band in the district's colour with the plan's name, and four big numbers: approved initiatives, one-time cost, yearly cost, and what's still to find (or "Paid for").
+  - One coloured card per goal: why it matters, "2 of 3 measures on track" with dots, each measure with its latest value, target and a progress bar from where it started.
+  - Initiatives as cards by status; the years as a bar timeline; each capital fund as two bars (money to spend, planned spending).
+  - **Print or save as PDF still produces the full tables**, as before.
+- **Budget vs. actual, every table speaks the same colours:** Every fund has a budget-used bar and coloured status pills (On pace, Running ahead, Over by …; revenue On budget, Ahead by …, Short by …), labelled columns and the key. The held-back card's status is a pill too.
+- **The name is the link, everywhere:** measures, assumption sets, financing (bonds, leases, campaigns) and priorities now open their editor from the name, like initiatives and scenarios. The "Edit" links at the far right are gone. On Measures, the Record button stays, under a "Result" heading.
+
+## Not yet changed (next packages)
+- **The community page** looks the same apart from the Sign in move and the back bar: the published district blueprint (focus, what you told us, what we're doing, how we're doing) is the next build.
+- The priorities page redesign and the community survey.
 
 ## What changed
 - **Warning cards** ("4 costs may be counted twice"): icon, arrow and words on one line.
@@ -37,4 +52,4 @@ Builds on 14 Oct (f), the version in your highground-main download. **No SQL.**
 
 ## Tests
 - Unit tests: 30 files, all pass. Golden engine cases: 32, 0 differences (the engine and the money math are unchanged).
-- Browser: **521 pass, 0 fail** (was 507 pass, 5 fail on the downloaded code: four expected the 14g demo check register, one was a phone overflow on All funds, now fixed). New checks cover each change above, plus one that the check register is hidden by default.
+- Browser: **525 pass, 0 fail** (was 507 pass, 5 fail on the downloaded code: four expected the 14g demo check register, one was a phone overflow on All funds, now fixed). New checks cover each change above, plus one that the check register is hidden by default.
