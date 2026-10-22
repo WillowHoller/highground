@@ -2526,6 +2526,14 @@ async def main():
     await xp.locator(".pc-row button.pc").nth(1).click(); await xp.wait_for_timeout(120)
     sw=await xp.evaluate("(()=>{const d=document.getElementById('prio-detail'),on=document.querySelector('.pc.on');return [d.classList.contains('pd-swap'), getComputedStyle(d).borderTopColor, on?getComputedStyle(on.querySelector('.pc-showing')).display:'']})()")
     check("priorities (21 Oct c): picking another priority is obvious: its card says “Showing below”, and the detail takes its color and slides in", sw[0] and sw[2]=="block", str(sw))
+    # ---- 21 Oct (d): a narrow window on a computer keeps computer sizes; only touch screens get the larger phone sizes ----
+    await xp.set_viewport_size({"width":760,"height":900})
+    bad=[]
+    for r0 in ["plan/scenarios","plan/initiatives","money/capital","share/community","settings/setup"]:
+      await xp.goto("http://localhost:8765/#/d/ironwood-valley/"+r0); await xp.wait_for_timeout(900)
+      bad+=await xp.evaluate("[...document.querySelectorAll('#view select,#view input:not([type=checkbox]):not([type=radio]):not([type=range]),#view .btn')].filter(e=>e.offsetParent&&(parseFloat(getComputedStyle(e).fontSize)>14.5||(!e.closest('table')&&e.getBoundingClientRect().height>36.5))).map(e=>location.hash.split('/').slice(-1)[0]+':'+e.tagName+':'+getComputedStyle(e).fontSize)")
+    check("sizes (21 Oct d): in a narrow window on a computer, boxes, pickers and buttons keep the computer's 14px text and 34px height", not bad, str(bad[:6]))
+    await xp.set_viewport_size({"width":1360,"height":1000})
     await xc.close()
     sy=await b.new_context(viewport={"width":1360,"height":900}); await sy.route("**/config.js",cfg); await sy.route(SB+"/**",handler); await sy.route("**/fonts.g*/**",lambda r:r.abort())
     TABLES["survey"].append({"id":"sv-w","district_id":"d1","name":"Width check","mode":"live","status":"open","focus":["rating","new_ideas"],"items":{"priorities":[{"id":p0["id"],"name":p0["name"]} for p0 in TABLES["priority"]]},"opened_on":"2026-10-20","created_at":"2026-10-20T00:00:00Z"})

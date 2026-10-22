@@ -287,7 +287,7 @@
       if (t.closest('details:not([open])')) return;   // measured when its fold opens
       let box = t.parentElement;
       if (!box.classList.contains('scroll')) { box = document.createElement('div'); box.className = 'scroll'; t.replaceWith(box); box.appendChild(t); }
-      const heads = [...t.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+      const heads = [...t.querySelectorAll('thead th')].map((th) => (th.innerText || th.textContent).replace(/\s*\n\s*/g, ' · ').trim());
       if (!t.dataset.labeled) {
         t.querySelectorAll('tbody tr').forEach((tr) => [...tr.children].forEach((td, i) => { if (td.tagName === 'TD' && !td.hasAttribute('data-label')) td.setAttribute('data-label', heads[i] || ''); }));
         t.dataset.labeled = '1';

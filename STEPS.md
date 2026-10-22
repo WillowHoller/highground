@@ -1,3 +1,22 @@
+# HighGround update, 21 Oct (d): sizes in every window
+
+Same install as (c) below: **install only this package** (it contains (a), (b) and (c)). Sixteen files.
+
+## What changed in (d)
+- **A narrow window on a computer now keeps the computer's sizes.**
+  - The large 16px text in boxes and pickers (such as "Why the gap differs") and the tall, full-width pickers were meant for phones. They had been switching on whenever the window was under 820px wide, even on a computer.
+  - They now apply only on touch screens (phones and tablets). On a computer, every box, picker and button keeps 14px text and 34px height, at any window width.
+- In a narrow window, page pickers (Costs from, Type, Focus area …) stay side by side and wrap, instead of stacking full width.
+- **Initiatives:** under 1000px wide, the table drops the Owner column (it's in the editor), so the rest fits.
+- **Tables that turn into lists in a narrow window:**
+  - Labels read properly ("District baseline · board version", not "District baselineboard version").
+  - Bulleted lists (such as "What it asks of the community") read left to right under their label.
+- Checked at 1440, 1100, 900 and 760px wide on a computer, and on a phone. No page scrolls sideways, and no box, picker or button is oversized.
+
+Tests: browser 581 pass, 0 fail.
+
+---
+
 # HighGround update, 21 Oct (c): spelling, sizes and polish
 
 **Install only this package.** It contains everything in 21 Oct (a) and (b). Sixteen files.
