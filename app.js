@@ -13,7 +13,7 @@
   /* a date-only value ('2026-09-30') is a calendar date, not midnight UTC: read it as local noon, or Iowa sees the day before */
   const day = (d) => (d ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? d + 'T12:00:00' : d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '');
   const ROLE = { admin: 'Admin', business_manager: 'Business manager', superintendent: 'Superintendent', editor: 'Editor', board: 'Board member', viewer: 'Viewer' };
-  const KIND = { gl_monthly: 'Monthly general ledger (GL) export', budget: 'Budget', balances: 'Fund balances', projects: 'Projects', goals: 'Goals', measure_values: 'Measure results', survey: 'Survey results', check_register: 'Check register' };
+  const KIND = { gl_monthly: 'Monthly general ledger (GL) export', budget: 'Budget', balances: 'Fund balances', projects: 'Initiatives', goals: 'Goals', measure_values: 'Measure results', survey: 'Survey results', check_register: 'Check register' };
   const STATUS = { live: ['b-live', 'Live'], partial: ['b-partial', 'Partly built'], wip: ['b-wip', 'Not built yet'] };
   const badge = (s) => `<span class="badge ${STATUS[s][0]}">${STATUS[s][1]}</span>`;
   const initials = (s) => (String(s || '?').replace(/[^A-Za-z ]/g, ' ').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?').toUpperCase();
@@ -209,8 +209,8 @@
       { id: 'registers', label: 'Check register', status: 'live', lede: 'Questions from the bills paid each month: new vendors, possible duplicates, changed names and more.', render: vRegisters },
     ] },
     { id: 'share', label: 'Share', icon: 'share', tabs: [
-      { id: 'board', label: 'Board reports', status: 'live', lede: 'Monthly board report, capital summary, decision packets.', render: vBoardReports },
-      { id: 'plans', label: 'District plan', status: 'live', lede: 'The district’s plan in three views: the full plan, academic goals (CSIP) and the capital improvement plan.', render: vPlan },
+      { id: 'board', label: 'Board reports', status: 'live', lede: 'Monthly board reports and one-page decision packets, saved as they were made, with a link to the community page.', render: vBoardReports },
+      { id: 'plans', label: 'District plan', status: 'live', lede: 'The plan as a document to print, save as a PDF or hand to the board. Pick a view: the whole district improvement plan, just the academic goals (CSIP), or just the capital improvement plan.', render: vPlan },
       { id: 'community', label: 'Community page', status: 'live', lede: 'What the public link shows.', render: vCommunityPage },
     ] },
   ];
@@ -649,7 +649,7 @@
     }
     return `<h1>The basics are in</h1>
       <p>Next, bring in the district’s projects: download the template on the Uploads screen, fill it in, and upload it. The “Getting set up” list on Home shows what’s left: the board version, the strategic plan, inviting people and the first board report.</p>
-      <div class="row"><a class="btn primary" href="#/d/${enc(slug)}/settings/uploads">Upload projects</a><a class="btn" href="#/d/${enc(slug)}/home/today">Go to Home</a></div>`;
+      <div class="row"><a class="btn primary" href="#/d/${enc(slug)}/settings/uploads">Upload initiatives</a><a class="btn" href="#/d/${enc(slug)}/home/today">Go to Home</a></div>`;
   }
   const wizDebtRow = (x) => `<tr data-debt-row data-id=""><td><input name="debt_name" aria-label="Obligation" placeholder="SAVE revenue bonds, Series 2021" value="${esc((x && x.name) || '')}"></td>
     <td><select name="debt_fund" aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}" ${x && x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
@@ -790,7 +790,7 @@
     return [
       { k: 'district', who: c.admin, title: 'District details and Iowa number', path: 'settings/district', done: !!d.state_district_id, why: 'Links the district to the state’s data: peer comparisons and pre-filled starting numbers.' },
       { k: 'start', who: c.finance, title: 'Starting numbers', path: 'settings/setup', done: !!rows.settings, why: 'SAVE, PPEL and V-PPEL receipts, balances and existing debt: what the capital plan starts from.' },
-      { k: 'projects', who: c.plan, title: 'Projects', path: 'settings/uploads', done: rows.scenarios.length > 0, why: 'Upload the project list (there’s a template) to create the first scenario.' },
+      { k: 'projects', who: c.plan, title: 'Initiatives', path: 'settings/uploads', done: rows.scenarios.length > 0, why: 'Upload the initiatives spreadsheet (there’s a template) to create the first scenario.' },
       { k: 'board', who: c.admin, title: 'Adopted plan', path: 'money/capital', done: rows.scenarios.some((x) => x.is_board_version), why: 'Mark the scenario the board adopted; reports, progress and the public page follow it.' },
       { k: 'gf', who: c.finance, title: 'General Fund figures', path: 'money/general', done: !!(rows.settings && rows.settings.gf_inputs), why: 'Enrollment, staffing and balances for the five-year General Fund forecast.' },
       { k: 'plan', who: c.plan, title: 'Strategic plan', path: 'plan/priorities', done: (o.D.priorities || []).length > 0, why: 'Priorities and measures, so initiatives link to what they’re for.' },
@@ -1013,7 +1013,6 @@
     PR.list = list;
     const tools = `<div class="row prio-tools">${c.plan ? '<button type="button" class="btn primary" data-action="editPriority" data-id="">Add a priority</button>' : ''}
         ${c.plan ? `<button type="button" class="btn ${PR.arrange ? 'on' : ''}" data-action="prioArrange" aria-pressed="${PR.arrange}">${PR.arrange ? 'Done editing' : 'Edit priorities'}</button>` : ''}
-        <a class="btn" href="#/d/${enc(c.district.slug)}/track/measures">Measures</a>
         ${c.plan ? `<label class="btn">Upload goals<input type="file" data-dir-upload="goals" accept=".csv,.xlsx" hidden></label> <a href="#" class="small" data-action="dirTemplate" data-k="goals">template</a>` : ''}</div>`;
     /* 15 Oct: one place to change the priorities: rename or describe one (its editor), put them in order, or retire one the
        district has completed. A retired priority leaves the plan, Home, reports and the community page, and can come back. */
@@ -1254,21 +1253,22 @@
     return `<div class="card sv-live" data-sv-live="${esc(sv.id)}"><div class="row" style="justify-content:space-between;align-items:flex-start"><div>
         <h3 style="margin:0">${c.plan ? `<a href="#" class="titlelink" data-action="editLiveSurvey" data-id="${esc(sv.id)}">${esc(sv.name)}</a>` : esc(sv.name)} ${st}</h3>
         <div class="small muted">Answered in HighGround · ${S2.n.toLocaleString('en-US')} answer${S2.n === 1 ? '' : 's'}${sv.opened_on ? ` · opened ${esc(day(sv.opened_on))}` : ''}${sv.closed_on ? ` · ${sv.status === 'closed' ? 'closed' : 'closes'} ${esc(day(sv.closed_on))}` : ''}</div></div>
-        ${c.plan ? `<div class="row">${sv.status === 'draft' ? `<button type="button" class="btn primary small" data-action="openLiveSurvey" data-id="${esc(sv.id)}">Open it</button>` : ''}${sv.status === 'open' ? `<button type="button" class="btn small" data-action="closeLiveSurvey" data-id="${esc(sv.id)}">Close and save the results</button>` : ''}</div>` : ''}</div>
+        ${c.plan ? `<div class="row sv-acts">${sv.status === 'draft' ? `<button type="button" class="btn primary small" data-action="openLiveSurvey" data-id="${esc(sv.id)}">Open it</button>` : ''}${sv.status === 'open' ? `<button type="button" class="btn small" data-action="closeLiveSurvey" data-id="${esc(sv.id)}">Close and save the results</button>` : ''}<button type="button" class="btn small" data-action="editLiveSurvey" data-id="${esc(sv.id)}">Edit</button>${!S2.n ? `<button type="button" class="btn small danger" data-action="deleteSurvey" data-id="${esc(sv.id)}" data-name="${esc(sv.name)}" data-n="0">Delete</button>` : ''}</div>` : ''}</div>
       ${sv.status === 'open' ? `<div class="sv-share"><div class="small"><b>Share it</b>: in newsletters, on the website, by text or email. The community page shows it while it’s open.</div>
         <div class="row"><input readonly value="${esc(link)}" aria-label="Survey link" data-sv-link><button type="button" class="btn small" data-action="svCopy" data-text="${esc(link)}">Copy link</button><a class="btn small" href="${esc(link)}" target="_blank" rel="noopener">Open it</a></div>
         <label class="field small">Ready to paste into a newsletter<textarea readonly rows="2" data-sv-blurb>${esc(blurb)}</textarea></label><button type="button" class="btn small" data-action="svCopy" data-text="${esc(blurb)}">Copy the paragraph</button></div>` : ''}
-      ${S2.ratings.length ? `<h4>How we’re doing, by priority</h4>${bars(S2.ratings)}` : ''}
-      ${S2.support.length ? `<h4>Support for ideas being considered</h4>${bars(S2.support.slice().sort((a, b) => (b.avg || 0) - (a.avg || 0)))}` : ''}
-      ${((sv.items || {}).custom || []).length ? `<h4>Your questions</h4><div class="cq-res">${cqSummary(sv, resp).map(cqResultHtml).join('')}</div>` : ''}
-      ${(sv.focus || []).includes('new_ideas') ? `<h4>Ideas people wrote · ${S2.ideas.length}</h4>${S2.ideas.length ? `<ul class="sv-ideas">${S2.ideas.slice(0, 50).map((x) => `<li>${esc(x.text)}${x.priority && P[x.priority] ? ` <span class="small muted">· ${esc(P[x.priority])}</span>` : ''}</li>`).join('')}</ul>${S2.ideas.length > 50 ? `<p class="small muted">Showing the latest 50 of ${S2.ideas.length}.</p>` : ''}` : '<p class="small muted">None yet.</p>'}` : ''}
+      ${!S2.n ? `<p class="small muted sv-empty" data-sv-empty>${sv.status === 'draft' ? 'A draft: nobody can answer it until it’s opened.' : sv.status === 'open' ? 'No answers yet.' : 'Nobody answered this survey before it closed. Delete it if it isn’t needed.'}</p>` : ''}
+      ${S2.n && S2.ratings.length ? `<h4>How we’re doing, by priority</h4>${bars(S2.ratings)}` : ''}
+      ${S2.n && S2.support.length ? `<h4>Support for ideas being considered</h4>${bars(S2.support.slice().sort((a, b) => (b.avg || 0) - (a.avg || 0)))}` : ''}
+      ${S2.n && ((sv.items || {}).custom || []).length ? `<h4>Your questions</h4><div class="cq-res">${cqSummary(sv, resp).map(cqResultHtml).join('')}</div>` : ''}
+      ${S2.n && (sv.focus || []).includes('new_ideas') ? `<h4>Ideas people wrote · ${S2.ideas.length}</h4>${S2.ideas.length ? `<ul class="sv-ideas">${S2.ideas.slice(0, 50).map((x) => `<li>${esc(x.text)}${x.priority && P[x.priority] ? ` <span class="small muted">· ${esc(P[x.priority])}</span>` : ''}</li>`).join('')}</ul>${S2.ideas.length > 50 ? `<p class="small muted">Showing the latest 50 of ${S2.ideas.length}.</p>` : ''}` : '<p class="small muted">None yet.</p>'}` : ''}
       ${S2.n ? `<p class="small muted">Who answered: ${[['parent', 'parents or guardians'], ['staff', 'staff'], ['community', 'community members'], ['student', 'students'], ['none', 'didn’t say']].filter(([k]) => S2.roles[k]).map(([k, l]) => `${S2.roles[k]} ${l}`).join(' · ')}. Open input, not a scientific poll: anyone with the link can answer, once per device.</p>` : ''}
     </div>`;
   }
   function liveSurveyTop(c, D) {
     const due = surveyDue(c.district, D.surveys), cad = c.district.survey_cadence || 'quarterly';
     const remind = `<label class="sv-remind small">Remind us to ask ${c.admin ? `<select data-sv-cadence aria-label="How often to ask the community">${CADENCE.map(([k, l]) => `<option value="${k}" ${k === cad ? 'selected' : ''}>${l.toLowerCase()}</option>`).join('')}</select>` : `<b>${esc((CADENCE.find((x) => x[0] === cad) || CADENCE[1])[1].toLowerCase())}</b>`}</label>`;
-    return `${due ? `<div class="notice error sv-due" data-sv-due role="status"><b>Time to ask the community.</b> ${due.last ? `The last survey was ${esc(day(due.last))}` : 'There’s no survey yet'}, and the district asks every ${due.months === 1 ? 'month' : due.months + ' months'}.</div>` : ''}
+    return `${due ? `<div class="notice sv-due" data-sv-due role="status"><b>Time to ask the community.</b> ${due.last ? `The last survey was ${esc(day(due.last))}` : 'There’s no survey yet'}, and the district asks every ${due.months === 1 ? 'month' : due.months + ' months'}.</div>` : ''}
       <div class="card sv-top"><h3 style="margin:0">Ask the community</h3>
         <p class="small muted" style="margin:4px 0 10px">Run a short survey here: a link anyone can answer, anonymously. Results land on this page and feed the priorities and the community page.</p>
         <div class="row sv-top-row">${c.plan ? '<button type="button" class="btn primary" data-action="editLiveSurvey" data-id="">Start a survey</button>' : ''}<span style="flex:1"></span>${remind}</div></div>`;
@@ -1337,23 +1337,35 @@
     const surveyCard = (sv) => {
       const rs = D.results.filter((r) => r.survey_id === sv.id), imp = rs.filter((r) => r.kind === 'importance'), themes = rs.filter((r) => r.kind === 'theme').sort((x, y) => (y.mentions || 0) - (x.mentions || 0)), qs = rs.filter((r) => r.kind === 'question');
       const maxM = Math.max(1, ...themes.map((t) => t.mentions || 0));
-      return `<div class="card"><div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(sv.name)}</h3>
-          <div class="small muted">${sv.closed_on ? 'Closed ' + esc(day(sv.closed_on)) : ''}${sv.response_count != null ? ` · ${sv.response_count.toLocaleString('en-US')} responses` : ''}</div>${sv.notes ? `<p class="small">${esc(sv.notes)}</p>` : ''}</div>
-          ${c.plan ? `<div class="row"><label class="btn small">Upload results<input type="file" data-dir-upload="survey" data-survey="${esc(sv.id)}" accept=".csv,.xlsx" hidden></label><button type="button" class="btn small" data-action="editSurvey" data-id="${esc(sv.id)}">Edit</button></div>` : ''}</div>
+      return `<div class="card" data-sv-card="${esc(sv.id)}"><div class="row" style="justify-content:space-between"><div><h3 style="margin:0">${esc(sv.name)}</h3>
+          <div class="small muted">Run elsewhere${sv.closed_on ? ' · closed ' + esc(day(sv.closed_on)) : ''}${sv.response_count != null ? ` · ${sv.response_count.toLocaleString('en-US')} responses` : ''}</div>${sv.notes ? `<p class="small">${esc(sv.notes)}</p>` : ''}</div>
+          ${c.plan ? `<div class="row"><label class="btn small">Upload results<input type="file" data-dir-upload="survey" data-survey="${esc(sv.id)}" accept=".csv,.xlsx" hidden></label><button type="button" class="btn small" data-action="editSurvey" data-id="${esc(sv.id)}">Edit</button><button type="button" class="btn small danger" data-action="deleteSurvey" data-id="${esc(sv.id)}" data-name="${esc(sv.name)}">Delete</button></div>` : ''}</div>
         ${imp.length ? `<h4>How important each priority is</h4><table class="data"><tbody>${imp.map((r) => `<tr><td>${esc(r.label)}</td><td><span class="ubar"><i style="width:${Math.min(100, (Number(r.value) / (Number(r.value) <= 5 ? 5 : 100)) * 100)}%"></i></span> <b>${Number(r.value).toLocaleString('en-US', { maximumFractionDigits: 2 })}</b></td><td>${sel(r, 'priority_id', D.priorities.map((p) => [p.id, p.name]), 'Not linked')}</td></tr>`).join('')}</tbody></table>` : ''}
         ${themes.length ? `<h4>Themes</h4><table class="data"><thead><tr><th>What people said</th><th>Mentions</th><th>Priority</th><th>Initiative</th></tr></thead><tbody>${themes.map((r) => `<tr><td>${esc(r.label)}</td>
-          <td><span class="ubar"><i style="width:${((r.mentions || 0) / maxM * 100).toFixed(0)}%"></i></span> ${r.mentions == null ? '' : r.mentions}</td><td>${sel(r, 'priority_id', D.priorities.map((p) => [p.id, p.name]), '—')}</td><td>${sel(r, 'initiative_id', D.rows.initiatives.map((i) => [i.id, i.name]), '—')}</td></tr>`).join('')}</tbody></table>` : ''}
+          <td style="white-space:nowrap"><span class="ubar"><i style="width:${((r.mentions || 0) / maxM * 100).toFixed(0)}%"></i></span> ${r.mentions == null ? '' : r.mentions}</td><td>${sel(r, 'priority_id', D.priorities.map((p) => [p.id, p.name]), '—')}</td><td>${sel(r, 'initiative_id', D.rows.initiatives.map((i) => [i.id, i.name]), '—')}</td></tr>`).join('')}</tbody></table>` : ''}
         ${qs.length ? `<h4>Questions</h4><table class="data"><tbody>${qs.map((r) => `<tr><td>${esc(r.label)}</td><td class="num">${r.value == null ? '' : Number(r.value).toLocaleString('en-US') + (Number(r.value) <= 100 ? '%' : '')}</td></tr>`).join('')}</tbody></table>` : ''}
         ${!rs.length ? '<p class="muted">No results yet. Upload them from a spreadsheet.</p>' : ''}</div>`;
     };
+    /* 21 Oct: one list. Surveys running now (open or draft) first; then every past survey, wherever it was run, newest
+       first: the latest shown in full, older ones folded to one line that opens to their results. */
+    const card = (sv) => (sv.mode === 'live' ? liveSurveyCard(c, sv, resp.filter((r) => r.survey_id === sv.id)) : surveyCard(sv));
+    const when = (sv) => sv.closed_on || sv.opened_on || (sv.created_at || '').slice(0, 10) || '';
+    const active = lives.filter((s) => s.status === 'open' || s.status === 'draft');
+    const past = D.surveys.filter((s) => !active.includes(s)).sort((a, b) => when(b).localeCompare(when(a)));
+    // shown in full: the newest past survey with results, and anything newer than it (an empty one stays in view so it can be deleted)
+    const hasResults = (sv) => (sv.mode === 'live' ? resp.some((r) => r.survey_id === sv.id) : false) || D.results.some((r) => r.survey_id === sv.id);
+    const shown = Math.max(1, past.findIndex(hasResults) + 1);
+    const fold = (sv) => { const n = sv.mode === 'live' ? resp.filter((r) => r.survey_id === sv.id).length : sv.response_count;
+      return `<details class="fold sv-past" data-sv-past="${esc(sv.id)}"><summary><span class="sv-past-n">${esc(sv.name)}</span><span class="small muted">${sv.mode === 'live' ? 'Answered in HighGround' : 'Run elsewhere'}${sv.closed_on ? ' · closed ' + esc(day(sv.closed_on)) : ''}${n != null ? ` · ${Number(n).toLocaleString('en-US')} response${Number(n) === 1 ? '' : 's'}` : ''}</span></summary>${card(sv)}</details>`; };
     return `
       ${liveSurveyTop(c, D)}
-      ${lives.map((sv) => liveSurveyCard(c, sv, resp.filter((r) => r.survey_id === sv.id))).join('')}
-      <h3 class="sec-h">Surveys run elsewhere</h3>
-      <div class="row">${c.plan ? '<button type="button" class="btn" data-action="editSurvey" data-id="">Add results from another survey</button>' : ''} <a href="#" class="small" data-action="dirTemplate" data-k="survey">survey results template, with instructions</a>
+      ${active.map(card).join('')}
+      <h3 class="sec-h">Past surveys</h3>
+      ${past.length ? `${past.slice(0, shown).map(card).join('')}${past.length > shown ? `<div class="sv-older"><div class="small muted">Older surveys · click one to see its results</div>${past.slice(shown).map(fold).join('')}</div>` : ''}`
+        : '<div class="card"><p class="muted" style="margin:0">No past surveys yet. Results from each survey land here once it closes.</p></div>'}
+      <div class="row sv-else">${c.plan ? '<button type="button" class="btn" data-action="editSurvey" data-id="">Add results from a survey run elsewhere</button>' : ''} <a href="#" class="small" data-action="dirTemplate" data-k="survey">survey results template, with instructions</a>
         <span class="small muted">Results are kept as totals and themes, never individual answers.</span></div>
-      <div id="dir-upload"></div>
-      ${imported.length ? imported.map(surveyCard).join('') : '<div class="card"><h3>No surveys yet</h3><p>Add the district’s community survey, then upload its results: how important each priority is, and the themes people raised with how often.</p></div>'}`;
+      <div id="dir-upload"></div>`;
   }
   function openSurveyEditor(id) {
     const sv = id ? DIR.D.surveys.find((x) => x.id === id) : {};
@@ -1531,7 +1543,7 @@
   // ------------------------------------------------------------------ views: Decisions
   const INI = { status: '', type: '', sid: null, key: null };
   async function vInitiatives(c) {
-    const rows = await loadCapitalRows(c.district);
+    const [rows] = await Promise.all([loadCapitalRows(c.district), loadChecks(c.district)]);
     INI.rows = rows;
     const board = rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0];
     INI.key = c.district.id; if (!rows.scenarios.some((x) => x.id === INI.sid)) INI.sid = board ? board.id : null;
@@ -1563,24 +1575,26 @@
         <input type="search" data-ini-q placeholder="Search initiatives" value="${esc(INI.q || '')}" aria-label="Search initiatives" class="capsearch">
         ${allAreas.length ? `<label class="chip"><span class="small muted">Focus area</span><select data-ini-area aria-label="Focus area"><option value="">All</option>${allAreas.map((a) => `<option value="${esc(a)}" ${INI.area === a ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>` : ''}
         ${c.plan ? '<button type="button" class="btn primary" data-action="editInitiative" data-id="">Add an initiative</button>' : ''}
-        <a class="btn" href="#/d/${enc(c.district.slug)}/settings/uploads">Upload projects</a>
+        <a class="btn" href="#/d/${enc(c.district.slug)}/settings/uploads">Upload initiatives</a>
       </div>
-      <div class="card">${table([
-        { label: 'Initiative', html: (i) => (c.plan ? `<a href="#" data-action="editInitiative" data-id="${esc(i.id)}">${esc(i.name)}</a>` : esc(i.name)) + (areasOf(i.focus_area).length ? `<div class="areas">${areasOf(i.focus_area).map((a) => `<span>${esc(a)}</span>`).join('')}</div>` : '') },
-        { label: 'Type', get: (i) => TYPE[i.type] || i.type },
+      <div class="card ini-card">${table([
+        /* 21 Oct: one clean line per initiative: its name (click to edit) with what it buys and its focus areas as plain
+           text underneath; status is the only pill; the tier and the strategic priority share one column; Edit always shows */
+        { label: 'Initiative', html: (i) => `<div class="ini-name">${c.plan ? `<a href="#" data-action="editInitiative" data-id="${esc(i.id)}">${esc(i.name)}</a>` : esc(i.name)}</div>`
+            + `<div class="ini-sub">${[TYPE[i.type] || i.type, areasOf(i.focus_area).filter((a) => a !== (TYPE[i.type] || i.type)).join(', ')].filter(Boolean).map(esc).join(' · ')}</div>` },
         { label: 'Status', html: (i) => `<span class="st st-${esc(i.status || 'proposed')}">${esc(STATUS[i.status || 'proposed'])}</span>` },
+        { label: 'Priority', html: (i) => `<div>${esc(HGUploads.TIER_WORD[HGRanking.tierOf(i).tier] || '')}</div>${P[i.priority_id] ? `<div class="ini-sub">${esc(P[i.priority_id])}</div>` : ''}` },
+        { label: 'Owner', get: (i) => i.owner_name || '' },
         { label: 'In plans', html: (i) => { const pl = plansOf(i.id); const inBoard = board && pl.some((x) => x.id === board.id);
-          const warn = (i.status === 'approved' || i.status === 'underway') && board && !inBoard ? `<br><span class="small gaptext">Approved, but not in the adopted plan (${esc(board.name)}) yet${board.is_locked ? '; it’s locked, so unlock it on the Capital plan to add this' : ''}</span>` : '';
+          const warn = (i.status === 'approved' || i.status === 'underway') && board && !inBoard ? `<div class="small gaptext">Approved, but not in the adopted plan (${esc(board.name)}) yet${board.is_locked ? '; it’s locked, so unlock it on the Capital plan to add this' : ''}</div>` : '';
           // the board version is what matters; other scenarios collapse to a count (names on hover)
           const others = pl.filter((x) => !(board && x.id === board.id));
-          const more = others.length ? `<span class="small muted" title="${esc(others.map((x) => x.name).join(', '))}">${inBoard ? ` · +${others.length} other${others.length === 1 ? '' : 's'}` : others.map((x) => esc(x.name)).join(', ')}</span>` : '';
-          return (pl.length ? (inBoard ? 'Board version' : '') + more : '<span class="muted">Not in a plan yet</span>') + warn; } },
-        { label: 'Priority', get: (i) => (HGUploads.TIER_WORD[HGRanking.tierOf(i).tier] || '') },
-        ...((rows.priorities || []).length ? [{ label: 'Strategic priority', get: (i) => P[i.priority_id] || '' }] : []),
-        { label: 'Owner', get: (i) => i.owner_name || '' },
+          const more = others.length ? (inBoard ? `<div class="ini-sub" title="${esc(others.map((x) => x.name).join(', '))}">and ${others.length} other${others.length === 1 ? '' : 's'}</div>` : `<div>${others.map((x) => esc(x.name)).join(', ')}</div>`) : '';
+          return (pl.length ? (inBoard ? '<div>Board version</div>' : '') + more : '<span class="muted">Not in a plan yet</span>') + warn; } },
         { label: 'One-time cost', num: true, get: (i) => (oneTime[i.id] ? fmtK(oneTime[i.id]) : '') },
         { label: 'Yearly cost', num: true, get: (i) => (yearly[i.id] ? fmtK(yearly[i.id]) : '') },
-      ], list, rows.initiatives.length ? 'Nothing matches these filters.' : 'No initiatives yet. Add one, or upload a project spreadsheet.')}
+        ...(c.plan ? [{ label: '', html: (i) => `<button type="button" class="btn small ini-edit" data-action="editInitiative" data-id="${esc(i.id)}" aria-label="Edit ${esc(i.name)}">Edit</button>` }] : []),
+      ], list, rows.initiatives.length ? 'Nothing matches these filters.' : 'No initiatives yet. Add one, or upload an initiatives spreadsheet.')}
       ${costSc ? `<p class="small muted" style="margin-top:8px">Costs are from ${esc(costSc.name)}${costSc.is_board_version ? ', the board version' : ''}, in today’s dollars (yearly costs at their starting amount). Change them here or on the capital plan; both edit the same plan.</p>` : ''}</div>`;
   }
   const RK = { key: null, sid: null };
@@ -1621,13 +1635,47 @@
     const when = x.how === 'yearly' ? `has a yearly cost on ${F} from ${yrs[0]}` : `is paid from ${F} in ${yrs.length > 4 ? `${yrs.length} years (${yrs[0]}–${yrs[yrs.length - 1]})` : yrs.join(', ')}`;
     return `${x.name || 'This initiative'} ${when}, and ${F} already holds back ${fmtK(x.ongoing)} a year for recurring costs and a cushion. If ${many ? 'these purchases are' : 'this cost is'} part of that regular spending (the district’s usual replacements or maintenance), take ${many ? 'them' : 'it'} out here, or lower the amount held back, so ${many ? 'they aren’t' : 'it isn’t'} counted twice.`;
   }
-  function doubleNotice(inp, c) {
-    let list = []; try { list = HGCapital.doubleCount(inp); } catch (e) { return ''; }
-    if (!list.length) return '';
-    const link = c && c.district ? ` <a href="#/d/${enc(c.district.slug)}/settings/setup">Starting numbers</a>` : ' Starting numbers';
-    return `<details class="fold notice warn" data-double-count ${list.length <= 2 && c && (c.plan || c.finance) ? 'open' : ''}><summary><b>Worth a second look: ${list.length} cost${list.length === 1 ? '' : 's'} may be counted twice</b></summary>
-      <ul class="small">${list.slice(0, 8).map((x) => `<li>${esc(doubleText(x))}</li>`).join('')}</ul>${list.length > 8 ? `<p class="small">and ${list.length - 8} more.</p>` : ''}
-      <p class="small muted">What each fund holds back each year is set on${link}. If the amount held back doesn’t cover these, leave them in: this is a check, not an error.</p></details>`;
+  /* 21 Oct: one calm list of things to check with the business office: charges the law allows only in some cases (fund rules)
+     and costs that may be counted twice. Each can be marked "Checked with the business office" once someone has confirmed it;
+     that's saved for the district (part 33, warning_check) and applies in every scenario, until the cost itself changes
+     (its sig: funds, years or amount) and the check comes back. Charges the law doesn't allow at all stay a red error. */
+  const CHK = { key: null, rows: new Map(), missing: false };
+  async function loadChecks(d) {
+    try { const r = await HG.db.select('warning_check', `select=*&district_id=eq.${d.id}`); CHK.rows = new Map(r.map((x) => [x.key, x])); CHK.missing = false; }
+    catch (e) { CHK.rows = new Map(); CHK.missing = true; }
+    CHK.key = d.id;
+  }
+  const chkDone = (it) => { const r = CHK.rows.get(it.key); return r && r.sig === it.sig ? r : null; };
+  function checkItems(inp) {
+    const items = [];
+    let issues = []; try { issues = HGEngine.checkLegal(inp.projects, inp.levers).filter((x) => x.level !== 'no'); } catch (e) { issues = []; }
+    fundRuleGroups(issues).forEach((g) => { const x = g[0], funds = [...new Set(g.map((y) => y.fund))].sort();
+      items.push({ kind: 'rule', key: ['rule', x.project, x.what, x.kind || '', funds.join('+')].join('|'), sig: String(Math.round(Number(x.amount) || 0)), html: fundRuleLi(g) }); });
+    let dbl = []; try { dbl = HGCapital.doubleCount(inp); } catch (e) { dbl = []; }
+    dbl.forEach((x) => items.push({ kind: 'twice', key: ['twice', x.id, x.fund, x.how].join('|'), sig: x.years.join(','), html: esc(doubleText(x)), x }));
+    return items;
+  }
+  function checksNotice(inp, c) {
+    const items = checkItems(inp); if (!items.length) return '';
+    const can = c && (c.plan || c.finance), open = items.filter((it) => !chkDone(it)), done = items.filter((it) => chkDone(it));
+    const TAG = { rule: 'Fund rules', twice: 'May be counted twice' };
+    const li = (it, isDone) => `<li data-chk="${esc(it.key)}"><span class="chk-tag">${TAG[it.kind]}</span> ${it.html}
+      ${isDone ? `<span class="chk-by small muted">Checked ${esc(day(String(isDone.checked_at || '').slice(0, 10)))}${isDone.note ? `: ${esc(isDone.note)}` : ''}</span>${can ? ` <button type="button" class="linkbtn small" data-action="chkUndo" data-key="${esc(it.key)}">Undo</button>` : ''}`
+        : can ? `<div><button type="button" class="btn small chk-btn" data-action="chkConfirm" data-key="${esc(it.key)}" data-sig="${esc(it.sig)}">Checked with the business office</button></div>` : ''}</li>`;
+    const hasTwice = items.some((it) => it.kind === 'twice'), link = c && c.district ? `<a href="#/d/${enc(c.district.slug)}/settings/setup">Starting numbers</a>` : 'Starting numbers';
+    const attrs = `${items.some((it) => it.kind === 'rule') ? ' data-fund-rules-check' : ''}${hasTwice ? ' data-double-count' : ''}`;
+    return `<details class="fold chk-fold" data-checks${attrs}><summary>${open.length ? `${open.length} thing${open.length === 1 ? '' : 's'} to check with the business office` : `Checked with the business office: all ${done.length}`}${open.length && done.length ? ` <span class="small muted">· ${done.length} already checked</span>` : ''}</summary>
+      ${open.length ? `<ul class="small chk-list">${open.map((it) => li(it)).join('')}</ul>` : ''}
+      ${hasTwice && open.some((it) => it.kind === 'twice') ? `<p class="small muted">May be counted twice: what each fund holds back each year is set on ${link}. If the amount held back doesn’t cover these, leave them in.</p>` : ''}
+      ${done.length ? `<details class="chk-done"${open.length ? '' : ' open'}><summary class="small">${done.length} already checked</summary><ul class="small chk-list">${done.map((it) => li(it, chkDone(it))).join('')}</ul></details>` : ''}
+      ${can && CHK.missing && open.length ? '<p class="small muted">Marking these as checked needs database part 33 (33_warning_checks.sql).</p>' : ''}</details>`;
+  }
+  async function chkSet(key, sig) {
+    if (CHK.missing) throw new UserError('Marking a check as done needs database part 33. Run 33_warning_checks.sql in Supabase first.');
+    if (sig == null) await HG.db.remove('warning_check', `district_id=eq.${S.district.id}&key=eq.${enc(key)}`);
+    else await HG.db.upsert('warning_check', [{ district_id: S.district.id, key, sig, checked_at: new Date().toISOString() }], 'district_id,key');
+    await loadChecks(S.district);
+    const y = window.scrollY; await here(); window.scrollTo(0, y);
   }
   /* the editor's running totals: each phase's fund shares in dollars, and the whole initiative's one-time cost by fund, so it's
      plain that % splits one phase between funds and phases split the project over time */
@@ -1661,28 +1709,32 @@
       yearly: [...form.querySelectorAll('[data-yearly-body] [data-yearly-row]')].map((tr) => ({ fund: val(tr, 'y_fund'), amount: toNum(val(tr, 'y_amount')) || 0,
         first: Number(val(tr, 'y_first')), last: val(tr, 'y_last') === '' ? null : Number(val(tr, 'y_last')) })) };
     const list = HGCapital.routineOverlap(item, ongoing);
-    box.innerHTML = list.length ? `<div class="notice warn" data-ed-double-warn><b>May be counted twice.</b><ul class="small">${list.map((x) => `<li>${esc(doubleText(Object.assign({ name: item.name }, x)))}</li>`).join('')}</ul></div>` : '';
+    /* 21 Oct: a quiet note while editing, shown until it's closed (for this editing session) or the district has marked
+       that cost as checked with the business office; the full list with the Checked button is on the capital plan */
+    const pid = form.dataset.id || '', ED_D = ED.dismissed || (ED.dismissed = new Set());
+    const show = list.filter((x) => { const key = ['twice', pid, x.fund, x.how].join('|'), r = CHK.rows.get(key); return !(r && r.sig === x.years.join(',')) && !ED_D.has(pid + '|' + x.fund + '|' + x.how); });
+    box.innerHTML = show.length ? `<div class="notice ed-note" data-ed-double-warn><button type="button" class="ed-note-x" data-action="edNoteClose" aria-label="Close this note">×</button><b>May be counted twice.</b><ul class="small">${show.map((x) => `<li data-k="${esc(pid + '|' + x.fund + '|' + x.how)}">${esc(doubleText(Object.assign({ name: item.name }, x)))}</li>`).join('')}</ul><p class="small muted">If it’s intentional, close this. Once the business office has confirmed it, mark it checked on the capital plan and it won’t come up again.</p></div>` : '';
   }
+  /* one bullet per initiative and charge: a phase that may use PPEL or V-PPEL reads "PPEL and V-PPEL can …" once, not twice.
+     A yearly cost says which cost it is, so a building isn't mistaken for the contract that maintains it. */
+  const KIND_WORD = { contract: 'contract or subscription', other: 'yearly cost', salary: 'salary', benefits: 'benefits', supplies: 'supplies', activities: 'activities' };
+  const fundRuleGroups = (list) => { const m = new Map(); list.forEach((x) => { const k = [x.project, x.what, x.kind || '', x.level].join('|'); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m.values()]; };
+  function fundRuleLi(g) {
+    const x = g[0], funds = [...new Set(g.map((y) => y.fund))], F = funds.map((b) => FUND_NAMES[b] || b), names = F.length > 1 ? F.slice(0, -1).join(', ') + ' and ' + F[F.length - 1] : F[0];
+    const sameCite = new Set(g.map((y) => y.text.match(/\(Iowa Code [^;)]+/) ? y.text.match(/\(Iowa Code [^;)]+/)[0] : '')).size === 1;
+    const text = funds.length > 1 && sameCite ? x.text.replace(new RegExp('^' + (FUND_NAMES[x.fund] || x.fund).replace('-', '\\-')), names) : g.map((y) => y.text).join(' ');
+    const what = x.what === 'yearly' ? ` — its ${x.amount ? fmtK(x.amount) + '-a-year ' : ''}${KIND_WORD[x.kind] || 'yearly cost'} paid from ${names} (a yearly cost, not the project itself)` : '';
+    return `<b>${esc(x.name || 'An initiative')}</b>${esc(what)}: ${esc(text)}`;
+  }
+  /** charges the law doesn't allow: a real error, so it stays red and can't be dismissed. The "confirm" kind is in checksNotice. */
   function fundRulesNotice(inp) {
-    const issues = HGEngine.checkLegal(inp.projects, inp.levers);
-    if (!issues.length) return '';
-    const no = issues.filter((x) => x.level === 'no'), chk = issues.filter((x) => x.level !== 'no');
-    /* one bullet per initiative and charge: a phase that may use PPEL or V-PPEL reads "PPEL and V-PPEL can …" once, not twice.
-       A yearly cost says which cost it is, so a building isn't mistaken for the contract that maintains it. */
-    const KIND_WORD = { contract: 'contract or subscription', other: 'yearly cost', salary: 'salary', benefits: 'benefits', supplies: 'supplies', activities: 'activities' };
-    const group = (list) => { const m = new Map(); list.forEach((x) => { const k = [x.project, x.what, x.kind || '', x.level].join('|'); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m.values()]; };
-    const li = (g) => {
-      const x = g[0], funds = [...new Set(g.map((y) => y.fund))], F = funds.map((b) => FUND_NAMES[b] || b), names = F.length > 1 ? F.slice(0, -1).join(', ') + ' and ' + F[F.length - 1] : F[0];
-      const sameCite = new Set(g.map((y) => y.text.match(/\(Iowa Code [^;)]+/) ? y.text.match(/\(Iowa Code [^;)]+/)[0] : '')).size === 1;
-      const text = funds.length > 1 && sameCite ? x.text.replace(new RegExp('^' + (FUND_NAMES[x.fund] || x.fund).replace('-', '\\-')), names) : g.map((y) => y.text).join(' ');
-      const what = x.what === 'yearly' ? ` — its ${x.amount ? fmtK(x.amount) + '-a-year ' : ''}${KIND_WORD[x.kind] || 'yearly cost'} paid from ${names} (a yearly cost, not the project itself)` : '';
-      return `<li><b>${esc(x.name || 'An initiative')}</b>${esc(what)}: ${esc(text)}</li>`;
-    };
-    return `${no.length ? `<div class="notice error" data-fund-rules><b>Fund rules: ${no.length} charge${no.length === 1 ? '' : 's'} the law doesn’t allow.</b> The plan still counts ${no.length === 1 ? 'it' : 'them'}, so the money shown may not really be available. Change the fund in the initiative’s editor.<ul>${group(no).slice(0, 8).map(li).join('')}</ul>${group(no).length > 8 ? `<p class="small">and ${group(no).length - 8} more.</p>` : ''}</div>` : ''}
-      ${chk.length ? `<details class="fold" data-fund-rules-check><summary>${group(chk).length} charge${group(chk).length === 1 ? '' : 's'} to confirm with the business office</summary><ul class="small">${group(chk).slice(0, 12).map(li).join('')}</ul></details>` : ''}`;
+    let issues = []; try { issues = HGEngine.checkLegal(inp.projects, inp.levers); } catch (e) { return ''; }
+    const no = issues.filter((x) => x.level === 'no'); if (!no.length) return '';
+    const g = fundRuleGroups(no);
+    return `<div class="notice error" data-fund-rules><b>Fund rules: ${no.length} charge${no.length === 1 ? '' : 's'} the law doesn’t allow.</b> The plan still counts ${no.length === 1 ? 'it' : 'them'}, so the money shown may not really be available. Change the fund in the initiative’s editor.<ul>${g.slice(0, 8).map((x) => `<li>${fundRuleLi(x)}</li>`).join('')}</ul>${g.length > 8 ? `<p class="small">and ${g.length - 8} more.</p>` : ''}</div>`;
   }
   async function vRanking(c) {
-    const rows = await loadCapitalRows(c.district);
+    const [rows] = await Promise.all([loadCapitalRows(c.district), loadChecks(c.district)]);
     RK.rows = rows;
     if (!rows.settings || !rows.scenarios.length) return notReady(c, { rows });
     RK.key = c.district.id; if (!rows.scenarios.some((x) => x.id === RK.sid)) RK.sid = (rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0]).id;
@@ -1701,7 +1753,7 @@
       : `<b>The money runs out at #${k.line + 1}.</b> The first ${k.line} initiative${k.line === 1 ? '' : 's'} (${fmtK(k.aboveCost)}) fit within ${funds4}; ${k.items.length - k.line} fall below the line.${gfStop ? ` #${k.line + 1} stops at the General Fund: ${gfWhy(gfStop)}.` : ''}`;
     { const hv = location.hash.replace(/^#\/?/, '').split('/')[4]; RK.view = ['list', 'years', 'fit', 'goal'].includes(hv) ? hv : 'list'; }
     const useful = SG.suggestions.filter((g) => g.funds.length || g.gapChange < -0.5);
-    const tabs = rankTabs(c, k, useful.length) + fundRulesNotice(HGCapital.buildInputs(rows, RK.sid)), dbl = doubleNotice(HGCapital.buildInputs(rows, RK.sid), c);   // the double-count check goes under the list
+    const tabs = rankTabs(c, k, useful.length) + fundRulesNotice(HGCapital.buildInputs(rows, RK.sid)), dbl = checksNotice(HGCapital.buildInputs(rows, RK.sid), c);   // the double-count check goes under the list
     if (RK.view === 'years') return tabs + rankYearsHtml(c, rows, sc, k);
     const tierSel = (x) => c.plan ? `<select data-rank-tier="${esc(x.id)}" aria-label="Priority for ${esc(x.name)}">${HGRanking.TIERS.map((t) => `<option value="${t}" ${x.tier === t ? 'selected' : ''}>${TN[t]}</option>`).join('')}</select>${x.suggested ? '<br><span class="small muted">from the old High/Med/Low</span>' : ''}`
       : `${TN[x.tier]}${x.suggested ? ' <span class="small muted">(suggested)</span>' : ''}`;
@@ -1709,7 +1761,7 @@
     const ranked = (RK.by || 'rank') === 'rank';   // moving only makes sense in the force-rank view
     const maxCost = Math.max(1, ...k.items.map((x) => x.oneTime));
     const row = (x) => `<tr class="${x.above ? '' : 'below'} rk-row rk-r-${rkState(x)} rk-t-${x.tier || 'none'}">
-      <td class="num">${canMove && ranked ? `<input class="rankpos" data-rank-to="${esc(x.id)}" inputmode="numeric" value="${x.position}" aria-label="Rank for ${esc(x.name)}">` : `<b>#${x.position}</b>`}</td>
+      <td class="num rk-pos">${canMove && ranked ? `<span class="rk-grip" data-rk-grip="${esc(x.id)}" title="Drag to move ${esc(x.name)}" aria-hidden="true"></span><input class="rankpos" data-rank-to="${esc(x.id)}" inputmode="numeric" value="${x.position}" aria-label="Rank for ${esc(x.name)}">` : `<b>#${x.position}</b>`}</td>
       <td>${tierSel(x)}</td>
       <td>${esc(x.name)}${x.camp > 0.5 ? `<br><span class="small muted">${fmtK(x.camp)} from a campaign or bond</span>` : ''}${x.boost > 0.5 ? `<br><span class="small muted">${fmtK(x.boost)} from boosters</span>` : ''}</td>
       <td>${x.years.length ? 'FY' + x.years.join(', ') : '<span class="muted">yearly only</span>'}${x.needBy ? `<br><span class="small ${lateIds.has(String(x.id)) ? 'gaptext' : 'muted'}">needed by FY${x.needBy}${lateIds.has(String(x.id)) ? ' (planned later)' : ''}</span>` : ''}</td>
@@ -1784,7 +1836,7 @@
         <details class="fold rk-how"><summary>How the ranking works</summary><p class="small muted">Priorities say why something matters: <b>must-have</b> (safety, law, failing systems), <b>strategic</b> (moves the strategic plan forward), <b>nice to have</b> (worth doing when money allows). The list is the district’s own force rank: #1 is funded first, whatever its priority. Use ▲ ▼ or type a new number to move one; “Start from priorities” orders the whole list by priority as a starting point.</p></details>
         <p class="small muted">
           ${k.gf ? ` Yearly General Fund costs (a new hire, an advisor’s salary) count against the ${def('solvency')} forecast for FY${k.gf.years[0]}–FY${k.gf.years[k.gf.years.length - 1]}, in every year they run, with their raises: one fits if General Fund solvency stays at or above ${Math.round(k.gf.floor * 100)}% and spending stays within spending authority.` : rows.recurring && rows.recurring.some((r) => r.scenario_id === RK.sid && r.fund === 'general') ? ` <b>Yearly General Fund costs aren’t tested yet:</b> enter the ${c.finance ? `<a href="#/d/${enc(c.district.slug)}/money/general">General Fund figures</a>` : 'General Fund figures'} and they will be.` : ''}${sc.is_locked ? ' This scenario is locked, so its order can’t change; priorities can, because they belong to the initiative.' : ''}</p></div>
-      <div class="card"><div class="scroll"><table class="data ranktable"><thead><tr><th>#</th><th>Priority</th><th>Initiative</th><th>Years</th><th class="num">One-time</th><th class="num">Yearly</th><th>Funding line</th><th></th></tr></thead>
+      <div class="card">${canMove && ranked ? '<p class="small muted rk-howto">To change the order, drag a row by the handle at its left, use ▲ ▼, or type its new number.</p>' : ''}<div class="scroll"><table class="data ranktable"><thead><tr><th>#</th><th>Priority</th><th>Initiative</th><th>Years</th><th class="num">One-time</th><th class="num">Yearly</th><th>Funding line</th><th></th></tr></thead>
         <tbody>${body}</tbody></table></div></div>${dbl}`;
   }
   /* Rank & fund at a glance: four big numbers, then the ranked list as one bar, each initiative a block as wide as its one-time
@@ -1857,9 +1909,16 @@
     const sel = `<div class="row">
         <label class="chip"><span class="small muted">Scenario</span><select data-rank-sid aria-label="Scenario">${rows.scenarios.map((x) => `<option value="${esc(x.id)}" ${x.id === RK.sid ? 'selected' : ''}>${esc(x.name)}${x.is_board_version ? ' (adopted plan)' : ''}</option>`).join('')}</select></label>
 </div>`;
+    /* 21 Oct: the chart in plain words: what moving things later fixes, and what's still short and why */
+    const moved = (x) => x.scheduled.map((fy, j) => [x.planned[j], fy]).filter(([a, b]) => a !== b);
+    const plainYears = `<ul class="yr-plain" data-yr-plain>${waits.map((x) => `<li class="yp-ok"><b>${esc(x.name)}</b>: ${moved(x).map(([a, b]) => `FY${a} moves to FY${b}`).join(', ')}. <b>That works</b>: it’s paid for${x.needBy ? `, and it’s still by FY${x.needBy}, when it’s needed` : ''}.</li>`).join('')}
+      ${shortYrs.map((y) => { const here = short.filter((x) => x.scheduled.includes(y.fy));
+        return `<li class="yp-short"><b>FY${y.fy} is still ${esc(fmtK(y.short))} short</b> after moving what can wait.${here.length ? ` ${here.map((x) => `<b>${esc(x.name)}</b> ${x.needBy != null && y.fy >= x.needBy ? `can’t wait any longer: it’s needed by FY${x.needBy}` : 'can’t move later: nothing in its way can wait'}`).join('; ')}.` : ''} To close it: rank it higher so something else waits, find other money (a campaign, bond or boosters), or take something out of this scenario.</li>`; }).join('')}
+      ${!waits.length && !shortYrs.length ? '<li class="yp-ok"><b>Everything is paid for in the year it’s planned.</b> Nothing has to wait.</li>' : ''}</ul>`;
     return `${sel}
       <div class="card"><h3>When each can be paid for</h3>
-        <p class="small muted">Going a year at a time: when the capital funds are short, the initiative that can best wait moves to the next year. That means the lowest in your rank, with room before the year it’s needed by. Nothing moves past its needed-by year, and nothing already underway moves. Campaign and booster projects are shown but don’t compete for levy money.</p>
+        ${plainYears}
+        <p class="small muted">How it works: going a year at a time, when the capital funds are short, the initiative that can best wait moves to the next year. That means the lowest in your rank, with room before the year it’s needed by. Nothing moves past its needed-by year, and nothing already underway moves. Campaign and booster projects are shown but don’t compete for levy money.</p>
         ${yearsTimeline(S, cfg)}</div>
       ${waits.length || short.length ? `<div class="card"><h3>What changes</h3>${table([
         { label: 'Initiative', html: (x) => `<b>${esc(x.name)}</b><br><span class="small muted">${esc(HGRanking.TIER_NAME[x.tier] || '')}</span>` },
@@ -1891,22 +1950,58 @@
     const tb = el.closest('tbody'); if (!tb || !RK.k) return;
     const order = RK.order || RK.k.items.map((i) => i.id), j = order.indexOf(el.dataset.id), t = j + Number(el.dataset.d);
     if (j < 0 || t < 0 || t >= order.length) return;
-    [order[j], order[t]] = [order[t], order[j]]; RK.order = order;
+    [order[j], order[t]] = [order[t], order[j]];
+    rankPending(tb, order, el);
+  }
+  /** show a new order on the page at once (rows, numbers, arrows) and save it once the moving stops */
+  function rankPending(tb, order, el) {
+    RK.order = order;
     const rowOf = (id) => { const i = tb.querySelector(`input[data-rank-to="${CSS.escape(id)}"]`); return i && i.closest('tr'); };
     const fl = tb.querySelector('tr.fline'); if (fl) fl.remove();   // the line is redrawn once the order is checked
     order.forEach((id, n) => { const tr = rowOf(id); if (!tr) return; tb.appendChild(tr); tr.querySelector('input[data-rank-to]').value = n + 1;
       tr.querySelectorAll('button[data-action=rankMove]').forEach((b) => { b.disabled = Number(b.dataset.d) < 0 ? n === 0 : n === order.length - 1; }); });
     const table = tb.closest('table'); table.classList.add('rank-pending');
     if (!document.querySelector('[data-rank-pending]')) table.insertAdjacentHTML('beforebegin', '<p class="small muted" data-rank-pending role="status">New order: the funding line updates when you stop moving.</p>');
-    if (el.disabled) { const other = el.closest('td').querySelector(`button[data-action=rankMove]:not([data-d="${el.dataset.d}"])`); if (other) other.focus({ preventScroll: true }); } else el.focus({ preventScroll: true });
+    if (el && el.dataset.action === 'rankMove') { if (el.disabled) { const other = el.closest('td').querySelector(`button[data-action=rankMove]:not([data-d="${el.dataset.d}"])`); if (other) other.focus({ preventScroll: true }); } else el.focus({ preventScroll: true }); }
     clearTimeout(RK.saveT);
     RK.saveT = setTimeout(() => { if (RK.order) run(() => rankSave(RK.order)); }, RANK_SETTLE_MS);
   }
+  /* 21 Oct: drag and drop on Rank & fund, beside the ▲▼ arrows and the typed rank. Grab the handle at the left of a row
+     (mouse, pen or finger) and drop it where it belongs; the order saves the same way the arrows do. */
+  const RKD = { tr: null, tb: null, before: null, y0: 0, timer: null };
+  document.addEventListener('pointerdown', (e) => {
+    const g = e.target.closest && e.target.closest('[data-rk-grip]'); if (!g || !RK.k || e.button > 0) return;
+    const tr = g.closest('tr'), tb = tr && tr.closest('tbody'); if (!tb) return;
+    e.preventDefault(); RKD.tr = tr; RKD.tb = tb; RKD.before = [...tb.querySelectorAll('input[data-rank-to]')].map((i) => i.dataset.rankTo);
+    const fl = tb.querySelector('tr.fline'); if (fl) fl.remove();
+    tr.classList.add('rk-dragging'); document.body.classList.add('rk-drag-on');
+    try { g.setPointerCapture(e.pointerId); } catch (x) { /* older browsers */ }
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!RKD.tr) return; e.preventDefault();
+    const rows = [...RKD.tb.querySelectorAll('tr.rk-row')].filter((r) => r !== RKD.tr);
+    const next = rows.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+    if (next) { if (RKD.tr.nextElementSibling !== next) RKD.tb.insertBefore(RKD.tr, next); } else if (RKD.tb.lastElementChild !== RKD.tr) RKD.tb.appendChild(RKD.tr);
+    // near the top or bottom of the window, scroll so a long list can be crossed
+    const edge = 60, h = window.innerHeight; window.scrollBy(0, e.clientY < edge ? -14 : e.clientY > h - edge ? 14 : 0);
+  }, { passive: false });
+  const rkDrop = () => {
+    if (!RKD.tr) return;
+    const tr = RKD.tr, tb = RKD.tb, before = RKD.before; RKD.tr = null;
+    tr.classList.remove('rk-dragging'); document.body.classList.remove('rk-drag-on');
+    const order = [...tb.querySelectorAll('input[data-rank-to]')].map((i) => i.dataset.rankTo);
+    if (order.join() === before.join()) { if (RK.order) rankPending(tb, RK.order, null); else { const y = window.scrollY; here().then(() => window.scrollTo(0, y)); } return; }
+    rankPending(tb, order, null);
+  };
+  document.addEventListener('pointerup', rkDrop); document.addEventListener('pointercancel', rkDrop);
+
   async function rankScenario() {
     const k = RK.k, sc = RK.rows.scenarios.find((x) => x.id === RK.sid);
     const name = (prompt('Name the new scenario', `${sc.name}: only what fits`) || '').trim(); if (!name) return;
     const id = await HG.db.rpc('copy_scenario', { p_source: RK.sid, p_name: name.slice(0, 80) });
     const nid = typeof id === 'string' ? id : (id && id.copy_scenario);
+    if (!nid) throw new UserError('The copy wasn’t made. Try again.');
+    scnMade(nid);
     const ids = k.rankOrder.deferred.map((x) => enc(x.id)).join(',');
     for (const t of ['phase', 'recurring_cost', 'scenario_initiative']) await HG.db.removeAll(t, `scenario_id=eq.${nid}&initiative_id=in.(${ids})`);
     toast('Scenario made', `“${name}” keeps the ${k.line} initiatives above the line.`);
@@ -1917,39 +2012,61 @@
     const name = (prompt('Name the new scenario', `${sc.name}: filled in around the gaps`) || '').trim(); if (!name) return;
     const id = await HG.db.rpc('copy_scenario', { p_source: RK.sid, p_name: name.slice(0, 80) });
     const nid = typeof id === 'string' ? id : (id && id.copy_scenario);
+    if (!nid) throw new UserError('The copy wasn’t made. Try again.');
+    scnMade(nid);
     const ids = fi.skipped.map((x) => enc(x.id)).join(',');
     if (ids) for (const t of ['phase', 'recurring_cost', 'scenario_initiative']) await HG.db.removeAll(t, `scenario_id=eq.${nid}&initiative_id=in.(${ids})`);
     toast('Scenario made', `“${name}” keeps the ${fi.count} initiatives that fit when filling in around the gaps.`);
     CAP.key = S.district.id; CAP.scenarioId = nid; go(`#/d/${enc(S.district.slug)}/money/capital`);
   }
-  const CMP = { key: null, ids: [], a: null, b: null };
+  const CMP = { key: null, ids: [], a: null, b: null, out: new Set(), made: null };
+  /** a scenario was just made somewhere (Rank & fund, the capital plan, the editor): it shows first on Scenarios, ticked to compare */
+  const scnMade = (id) => { if (id) CMP.made = id; };
+  const cmpRun = (rows, id) => HGCompare.run(rows, id, CMP.out);
   async function vScenarios(c) {
     const rows = await loadCapitalRows(c.district);
     CMP.rows = rows;
     if (!rows.settings || !rows.scenarios.length) return notReady(c, { rows });
     const all = rows.scenarios.slice().sort((x, y) => (y.is_board_version - x.is_board_version) || x.name.localeCompare(y.name));
     if (CMP.key !== c.district.id || !CMP.ids.every((id) => all.some((x) => x.id === id)) || !CMP.ids.length) {
+      if (CMP.key !== c.district.id) CMP.out = new Set();
       CMP.key = c.district.id; CMP.ids = all.slice(0, 3).map((x) => x.id); CMP.a = CMP.ids[0]; CMP.b = CMP.ids[1] || CMP.ids[0];
     }
+    // 21 Oct: a scenario just made elsewhere is ticked to compare (in place of the last one), so it's never missing from the table
+    if (CMP.made && all.some((x) => x.id === CMP.made) && !CMP.ids.includes(CMP.made)) CMP.ids = (CMP.ids.length >= 3 ? CMP.ids.slice(0, 2) : CMP.ids).concat(CMP.made);
+    const fresh = CMP.made; CMP.made = null;
+    CMP.out = new Set([...CMP.out].filter((id) => rows.initiatives.some((i) => String(i.id) === id)));
     const pick = (x) => `<input type="checkbox" data-cmp-pick value="${esc(x.id)}" ${CMP.ids.includes(x.id) ? 'checked' : ''} aria-label="Compare ${esc(x.name)}">`;
     if (all.length > 1) {
-      const gaps = all.map((x) => ({ x, g: HGCompare.metrics(HGCompare.run(rows, x.id)).gap })).sort((a, b2) => a.g - b2.g), bv = gaps.find((y) => y.x.is_board_version);
-      setLead(`Of ${all.length} scenarios, <b>${esc(gaps[0].x.name)}</b> leaves the smallest gap (${fmtK(gaps[0].g)})${bv && bv.x.id !== gaps[0].x.id ? `; the board version leaves ${fmtK(bv.g)}` : ''}.`);
+      const gaps = all.map((x) => ({ x, g: HGCompare.metrics(cmpRun(rows, x.id)).gap })).sort((a, b2) => a.g - b2.g), bv = gaps.find((y) => y.x.is_board_version);
+      const closes = gaps.filter((y) => y.g <= 0.5), lo = CMP.out.size ? ` with ${CMP.out.size} initiative${CMP.out.size === 1 ? '' : 's'} left out` : '';
+      setLead(closes.length ? `${closes.length === 1 ? `<b>${esc(closes[0].x.name)}</b> pays for everything${lo}` : `${closes.length} scenarios pay for everything${lo}: ${closes.map((y) => `<b>${esc(y.x.name)}</b>`).join(', ')}`}, with no gap to close.`
+        : `Of ${all.length} scenarios, <b>${esc(gaps[0].x.name)}</b> leaves the smallest gap (${fmtK(gaps[0].g)})${lo}${bv && bv.x.id !== gaps[0].x.id ? `; the board version leaves ${fmtK(bv.g)}` : ''}. None pays for everything yet: leave initiatives out below to find one that does.`);
     }
     return `
       <div class="card"><h3>Scenarios</h3>
         <p class="small muted">Tick up to three to compare. Click a name to open it on the capital plan.</p>
         ${table([
           { label: 'Compare', html: pick },
-          { label: 'Scenario', html: (r) => `<a href="#" data-action="openScenario" data-id="${esc(r.id)}" title="Open it on the capital plan">${esc(r.name)}</a>${r.is_locked ? `<span class="lockic" role="img" aria-label="Locked" title="Locked: only a district admin can change it">${icon('lock', 15, 2)}</span>` : ''}` },
+          { label: 'Scenario', html: (r) => `<a href="#" data-action="openScenario" data-id="${esc(r.id)}" title="Open it on the capital plan">${esc(r.name)}</a>${r.id === fresh ? ' <span class="pill p-pace" data-new-scn>New</span>' : ''}${r.is_locked ? `<span class="lockic" role="img" aria-label="Locked" title="Locked: only a district admin can change it">${icon('lock', 15, 2)}</span>` : ''}` },
           { label: '', html: (r) => (r.is_board_version ? badge('live').replace('Live', 'Board version') : '') },
           { label: 'Last changed', get: (r) => day(r.updated_at) },
-        ], all, '')}</div>
+        ], all.slice().sort((x, y) => (y.id === fresh) - (x.id === fresh)), '')}</div>
+      ${cmpOutHtml(rows)}
       <div id="cmp-table">${compareTableHtml()}</div>
       <div id="cmp-why">${whyHtml()}</div>`;
   }
+  /* 21 Oct: leave initiatives out of every scenario being compared, to find the one that pays for everything that's left */
+  function cmpOutHtml(rows) {
+    const list = rows.initiatives.filter((i) => rows.scenarios.some((x) => inScen(rows, x.id, i.id))).sort((a, b) => a.name.localeCompare(b.name));
+    if (!list.length) return '';
+    return `<details class="fold cmp-out" data-cmp-out ${CMP.out.size ? 'open' : ''}><summary>Leave initiatives out of the comparison${CMP.out.size ? ` <span class="small muted">· ${CMP.out.size} left out</span>` : ''}</summary>
+      <p class="small muted">Tick an initiative to see every scenario without it (its one-time and yearly costs). Nothing is changed or saved; it’s for finding the scenario to go with. To keep the result, open that scenario and use Leave projects out on the capital plan.</p>
+      <div class="area-picks">${list.map((i) => `<label class="apick"><input type="checkbox" data-cmp-out="${esc(i.id)}" ${CMP.out.has(String(i.id)) ? 'checked' : ''}><span>${esc(i.name)}</span></label>`).join('')}</div>
+      ${CMP.out.size ? '<div class="row" style="margin-top:8px"><button type="button" class="btn small" data-action="cmpOutClear">Put them all back</button></div>' : ''}</details>`;
+  }
   function compareTableHtml() {
-    const rows = CMP.rows, cols = CMP.ids.map((id) => ({ sc: rows.scenarios.find((x) => x.id === id), m: HGCompare.metrics(HGCompare.run(rows, id)) }));
+    const rows = CMP.rows, cols = CMP.ids.map((id) => ({ sc: rows.scenarios.find((x) => x.id === id), m: HGCompare.metrics(cmpRun(rows, id)) }));
     if (!cols.length) return '';
     const minGap = Math.min(...cols.map((k) => k.m.gap));
     const line = (label, f, opts) => `<tr${opts && opts.strong ? ' class="strong"' : ''}><th scope="row">${esc(label)}</th>${cols.map((k) => `<td class="num">${f(k.m, k)}</td>`).join('')}</tr>`;
@@ -2012,7 +2129,7 @@
     ? `<div class="card"><h3>Not set up yet</h3><p>${!b.rows.settings ? 'The business office hasn’t entered the district’s starting numbers yet.' : 'The district’s projects haven’t been entered yet.'} This screen fills in once they are.</p></div>`
     : `<div class="card"><h3>${!b.rows.settings ? 'Starting numbers aren’t set up yet' : 'No scenarios yet'}</h3>
     <p>${!b.rows.settings ? 'Enter the district’s receipts, balances and debt first.' : 'Upload the district’s projects to create its first scenario.'}</p>
-    <a class="btn primary" href="#/d/${enc(c.district.slug)}/${!b.rows.settings ? 'settings/setup' : 'settings/uploads'}">${!b.rows.settings ? 'Starting numbers' : 'Upload projects'}</a></div>`);
+    <a class="btn primary" href="#/d/${enc(c.district.slug)}/${!b.rows.settings ? 'settings/setup' : 'settings/uploads'}">${!b.rows.settings ? 'Starting numbers' : 'Upload initiatives'}</a></div>`);
   /** each capital fund's balance at the end of each year: one line per fund */
   /** charts are drawn narrower on phones so their labels stay readable when scaled to the screen */
   /** an initiative's focus areas: stored as one text, "Academics, Staffing" */
@@ -2048,11 +2165,37 @@
     const SEG = [['debt', '#4B5563', 'Debt payments'], ['other', '#9AA5A0', 'Held back and yearly costs'], ['proj', '#2F6B4F', 'Board-version projects'], ['left', '#BFDCC9', 'Not committed yet'], ['short', '#B42318', 'Short']];
     /* each fund: its bar, then a key under it with the same colours, in the same order, with the amounts */
     const bars = rows.map((r) => { const segs = SEG.filter(([key]) => r[key] > 0.5), hi = Math.max(1, r.avail, r.debt + r.other + r.proj + r.left) + r.short;
-      return `<div class="cbar-row"><div class="cbar-head"><span class="cbar-name">${esc(FUND_NAMES[r.k])}</span><span class="small muted">${fmtK(r.avail)} available in all${r.short > 0.5 ? ` · <span class="gaptext">short ${fmtK(r.short)}</span>` : r.left > 0.5 ? ` · ${fmtK(r.left)} not committed yet` : ' · all committed'}</span></div>
+      return `<div class="cbar-row" data-fund-go="${r.k}" tabindex="0" role="button" title="Click for ${esc(FUND_NAMES[r.k])} year by year"><div class="cbar-head"><span class="cbar-name">${esc(FUND_NAMES[r.k])} <span class="cbar-more small">Details ›</span></span><span class="small muted">${fmtK(r.avail)} available in all${r.short > 0.5 ? ` · <span class="gaptext">short ${fmtK(r.short)}</span>` : r.left > 0.5 ? ` · ${fmtK(r.left)} not committed yet` : ' · all committed'}</span></div>
         <div class="cbar" role="img" aria-label="${esc(FUND_NAMES[r.k])}: ${segs.map(([key, , name]) => `${name} ${fmtK(r[key])}`).join(', ')}">${segs.map(([key, color, name]) => `<span style="width:${(100 * r[key] / hi).toFixed(2)}%;background:${color}" title="${esc(name)} ${fmtK(r[key])}"></span>`).join('')}</div>
         <ul class="cbar-key">${segs.map(([key, color, name]) => `<li class="${key === 'short' ? 'gaptext' : ''}"><i style="background:${color}"></i>${name} <b>${fmtK(r[key])}</b></li>`).join('')}</ul></div>`; }).join('');
     return `<div class="cbars">${bars}</div>
       <p class="small muted">Over FY${cfg.start}–FY${cfg.start + cfg.n - 1}. Each bar is that fund’s money: <b>available</b> is the starting balance plus every year’s receipts, the whole bar. It’s split into what’s committed (payments on existing and planned debt, what the fund holds back each year, yearly costs of programs and hires), the board version’s projects, and what’s <b>not committed yet</b>. Bars aren’t drawn to the same scale: compare the dollar amounts.</p>`;
+  }
+  /* 21 Oct: All funds, one fund at a time: year by year, what's committed, which projects it pays for, its debt and its rules */
+  const FUNDX = { b: null, c: null };
+  function fundPanel(k) {
+    const b = FUNDX.b; if (!b || !b.paths || !b.paths[k]) return;
+    const { inp, paths } = b, cfg = inp.cfg, P = paths[k], K = HGCapital.commitments(inp.levers, cfg)[k] || { debt: 0, ongoing: 0, yearly: 0 };
+    const proj = []; inp.projects.forEach((p) => p.phases.forEach((ph) => { const f = ph.funding.find((x) => x.b === k), opt = (ph.options || []).includes(k);
+      if (f || opt) proj.push({ name: p.name, label: ph.label, fy: cfg.start + ph.year, cost: ph.cost * (f ? f.p / 100 : 1), share: f ? f.p : null, opt: !f && opt }); }));
+    proj.sort((a, c) => a.fy - c.fy || a.name.localeCompare(c.name));
+    const debts = ((b.rows && b.rows.debts) || []).filter((d) => d.fund === k);
+    const recur = (inp.levers.recur || []).filter((r) => r.fund === k);
+    modal(`<div class="stack fund-panel" data-fund-panel="${k}"><div class="row" style="justify-content:space-between"><h2 id="modal-title">${esc(FUND_NAMES[k])}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <p class="small">${esc(FUND_RULES[k] || '')}</p>
+      <div class="grid tiles fp-tiles"><div class="card tile-card"><div class="small muted">Starting balance</div><div class="stat">${fmtK(P.open)}</div></div>
+        <div class="card tile-card"><div class="small muted">Receipts, ${cfg.n} years</div><div class="stat">${fmtK(P.receipts + K.debt + K.ongoing + K.yearly)}</div><div class="small muted">${K.debt + K.ongoing + K.yearly > 0.5 ? `${fmtK(K.debt + K.ongoing + K.yearly)} already committed` : 'nothing committed yet'}</div></div>
+        <div class="card tile-card"><div class="small muted">Projects</div><div class="stat">${fmtK(P.spend)}</div></div>
+        <div class="card tile-card ${P.over > 0.5 ? 'gap' : ''}"><div class="small muted">${P.over > 0.5 ? 'Short' : 'Lowest balance'}</div><div class="stat">${fmtK(P.over > 0.5 ? P.over : P.low)}</div><div class="small muted">${P.over > 0.5 ? 'more planned than it has' : `FY${P.lowFY}`}</div></div></div>
+      <h3 class="cy-h">Year by year</h3><div class="scroll"><table class="data"><thead><tr><th>Year</th><th class="num">Start</th><th class="num">Receipts</th><th class="num">Projects</th><th class="num">Short by</th><th class="num">End</th></tr></thead><tbody>
+        ${P.years.map((y) => `<tr><td>FY${y.fy}</td><td class="num">${fmtK(y.start)}</td><td class="num">${fmtK(y.receipts)}</td><td class="num">${fmtK(y.spend)}</td><td class="num">${y.over > 0.5 ? `<b class="gaptext">${fmtK(y.over)}</b>` : ''}</td><td class="num">${y.fy === P.lowFY ? `<b>${fmtK(y.end)}</b> <span class="small muted">low</span>` : fmtK(y.end)}</td></tr>`).join('')}</tbody></table></div>
+      <p class="small muted">${k === 'grants' ? 'Receipts are the grants and donations expected for capital each year.' : 'Receipts are after existing debt payments and what’s held back each year.'}</p>
+      ${K.debt + K.ongoing + K.yearly > 0.5 ? `<h3 class="cy-h">Already committed, ${cfg.n} years</h3><ul class="small">${K.debt > 0.5 ? `<li>Debt payments ${fmtK(K.debt)}${debts.length ? `: ${debts.map((d) => `${esc(d.name)} (${fmtK(Number(d.annual_payment))} a year through FY${d.final_fy})`).join('; ')}` : ''}</li>` : ''}
+        ${K.ongoing > 0.5 ? `<li>Held back each year ${fmtK(K.ongoing)} <span class="muted">(recurring costs and a cushion, set on Starting numbers)</span></li>` : ''}
+        ${K.yearly > 0.5 ? `<li>Yearly costs of programs and hires ${fmtK(K.yearly)}${recur.length ? `: ${[...new Set(recur.map((r) => r.name).filter(Boolean))].map(esc).join(', ')}` : ''}</li>` : ''}</ul>` : ''}
+      <h3 class="cy-h">Projects it pays for <span class="small muted">· board version, today’s dollars</span></h3>
+      ${proj.length ? `<div class="scroll"><table class="data"><thead><tr><th>Year</th><th>Initiative</th><th class="num">From this fund</th></tr></thead><tbody>${proj.map((x) => `<tr><td>FY${x.fy}</td><td>${esc(x.name)}${x.label ? ` <span class="muted">· ${esc(x.label)}</span>` : ''}${x.share && x.share !== 100 ? ` <span class="small muted">(${x.share}%)</span>` : ''}${x.opt ? ' <span class="small muted">(one of its choices)</span>' : ''}</td><td class="num">${fmtK(x.cost)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">No projects are paid from this fund.</p>'}
+      ${FUNDX.c ? `<p class="small"><a href="#" data-action="goClose" data-to="money/capital">Open the capital plan</a></p>` : ''}</div>`);
   }
   /* ---- peer comparisons from the state's annual reports (part 16): only unusual numbers are shown ---- */
   const PEERS = { key: null, data: null };
@@ -2102,7 +2245,7 @@
       </div>
       ${peers}
       <div class="card"><h3>Capital fund balances</h3>${fundsChart(paths, funds)}</div>
-      <div class="card"><h3>Funding vs. committed</h3>${commitChart(paths, funds, inp.levers, cfg)}</div>
+      <div class="card"><h3>Funding vs. committed</h3>${(FUNDX.b = b, FUNDX.c = c, '')}${commitChart(paths, funds, inp.levers, cfg)}</div>
       ${fold(c, 'Capital funds: the numbers', `<div class="card">${table([
         { label: 'Fund', get: (k) => FUND_NAMES[k] },
         { label: `Starting balance`, num: true, get: (k) => fmt(paths[k].open) },
@@ -2213,10 +2356,10 @@
       </div>
       ${flags.length ? `<div class="card"><h3>Watch</h3><ul>${flags.join('')}</ul></div>` : ''}
       <div class="card"><h3>Solvency and spending authority</h3>${gfChart(R)}</div>
-      <div class="card"><h3>New money vs. a negotiated raise ${def('package')}</h3><p class="small muted">New money is what the formula adds each year (state supplemental aid and enrollment). Each 1% of total package increase costs salaries plus benefits.</p>
+      <details class="fold gf-nm" data-gf-newmoney><summary>New money vs. a negotiated raise ${def('package')}</summary><div class="card"><p class="small muted">New money is what the formula adds each year (state supplemental aid and enrollment). Each 1% of total package increase costs salaries plus benefits.</p>
         <div class="scroll"><table class="data"><thead><tr><th>Year</th><th class="num">New money</th><th class="num">Each 1% of total package costs</th><th class="num">A ${(run.a.settle * 100).toFixed(1)}% total package costs</th><th class="num">Total package the new money covers</th></tr></thead><tbody>
           ${ys.slice(1).map((y) => `<tr><td>FY${y.fy}</td><td class="num">${f(y.newMoney)}</td><td class="num">${f(y.costPerPoint)}</td><td class="num">${f(y.settlementCost)}</td><td class="num"><b>${y.affordableSettlement == null ? '' : (y.affordableSettlement * 100).toFixed(1) + '%'}</b></td></tr>`).join('')}
-        </tbody></table></div></div>
+        </tbody></table></div></div></details>
       <details class="fold" ${GF.ctx && (GF.ctx.plan || GF.ctx.finance) ? 'open' : ''}><summary>Year by year</summary><div class="card"><div class="scroll"><table class="data gftable"><thead><tr><th></th>${ys.map((y) => `<th class="num">FY${y.fy}</th>`).join('')}</tr></thead><tbody>
         ${[['Enrollment', (y) => Math.round(y.enrollment).toLocaleString('en-US')], ['District cost per pupil', (y) => '$' + Math.round(y.dcpp).toLocaleString('en-US')],
           ['Regular program', (y) => f(y.regular) + (y.guarantee > 0.5 ? '*' : '')], ['Other state formula funding', (y) => f(y.other)], ['Miscellaneous income', (y) => f(y.misc)], ['<b>Revenue</b>', (y) => `<b>${f(y.revenue)}</b>`],
@@ -2622,7 +2765,7 @@
         { label: 'Short by', num: true, html: (y) => (y.over > 0.5 ? `<b class="gaptext">${fmtK(y.over)}</b>` : '') },
         { label: 'End', num: true, html: (y) => (y.fy === P.lowFY ? `<b>${fmtK(y.end)}</b> <span class="small muted">low</span>` : fmtK(y.end)) },
       ], P.years, '')}
-      <p class="small muted">Receipts are after existing debt payments and what’s held back each year${k === 'save' && inp.levers.sf ? ', and after the SF 2472 reduction' : ''}${cfg.f0 < 1 ? `; FY${cfg.start} counts only the part of the year after ${day(cfg.settings.balances.asOf)}` : ''}.</p></div>`; };
+      <p class="small muted">${k === 'grants' ? 'Receipts are the grants and donations expected for capital each year: the yearly average times the share that goes to capital projects' : k === 'vppel' ? 'Receipts are V-PPEL’s levy each year, after what’s held back each year' : `Receipts are after existing debt payments and what’s held back each year${k === 'save' && inp.levers.sf ? ', and after the SF 2472 reduction' : ''}`}${cfg.f0 < 1 ? `; FY${cfg.start} counts only the part of the year after ${day(cfg.settings.balances.asOf)}` : ''}.</p></div>`; };
     return top + history + `
       <p class="small muted">Year by year from <b>${esc(sc.name)}</b>${sc.is_board_version ? ', the board version' : ''}. <a href="#/d/${enc(c.district.slug)}/money/capital">Change it on the capital plan</a></p>
       ${funds.map(fundCard).join('')}
@@ -2679,15 +2822,15 @@
       years: [...new Set(p.phases.map((ph) => cfg.start + ph.year))].sort() })).sort((a, b) => b.total - a.total);
     if (!list.length) return '';
     const base = HGEngine.compute(CAP.inputs.projects, L, cfg), now = capCompute(), saved = list.filter((x) => out.has(String(x.p.id))).reduce((a, x) => a + x.total, 0);
-    return `<h3>Leave projects out</h3>
+    return `<details class="cap-out-fold" ${out.size ? 'open' : ''}><summary><h3 style="display:inline">Leave projects out</h3>${out.size ? ` <span class="small muted">· ${out.size} left out</span>` : ' <span class="small muted">· or click a year on the chart</span>'}</summary>
       <p class="small muted">Tick a project to see the plan without its one-time costs (yearly costs of programs and hires stay). Nothing is saved${CAP.pub ? '' : ' unless you save it as a new scenario'}.</p>
       ${out.size ? `<p class="lead" style="font-size:15px">Leaving out ${out.size} project${out.size === 1 ? '' : 's'} (${fmtK(saved)}): the gap goes from <b>${fmtK(base.gap)}</b> to <b>${fmtK(now.gap)}</b>.</p>` : ''}
       <div class="outlist">${list.map((x) => `<label class="outrow small"><input type="checkbox" data-cap-out="${esc(x.p.id)}" ${out.has(String(x.p.id)) ? 'checked' : ''}><span>${esc(x.p.name)}<span class="muted outyrs">${esc(fyRanges(x.years))}</span></span><b>${fmtK(x.total)}</b></label>`).join('')}</div>
-      ${out.size ? `<div class="row" style="margin-top:10px"><button type="button" class="btn small" data-action="capOutClear">Put them all back</button>${!CAP.pub && CAP.ctx && CAP.ctx.plan ? '<button type="button" class="btn small primary" data-action="capOutSave">Save as a new scenario</button>' : ''}</div>` : ''}`;
+      ${out.size ? `<div class="row" style="margin-top:10px"><button type="button" class="btn small" data-action="capOutClear">Put them all back</button>${!CAP.pub && CAP.ctx && CAP.ctx.plan ? '<button type="button" class="btn small primary" data-action="capOutSave">Save as a new scenario</button>' : ''}</div>` : ''}</details>`;
   }
 
   async function vCapital(c) {
-    const [rows, peers] = await Promise.all([loadCapitalRows(c.district), peersCard(c, 'capital')]);
+    const [rows, peers] = await Promise.all([loadCapitalRows(c.district), peersCard(c, 'capital'), loadChecks(c.district)]);
     CAP.rows = rows; CAP.pub = false; CAP.ctx = c;
     if (!rows.settings) {
       return `<div class="card"><h3>Starting numbers aren’t set up yet</h3>
@@ -2697,7 +2840,7 @@
     }
     if (!rows.scenarios.length && !c.plan) return '<div class="card"><h3>No capital plan yet</h3><p>The district’s projects haven’t been entered yet. The plan shows here once they are.</p></div>';
     if (!rows.scenarios.length) {
-      return `<div class="card"><h3>No scenarios yet</h3><p>Upload the district’s project spreadsheet to create its first scenario.</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/settings/uploads">Upload projects</a></div>`;
+      return `<div class="card"><h3>No scenarios yet</h3><p>Upload the district’s initiatives spreadsheet to create its first scenario.</p><a class="btn primary" href="#/d/${enc(c.district.slug)}/settings/uploads">Upload initiatives</a></div>`;
     }
     const key = c.district.id;
     if (!rows.scenarios.some((x) => x.id === CAP.scenarioId)) {
@@ -2715,7 +2858,7 @@
       </div>
       ${CAP.sc.is_locked && (c.plan || c.finance) ? `<div class="notice">This scenario is locked, so it can’t be changed${c.admin ? '. Unlock it to edit.' : '. A district admin can unlock it.'} Copy it to try changes.</div>` : ''}
       ${CAP.inputs.notes.length ? `<ul class="fineprint">${CAP.inputs.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
-      ${fundRulesNotice(CAP.inputs)}${CAP.pub ? '' : doubleNotice(CAP.inputs, c)}
+      ${fundRulesNotice(CAP.inputs)}${CAP.pub ? '' : checksNotice(CAP.inputs, c)}
       <p class="lead" id="cap-lead">${capLeadHtml()}</p>
       <div id="cap-results">${capResultsHtml()}</div>
       ${c.plan && capCompute().gap > 0.5 ? rankCallout(c.district.slug, rows, CAP.scenarioId) : ''}
@@ -2757,9 +2900,9 @@
     const W = 64, H = 170, top = 24, base = top + H;
     const bars = yrs.map((y, i) => {
       const x = i * W + 12, w = W - 24; let yy = base;
-      const seg = (v, cls) => { if (v <= 0.5) return ''; const h = v / max * H; yy -= h; return `<rect class="${cls}" x="${x}" y="${yy.toFixed(1)}" width="${w}" height="${h.toFixed(1)}"></rect>`; };
+      const seg = (v, cls) => { if (v <= 0.5) return ''; const h = v / max * H; yy -= h; return `<rect class="${cls}" data-band="${cls.slice(2)}" x="${x}" y="${yy.toFixed(1)}" width="${w}" height="${h.toFixed(1)}"></rect>`; };
       const parts = seg(y.fromFunds, 'b-funds') + seg(y.over, 'b-over') + seg(y.boost, 'b-boost') + seg(y.financed, 'b-fin') + seg(y.campNeeded, 'b-camp');
-      return `<g><title>FY${y.fy}: ${fmtK(y.total)}${y.campNeeded > 0.5 ? `, campaign or bond needed ${fmtK(y.campNeeded)}` : ''}${y.over > 0.5 ? `, over capacity ${fmtK(y.over)}` : ''}</title>${parts}
+      return `<g class="capyr" data-cap-year="${i}" tabindex="0" role="button" aria-label="FY${y.fy}: ${fmtK(y.total)}. Show what's in it"><title>FY${y.fy}: ${fmtK(y.total)}${y.campNeeded > 0.5 ? `, campaign or bond needed ${fmtK(y.campNeeded)}` : ''}${y.over > 0.5 ? `, over capacity ${fmtK(y.over)}` : ''}. Click to see what’s in it.</title><rect class="b-hit" x="${x - 6}" y="${top}" width="${w + 12}" height="${H + 20}"></rect>${parts}
         ${y.total > 0.5 ? `<text x="${x + w / 2}" y="${(yy - 6).toFixed(1)}" class="b-lab ${y.over > 0.5 ? 'warn' : y.campNeeded > 0.5 ? 'camp' : ''}">${fmtK(y.total)}</text>` : ''}
         <text x="${x + w / 2}" y="${base + 16}" class="b-fy">${y.fy}</text></g>`;
     }).join('');
@@ -2767,7 +2910,38 @@
     return `${moved ? '<div class="notice warn whatif-tag"><b>What-if:</b> these figures include your changes to the levers. They are not the published plan. <a href="#" data-action="capReset">Reset</a></div>' : ''}<div class="grid tiles">${tiles.map((t) => `<div class="card tile-card ${t[0] === 'Gap to close' && r.gap > 0.5 ? 'gap' : ''}"><div class="small muted">${esc(t[0])}</div><div class="stat">${esc(t[1])}</div><div class="small muted">${esc(t[2])}</div></div>`).join('')}</div>
       <div class="card"><div class="row" style="justify-content:space-between"><h3>Capital spending by year</h3>
         <div class="legend small"><span><i class="b-funds"></i>Levies &amp; grants</span><span><i class="b-boost"></i>Boosters</span><span><i class="b-fin"></i>Financed</span><span><i class="b-camp"></i>Campaign / bond needed</span><span><i class="b-over"></i>Over capacity</span></div></div>
-        <div class="scroll"><svg class="capchart" viewBox="0 0 ${yrs.length * W} ${base + 24}" role="img" aria-label="Capital spending by year">${bars}</svg></div></div>`;
+        <div class="scroll"><svg class="capchart" viewBox="0 0 ${yrs.length * W} ${base + 24}" role="img" aria-label="Capital spending by year">${bars}</svg></div>
+        <p class="small muted cap-hint">Click a year, or a colour in it, to see what’s in it${CAP.editable ? ' and change it' : ''}.</p></div>`;
+  }
+  /* 21 Oct: the chart, one year at a time: what's in each colour band, each fund's room, and (when a year is over what
+     the funds can pay) what can be done about it: move it later, mark it as a campaign or bond, leave it out, or take it out */
+  const BAND = { funds: ['Levies & grants', 'SAVE, PPEL, V-PPEL and grants pay these'], boost: ['Boosters', 'Paid by booster clubs or donors'], fin: ['Financed', 'Paid by a bond, lease or campaign already in this scenario'],
+    camp: ['Campaign / bond needed', 'Marked for a campaign or bond that isn’t in this scenario yet'], over: ['Over capacity', 'More than SAVE, PPEL, V-PPEL and grants can pay that year'] };
+  const bandOf = (ph) => (ph.funding.some((f) => f.b === 'camp') ? 'camp' : ph.funding.some((f) => f.b === 'boost') ? 'boost' : 'funds');
+  function capYearPanel(i, band) {
+    const cfg = CAP.inputs.cfg, r = capCompute(), y = HGCapital.yearSummary(r, cfg)[i], m = r.res[i]; if (!y) return;
+    const items = capItems().filter((x) => x.ph.year === i), ed = CAP.editable, rank = new Map(((CAP.rows && CAP.rows.scenario_initiative) || []).filter((x) => x.scenario_id === CAP.scenarioId).map((x) => [String(x.initiative_id), x.rank]));
+    const groups = [['funds', items.filter((x) => bandOf(x.ph) === 'funds')], ['boost', items.filter((x) => bandOf(x.ph) === 'boost')], ['camp', items.filter((x) => bandOf(x.ph) === 'camp')]].filter(([, l]) => l.length);
+    const want = band === 'over' ? 'funds' : band === 'fin' ? 'camp' : band;
+    groups.sort((a, b) => (b[0] === want) - (a[0] === want));
+    const row = (x) => `<li class="${x.left ? 'leftout' : ''}"><div class="cy-name">${esc(x.p.name)}${x.ph.label ? ` <span class="muted">· ${esc(x.ph.label)}</span>` : ''}${x.ph.status === 'underway' ? ' <span class="small muted">underway</span>' : x.ph.status === 'done' ? ' <b class="ok small">Done</b>' : ''}
+        <div class="small muted">${fundChips(x.ph, r.pick.get(x.ph))}${rank.has(String(x.p.id)) ? ` · ranked #${rank.get(String(x.p.id))}` : ''}${x.left ? ' · left out in this what-if' : ''}</div></div><b>${fmtK(x.cost)}</b>
+      ${!CAP.pub ? `<div class="cy-acts">${ed ? `<button type="button" class="btn small" data-action="cyEdit" data-id="${esc(x.p.id)}">Edit</button>` : ''}
+        <button type="button" class="btn small" data-action="cyLeave" data-id="${esc(x.p.id)}">${x.left ? 'Put it back' : 'Leave out (what-if)'}</button>
+        ${ed && x.ph.status !== 'done' && x.ph.status !== 'underway' && bandOf(x.ph) === 'funds' ? `<button type="button" class="btn small" data-action="cyCamp" data-phase="${esc(x.ph.phaseId)}" data-name="${esc(x.p.name)}">Mark as campaign or bond</button>` : ''}
+        ${ed ? `<button type="button" class="btn small danger" data-action="cyRemove" data-id="${esc(x.p.id)}" data-name="${esc(x.p.name)}">Remove from scenario</button>` : ''}</div>` : ''}</li>`;
+    const fundRows = HGCapital.CAP_FUNDS.filter((b) => m.avail[b] > 0.5 || m.spend[b] > 0.5).map((b) => `<tr><td>${FUND_LABEL[b]}</td><td class="num">${fmtK(m.avail[b])}</td><td class="num">${fmtK(m.spend[b] - m.over[b])}</td><td class="num">${m.over[b] > 0.5 ? `<b class="gaptext">${fmtK(m.over[b])}</b>` : '—'}</td></tr>`).join('');
+    const guide = y.over > 0.5 ? `<div class="notice cy-guide"><b>FY${y.fy} is ${fmtK(y.over)} more than the funds can pay.</b> To fix it, for the initiatives below:
+        <ul class="small"><li><b>Move it to a later year</b>: in Edit, or let <a href="#/d/${enc(S.district.slug)}/plan/ranking/years">Rank &amp; fund → When each can be paid for</a> find the year.</li>
+        <li><b>Mark as campaign or bond</b> if the district will ask voters or donors for it. It then shows as campaign / bond needed instead of over capacity.</li>
+        <li><b>Leave out (what-if)</b> to see the plan without it, or <b>remove from scenario</b> to take it out of this scenario for good.</li></ul></div>` : '';
+    modal(`<div class="stack cy-panel" data-cap-panel="${i}"><div class="row" style="justify-content:space-between"><h2 id="modal-title">FY${y.fy} · ${fmtK(y.total)}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <div class="cy-bands">${[['funds', y.fromFunds], ['boost', y.boost], ['fin', y.financed], ['camp', y.campNeeded], ['over', y.over]].filter(([, v]) => v > 0.5).map(([k, v]) => `<div class="cy-band ${k === band ? 'on' : ''}"><i class="b-${k}"></i><span>${BAND[k][0]}<br><span class="small muted">${BAND[k][1]}</span></span><b>${fmtK(v)}</b></div>`).join('')}</div>
+      ${guide}
+      ${groups.map(([k, l]) => `<h3 class="cy-h">${k === 'funds' ? 'Paid from SAVE, PPEL, V-PPEL and grants' : k === 'boost' ? 'Paid by boosters' : 'Campaign or bond'} <span class="small muted">· ${l.length} · ${fmtK(l.reduce((a, x) => a + x.cost, 0))}</span></h3><ul class="cy-list">${l.map(row).join('')}</ul>`).join('') || '<p class="muted">Nothing planned this year.</p>'}
+      ${fundRows ? `<h3 class="cy-h">Each fund that year</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Available</th><th class="num">Spent</th><th class="num">Over</th></tr></thead><tbody>${fundRows}</tbody></table></div>
+        <p class="small muted">Available is that year’s receipts (after what’s held back and existing debt payments) plus what carried over from earlier years.</p>` : ''}
+      ${!ed && !CAP.pub && CAP.sc.is_locked && CAP.ctx && CAP.ctx.plan ? '<p class="small muted">This scenario is locked, so only the what-if works here. Copy or unlock it to make changes.</p>' : ''}</div>`);
   }
   function capLeversHtml() {
     const cfg = CAP.inputs.cfg;
@@ -3319,10 +3493,12 @@
       </div>
       ${ledgerNote(c, batches)}
       ${S.hasBudget ? '' : '<div class="notice">This month’s export has no budget column, so only actuals show. Include the budget in the export (most systems can), and HighGround will compare against it.</div>'}
-      <div class="card"><h3>Every fund</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Year-end forecast</th><th>Revenue status</th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">On order ${def('encumbered')}</th><th>Budget used</th><th class="num">Year-end forecast</th><th>Spending status</th></tr></thead><tbody>
+      <div class="card"><h3>Every fund</h3><div class="scroll"><table class="data ba-funds"><thead>
+        <tr class="ba-grp"><th></th><th colspan="3">Revenue</th><th colspan="4">Spending</th></tr>
+        <tr><th>Fund</th><th class="num">Budget</th><th class="num">Received</th><th class="num">Year-end forecast</th><th class="num">Budget</th><th class="num">Spent</th><th class="num">On order ${def('encumbered')}</th><th class="num">Year-end forecast</th></tr></thead><tbody>
         ${S.funds.map((f) => `<tr><td><a href="#" data-action="baFund" data-k="${esc(f.key)}">${esc(f.name)}</a></td>
-          <td class="num">${fmt(f.revenue.budget)}</td><td class="num">${fmt(f.revenue.actual)}</td><td class="num">${fmt(f.revenue.forecast)}</td><td class="small">${revVar(f.revenue)}</td>
-          <td class="num">${fmt(f.spending.budget)}</td><td class="num">${fmt(f.spending.actual)}</td><td class="num">${fmt(f.spending.encumbered)}</td><td>${bar(f.spending.used, true, f.spending.variance > 0.5)}</td><td class="num">${fmt(f.spending.forecast)}</td><td class="small">${spendVar(f.spending)}</td></tr>`).join('')}
+          <td class="num">${fmt(f.revenue.budget)}</td><td class="num">${fmt(f.revenue.actual)}</td><td class="num">${fmt(f.revenue.forecast)}<div class="small">${revVar(f.revenue)}</div></td>
+          <td class="num">${fmt(f.spending.budget)}</td><td class="num">${fmt(f.spending.actual)}<div>${bar(f.spending.used, true, f.spending.variance > 0.5)}</div></td><td class="num">${fmt(f.spending.encumbered)}</td><td class="num">${fmt(f.spending.forecast)}<div class="small">${spendVar(f.spending)}</div></td></tr>`).join('')}
       </tbody></table></div>${barKey}</div>
       ${hbHtml}
       ${fund ? `<div class="card"><h3>${esc(fund.name)}</h3>
@@ -3464,9 +3640,6 @@
     /* Simple to start: one cost, one year, one fund. Phases (each with its own name, year, cost and funds) and yearly costs are a
        click away, and open by themselves when the initiative already has them. */
     const simple = phases.length <= 1 && !(phases[0] && (phases[0].label || (phases[0].funding || []).length > 1 || phases[0].options || (phases[0].status && phases[0].status !== 'planned')));
-    const sc0 = rows.scenarios.find((x) => x.id === sid);
-    const takeOut = ED.mode === 'decisions' && here_ && sc0 && !sc0.is_locked
-      ? `<div class="row ed-takeout"><button type="button" class="btn small danger" data-action="removeProject" data-id="${esc(pid)}">Take it out of “${esc(sc0.name)}”</button><span class="small muted">Its details stay on the initiatives list; other scenarios keep it.</span></div>` : '';
     return `<div class="costs${simple ? ' simple-phases' : ''}${yearly.length ? '' : ' no-yearly'}" data-costs>
       <h3><span class="when-simple">Cost</span><span class="when-full">One-time costs (phases)</span></h3>
       <p class="small muted when-simple">One cost, the year it’s paid and the fund it comes from, in today’s dollars (the plan adds inflation). Leave it empty if there’s only a yearly cost.</p>
@@ -3474,19 +3647,24 @@
       <div class="scroll"><table class="data phases ph-table"><thead><tr><th>Phase name</th><th>Year</th><th>Cost, $</th><th>Paid from ${def('fund_choice')}<span class="th-sub">add a fund to split this phase’s cost</span></th><th>Status</th><th></th></tr></thead>
         <tbody data-phase-body>${phases.map((ph) => phaseRowHtml(ph, cfg)).join('')}</tbody></table></div>
       <div class="cost-sum" data-cost-sum></div>
-      <div class="addrow when-full"><button type="button" class="btn small" data-action="addPhaseRow">Add a phase</button></div>
-      <div class="row when-simple ed-more"><button type="button" class="btn small" data-action="costsPhases">Split into phases or funds</button>
-        <button type="button" class="btn small when-noyearly" data-action="costsRecurring">Add a yearly (recurring) cost</button></div>
       <template data-phase-template>${phaseRowHtml({ fy: cfg.start, funding: [{ b: 'save', p: 100 }] }, cfg)}</template>
-      <div class="row when-full when-noyearly ed-more"><button type="button" class="btn small" data-action="costsRecurring">Add a yearly (recurring) cost</button></div>
       <div class="yearly-block">
       <h3>Yearly costs</h3>
       <p class="small muted">Costs that repeat every year, such as a salary, supplies or a subscription. Costs paid from SAVE, PPEL, V-PPEL or grants come off that fund each year in the plan. General Fund costs go into the five-year General Fund forecast, and Rank &amp; fund checks the General Fund can carry them. A one-time General Fund cost, like start-up supplies for a new program: set From and Until to the same year.</p>
-      <div class="scroll"><table class="data phases"><thead><tr><th>What</th><th>Paid from</th><th>Per year, $</th><th>From</th><th>Until</th><th>Grows with</th><th></th></tr></thead>
+      <div class="scroll"><table class="data phases yr-table"><colgroup><col class="c-what"><col class="c-fund"><col class="c-amt"><col class="c-fy"><col class="c-fy"><col class="c-grow"><col class="c-x"></colgroup>
+        <thead><tr><th>What</th><th>Paid from</th><th>Per year, $</th><th>From</th><th>Until</th><th>Grows with</th><th></th></tr></thead>
         <tbody data-yearly-body>${yearly.map((r) => yearlyRowHtml(r, cfg)).join('')}</tbody></table></div>
-      <div class="addrow"><button type="button" class="btn small" data-action="addYearlyRow">Add a yearly cost</button></div>
       <template data-yearly-template>${yearlyRowHtml({ kind: 'salary', fund: 'general', first: cfg.start + 1, grows: 'none' }, cfg)}</template></div>
-      ${takeOut}</div>`;
+      <div class="row ed-more ed-adds"><button type="button" class="btn small when-simple" data-action="costsPhases">Split into phases or funds</button><button type="button" class="btn small when-full" data-action="addPhaseRow">Add a phase</button><button type="button" class="btn small" data-action="costsRecurring">Add a yearly cost</button></div></div>`;
+  }
+  /* 21 Oct: take an initiative out of one or more of the scenarios it's in (its details stay on the initiatives list).
+     Every scenario it's in is listed; a locked one can't be ticked here. */
+  function takeOutHtml(pid, plans) {
+    if (!pid || !plans.length) return '';
+    const one = plans.length === 1;
+    return `<div class="ed-takeout" data-takeout><div class="small"><b>Remove from scenario${one ? '' : 's'}:</b> <span class="muted">its details stay on the initiatives list${one ? '' : '; scenarios you don’t tick keep it'}.</span></div>
+      <div class="to-list">${plans.map((x) => `<label class="apick${x.is_locked ? ' is-locked' : ''}"><input type="checkbox" name="takeout_sid" value="${esc(x.id)}" ${x.is_locked ? 'disabled' : one ? 'checked' : ''}><span>${esc(x.name)}${x.is_board_version ? ' (adopted plan)' : ''}${x.is_locked ? ' · locked' : ''}</span></label>`).join('')}</div>
+      <div><button type="button" class="btn small danger" data-action="removeProject" data-id="${esc(pid)}">Remove from ${one ? 'this scenario' : 'the ticked scenarios'}</button></div></div>`;
   }
   /* focus areas: tick any that apply (the district's own, plus common ones), or type new ones */
   function areaPicker(cur, rows) {
@@ -3516,7 +3694,7 @@
           <span class="hint">Pick one already on the initiatives list, or start a new one.</span></label>` : ''}
       <div class="fgrid">
         <label class="field">Name<input name="name" maxlength="120" value="${esc(i.name || '')}" required></label>
-        <label class="field">What it buys ${def('init_type')}<select name="type">${opt(INIT_TYPES, i.type || 'capital')}</select></label>
+        <label class="field"><span>What it buys ${def('init_type')}</span><select name="type">${opt(INIT_TYPES, i.type || 'capital')}</select></label>
         <label class="field"><span>Status ${def('init_status')}</span><select name="status">${opt(INIT_STATUS, i.status || 'proposed')}</select></label>
         <label class="field">Priority<select name="tier">${opt([['', 'Not set'], ['must', 'Must-have'], ['strategic', 'Strategic'], ['nice', 'Nice to have']], HGRanking.tierOf(i).tier)}</select></label>
         ${areaPicker(i.focus_area, ED.rows || INI.rows || CAP.rows)}
@@ -3543,7 +3721,7 @@
             ${board ? `<optgroup label="The adopted plan: the board's approved version">${opt(board, `${esc(board.name)}: the adopted plan${board.is_locked ? (admin ? ' (you’ll be asked to confirm)' : ' (admin only)') : ''}`)}</optgroup>` : ''}</select>
             <span class="hint" data-ed-sc-hint>${edScHint(sid)}</span></label>`; })()
           : '<p class="small muted">Set up Starting numbers (Settings) before adding costs; the plan’s years come from there.</p>'}
-        <div data-cost-section>${costSectionHtml(pid)}</div></div>`
+        <div data-cost-section>${costSectionHtml(pid)}</div>${takeOutHtml(pid, plans)}</div>`
       : costSectionHtml(pid)}
       <div data-ed-double></div>
       <div class="notice error" data-form-errors hidden></div>
@@ -3631,7 +3809,7 @@
       const src = rows.scenarios.find((x) => x.id === ED.copyFrom), name = `${src ? src.name : 'Board version'} (working copy)`.slice(0, 80);
       const res = await HG.db.rpc('copy_scenario', { p_source: ED.copyFrom, p_name: name }), nid = typeof res === 'string' ? res : res && res.copy_scenario;
       if (!nid) throw new UserError('The working copy couldn’t be made. Try again, or copy the scenario on the capital plan first.');
-      sid = nid; rankFrom = ED.copyFrom; sc = { id: nid, name }; CAP.scenarioId = nid;
+      sid = nid; rankFrom = ED.copyFrom; sc = { id: nid, name }; CAP.scenarioId = nid; scnMade(nid);
     }
     if (relock) await HG.db.update('scenario', `id=eq.${relock}`, { is_locked: false });
     try {
@@ -3674,13 +3852,19 @@
     closeModal(); toast('Deleted', `${name} is gone from the initiatives list${plans.length ? ' and every scenario' : ''}.`); here();
   }
   async function removeProject(el) {
-    const rows = ED.rows, iid = el.dataset.id, sid = ED.sid, sc = rows.scenarios.find((x) => x.id === sid);
+    const rows = ED.rows, iid = el.dataset.id, box = el.closest('[data-takeout]');
+    const ids = box ? [...box.querySelectorAll('input[name=takeout_sid]:checked')].map((x) => x.value) : [ED.sid];
+    const scs = ids.map((id) => rows.scenarios.find((x) => x.id === id)).filter(Boolean);
     const name = (rows.initiatives.find((x) => x.id === iid) || {}).name || 'this initiative';
-    if (!confirm(`Remove ${name} from “${sc.name}”? Other scenarios keep it.`)) return;
-    await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
-    await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
-    await HG.db.removeAll('scenario_initiative', `scenario_id=eq.${sid}&initiative_id=eq.${iid}`);
-    closeModal(); toast('Removed', `${name} is no longer in “${sc.name}”.`); here();
+    if (!scs.length) { toast('Tick a scenario first', 'Tick each scenario to take it out of, then click Remove.'); return; }
+    const list = scs.map((x) => `“${x.name}”`).join(', ');
+    if (!confirm(`Remove ${name} from ${list}? Its phases and yearly costs there are deleted. Other scenarios keep it, and its details stay on the initiatives list.`)) return;
+    for (const sc of scs) {
+      await HG.db.removeAll('phase', `scenario_id=eq.${sc.id}&initiative_id=eq.${iid}`);
+      await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sc.id}&initiative_id=eq.${iid}`);
+      await HG.db.removeAll('scenario_initiative', `scenario_id=eq.${sc.id}&initiative_id=eq.${iid}`);
+    }
+    closeModal(); toast('Removed', `${name} is no longer in ${list}.`); here();
   }
 
   function openFinancingEditor(id) {
@@ -3724,7 +3908,9 @@
     if (kind === 'copy') {
       const name = (prompt('Name the copy', `${sc.name} (copy)`) || '').trim(); if (!name) return;
       const id = await HG.db.rpc('copy_scenario', { p_source: sc.id, p_name: name.slice(0, 80) });
-      CAP.scenarioId = typeof id === 'string' ? id : (id && id.copy_scenario) || CAP.scenarioId;
+      const cid = typeof id === 'string' ? id : (id && id.copy_scenario);
+      if (!cid) throw new UserError('The copy wasn’t made. Try again.');
+      CAP.scenarioId = cid; scnMade(cid);
       toast('Copied', `“${name}” is a new, unlocked scenario.`);
     } else if (kind === 'rename') {
       const name = (prompt('Rename the scenario', sc.name) || '').trim(); if (!name || name === sc.name) return;
@@ -3767,7 +3953,7 @@
     UP.startFY = set[0] ? set[0].plan_start_fy : null; UP.years = set[0] ? set[0].plan_years : null;
     UP.hasBoard = scs.some((x) => x.is_board_version); UP.scenarioCount = scs.length;
     UP.kind = null; UP.file = null; UP.rows = null; UP.parsed = null;
-    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.finance && SWITCH.register && ['check_register', 'Check register (bills paid)'], c.plan && ['projects', 'Projects'], c.finance && ['budget', 'Adopted budget (by account)'], c.finance && ['balances', 'Fund balances only (if you can’t export the ledger)']].filter(Boolean);
+    const kinds = [c.finance && ['gl_monthly', 'Monthly GL export'], c.finance && SWITCH.register && ['check_register', 'Check register (bills paid)'], c.plan && ['projects', 'Initiatives'], c.finance && ['budget', 'Adopted budget (by account)'], c.finance && ['balances', 'Fund balances only (if you can’t export the ledger)']].filter(Boolean);
     const later = [
       c.plan && `<a class="btn" href="#/d/${enc(c.district.slug)}/plan/priorities">Goals (on Plan → Priorities)</a>`, (c.plan || c.finance) && `<a class="btn" href="#/d/${enc(c.district.slug)}/track/measures">Measure results (on Track → Measures)</a>`,
       c.plan && `<a class="btn" href="#/d/${enc(c.district.slug)}/plan/community">Survey results (on Plan → Community input)</a>`,
@@ -4266,13 +4452,18 @@
     setLead((PL.view === 'full' ? esc(extra.planName) : esc(plan.viewName)) + `: <b>${plan.totals.count}</b> approved initiative${plan.totals.count === 1 ? '' : 's'}${plan.totals.cost > 0.5 ? `, ${HGReport.fmt(plan.totals.cost)} over ${PL.years} years` : ''}.`);
     const btn = (v, label) => `<button type="button" class="pipe ${PL.view === v ? 'on' : ''}" data-action="planView" data-v="${v}">${label}</button>`;
     const canName = c.admin && rows.settings;
-    return `<div class="card noprint"><div class="pipeline" role="group" aria-label="Which plan">${btn('full', esc(extra.planName))}${btn('csip', 'Academic goals (CSIP)')}${btn('capital', 'Capital improvement plan')} ${def('plans')}</div>
-        <div class="inline-form" style="margin-top:10px">
+    /* 21 Oct: the controls in three plain steps (which plan, what to include, share it); renaming is tucked away */
+    return `<div class="card noprint plan-ctl">
+        <div class="pc-step"><div class="pc-lab">1. Which plan</div><div class="pipeline" role="group" aria-label="Which plan">${btn('full', esc(extra.planName))}${btn('csip', 'Academic goals (CSIP)')}${btn('capital', 'Capital improvement plan')} ${def('plans')}</div>
+          <p class="small muted pc-what">${PL.view === 'full' ? 'Everything: the goals, how they’re measured, the initiatives that serve them, and how they’re paid for.' : PL.view === 'csip' ? 'Just the academic goals the district reports to the state (CSIP), with their measures and initiatives.' : 'Just the capital projects, by year and fund.'}</p></div>
+        <div class="pc-step"><div class="pc-lab">2. What to include</div><div class="inline-form">
           <label class="field">Items<select data-plan-items><option value="approved" ${PL.items === 'approved' ? 'selected' : ''}>Approved only</option><option value="all" ${PL.items === 'all' ? 'selected' : ''}>All items, proposals labelled</option></select></label>
-          <label class="field">Years<select data-plan-years>${[5, 10].map((y) => `<option value="${y}" ${PL.years === y ? 'selected' : ''}>${y} years</option>`).join('')}</select></label>
-          <button type="button" class="btn" data-action="rpPrint">Print or save as PDF</button><button type="button" class="btn" data-action="planXlsx">Download Excel</button>
+          <label class="field">Years<select data-plan-years>${[5, 10].map((y) => `<option value="${y}" ${PL.years === y ? 'selected' : ''}>${y} years</option>`).join('')}</select></label></div></div>
+        <div class="pc-step"><div class="pc-lab">3. Share it</div><div class="row">
+          <button type="button" class="btn primary" data-action="rpPrint">Print or save as PDF</button><button type="button" class="btn" data-action="planXlsx">Download Excel</button>
           ${c.plan ? '<button type="button" class="btn" data-action="planSave">Save this version</button>' : ''}</div>
-        ${canName ? `<form class="inline-form" data-form="savePlanName" style="margin-top:10px"><label class="field">The district’s name for its full plan<input name="plan_name" maxlength="80" value="${esc((rows.settings.plan_name || '').trim())}" placeholder="District improvement plan"></label><button type="submit" class="btn small">Save name</button></form>` : ''}</div>
+          <p class="small muted">The plan below is what prints.${c.plan ? ' Save this version keeps a copy exactly as it is now, for example the one the board adopts.' : ''}</p></div>
+        ${canName ? `<details class="pc-name"><summary class="small">Rename “${esc(extra.planName)}”</summary><form class="inline-form" data-form="savePlanName" style="margin-top:8px"><label class="field">The district’s name for its full plan<input name="plan_name" maxlength="80" value="${esc((rows.settings.plan_name || '').trim())}" placeholder="District improvement plan"></label><button type="submit" class="btn small">Save name</button></form></details>` : ''}</div>
       ${planHtml(c, plan, extra, null)}
       ${saved.length ? `<div class="card noprint"><h3>Saved versions</h3><p class="small muted">Exactly as they were when saved, for example the version the board adopted.</p>${table([
         { label: 'Saved', html: (r) => `<a href="#" data-action="planOpen" data-id="${esc(r.id)}">${esc(day(r.created_at))}</a>` }, { label: 'Version', get: (r) => r.title }], saved, '')}</div>` : ''}`;
@@ -4289,7 +4480,10 @@
     ]);
     const pubNow = d.public_link_enabled ? (await HG.db.select('publication', `select=published_at&district_id=eq.${d.id}&kind=eq.board_plan&is_current=eq.true&limit=1`).catch(() => []))[0] || null : null;
     const pubUrl = `${HG.appUrl()}#/p/${enc(d.slug)}`;
-    const pubCard = d.public_link_enabled ? `<div class="card"><h3>Community page</h3><p>${pubNow ? `Published ${esc(day(pubNow.published_at))}: <a href="${esc(pubUrl)}" target="_blank" rel="noopener">${esc(pubUrl)}</a>` : 'Nothing is published on the public link yet.'}${c.admin ? ` <a href="#/d/${enc(d.slug)}/share/community">Manage</a>` : ''}</p></div>` : '';
+    /* 21 Oct: the community page as a button, never the raw address; Copy link for pasting into an email or the website */
+    const pubCard = d.public_link_enabled ? `<div class="card doc-card pub-card" data-pub-card><div class="doc-ic">${icon('share', 20, 2)}</div><div class="doc-main"><h3>Community page</h3>
+      <p class="small muted">${pubNow ? `What the public sees. Published ${esc(day(pubNow.published_at))}.` : 'Nothing is published on the public link yet.'}</p></div>
+      <div class="doc-acts">${pubNow ? `<a class="btn primary" href="${esc(pubUrl)}" target="_blank" rel="noopener">Open the community page ↗</a><button type="button" class="btn" data-action="svCopy" data-text="${esc(pubUrl)}">Copy link</button>` : ''}${c.admin ? `<a class="btn" href="#/d/${enc(d.slug)}/share/community">Manage</a>` : ''}</div></div>` : '';
     const packets = snaps.filter((x) => x.kind === 'decision_packet');
     if (S.landing && !RP.open) { const latest = snaps.find((x) => x.kind === 'board_monthly'); if (latest) RP.open = latest.id; }
     S.landing = false;
@@ -4313,20 +4507,16 @@
           <button type="button" class="btn primary" data-action="rpCreate">Create the report</button></div>
         ${batches[0] ? `<p class="small muted">The latest monthly ledger is through ${esc(day(batches[0].period_end))}.</p>` : '<p class="small muted">No monthly ledger yet: the report will leave out budget vs. actual and spending.</p>'}</div>` : ''}
       ${c.admin ? '' : pubCard}
-      <div class="card"><h3>Board reports</h3>${table([
-        { label: 'Month end', html: (r) => `<a href="#" data-action="rpOpen" data-id="${esc(r.id)}">${esc(day(r.period_end))}</a>` },
-        { label: 'Report', get: (r) => r.title },
-        { label: 'Board version', get: (r) => (r.payload && r.payload.scenario ? r.payload.scenario.name : '') },
-        { label: 'Made', get: (r) => day(r.created_at) },
-      ], snaps, 'No board reports yet.')}</div>
+      <div class="card"><h3>Board reports</h3><p class="small muted">Each month’s report, saved as it was made. Click one to read it.</p>
+        ${snaps.length ? `<div class="doc-list">${snaps.map((r, k) => `<a href="#" class="doc-row" data-action="rpOpen" data-id="${esc(r.id)}"><span class="doc-ic">${icon('track', 18, 2)}</span>
+          <span class="doc-main"><b>${esc(r.title)}</b>${k === 0 ? ' <span class="pill p-pace">Latest</span>' : ''}<span class="small muted">Month ending ${esc(day(r.period_end))} · made ${esc(day(r.created_at))}${r.payload && r.payload.scenario ? ` · board version: ${esc(r.payload.scenario.name)}` : ''}</span></span><span class="doc-go">Open ›</span></a>`).join('')}</div>`
+          : '<p class="muted">No board reports yet.</p>'}</div>
       <div class="card"><h3>Decision packets</h3>
-        <p class="small muted">One initiative on one page: its costs by fund and year, its effect on the gap and on taxpayers, and where it falls on the funding line. Saved as it was made.</p>
+        <p class="small muted">One initiative on one page: its costs by fund and year, its effect on the gap and on taxpayers, and where it falls on the funding line. Saved as it was made. Click one to read it.</p>
         ${c.plan || c.finance ? await packetFormHtml(c) : ''}
-        ${table([
-          { label: 'Initiative', html: (r) => `<a href="#" data-action="rpOpen" data-id="${esc(r.id)}">${esc(r.payload.initiative.name)}</a>` },
-          { label: 'Against', get: (r) => r.payload.scenario.name },
-          { label: 'Made', get: (r) => day(r.created_at) },
-        ], packets, 'No decision packets yet.')}</div>`;
+        ${packets.length ? `<div class="doc-list">${packets.map((r) => `<a href="#" class="doc-row" data-action="rpOpen" data-id="${esc(r.id)}"><span class="doc-ic">${icon('plan', 18, 2)}</span>
+          <span class="doc-main"><b>${esc(r.payload.initiative.name)}</b><span class="small muted">Against ${esc(r.payload.scenario.name)} · made ${esc(day(r.created_at))}</span></span><span class="doc-go">Open ›</span></a>`).join('')}</div>`
+          : '<p class="muted">No decision packets yet.</p>'}</div>`;
   }
   async function packetFormHtml(c) {
     const rows = await loadCapitalRows(c.district);
@@ -5745,7 +5935,7 @@
         ${d.is_demo ? '<div class="notice">Demo district: every name and figure is made up. Answers here are test answers.</div>' : ''}
         <div id="sv-body">${surveyFormHtml(s)}</div>`
       : `<div class="card"><h2>No survey open right now</h2><p>${d ? 'This district isn’t asking for answers at the moment.' : 'This link doesn’t have a survey.'} ${d ? `<a href="#/p/${enc(slug)}">See the district’s plan</a>.` : ''}</p></div>`;
-    app.innerHTML = `<div class="main"><header class="topbar pub-top">${d ? pubBrand(d) : ''}</header><main class="content">${body}</main></div>`;
+    app.innerHTML = `<div class="main"><header class="topbar pub-top">${d ? pubBrand(d) : ''}</header><main class="content sv-page">${body}</main></div>`;
     if (s && surveyBotKey()) surveyBotMount();
   }
   /* the bot check (Cloudflare Turnstile), when config.js has turnstileSiteKey: the visitor usually sees nothing or one tick;
@@ -5983,7 +6173,8 @@
       else if (k === 'screen') go(`#/d/${enc(slug)}/${id}`);
     },
     async editSurvey(el) { if (!DIR.D) DIR.D = await loadDirection(S.district); openSurveyEditor(el.dataset.id || null); },
-    async deleteSurvey(el) { if (!confirm('Delete this survey and its results?')) return; await HG.db.remove('survey', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Deleted'); here(); },
+    async deleteSurvey(el) { const nm = el.dataset.name || (((DIR.D || {}).surveys || []).find((x) => x.id === el.dataset.id) || {}).name || 'this survey';
+      if (!confirm(el.dataset.n === '0' ? `Delete “${nm}”? Nobody answered it. This can’t be undone.` : `Delete “${nm}” and its results? This can’t be undone.`)) return; await HG.db.remove('survey', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Deleted'); here(); },
     async dirTemplate(el) { saveTemplate(`highground-${el.dataset.k}-template.xlsx`, DIR_TEMPLATES[el.dataset.k], el.dataset.k[0].toUpperCase() + el.dataset.k.slice(1), el.dataset.k); },
     async dirUploadApply() { await dirUploadApply(); },
     async dirUploadCancel() { DIRUP.parsed = null; document.getElementById('dir-upload').innerHTML = ''; },
@@ -6067,6 +6258,24 @@
     async capView(el) { CAP.view = el.dataset.v; document.getElementById('cap-filters').innerHTML = capFiltersHtml(); document.getElementById('cap-years').innerHTML = capYearsHtml(); },
     async capClearFilters() { CAP.filter = {}; document.getElementById('cap-filters').innerHTML = capFiltersHtml(); document.getElementById('cap-years').innerHTML = capYearsHtml(); },
     async capDownload() { capDownload(); },
+    async cyEdit(el) { closeModal(); openProjectEditor(el.dataset.id); },
+    async cyLeave(el) { const id = String(el.dataset.id), i = Number(el.closest('[data-cap-panel]').dataset.capPanel); CAP.out = CAP.out || new Set(); if (CAP.out.has(id)) CAP.out.delete(id); else CAP.out.add(id);
+      capRefresh(); const o = document.getElementById('cap-out'); if (o) o.innerHTML = capOutHtml(); const l = document.getElementById('cap-lead'); if (l) l.innerHTML = capLeadHtml(); capYearPanel(i, null); },
+    async cyCamp(el) {
+      if (!confirm(`Mark ${el.dataset.name}${'’'}s cost this year as a campaign or bond need? It stops counting against SAVE, PPEL, V-PPEL and grants, and shows as campaign / bond needed until a bond, lease or campaign is added to the scenario.`)) return;
+      const ph = el.dataset.phase, d = S.district.id;
+      await HG.db.upsert('phase_funding', [{ phase_id: ph, district_id: d, fund: 'camp', pct: 100 }], 'phase_id,fund');
+      await HG.db.removeAll('phase_funding', `phase_id=eq.${enc(ph)}&fund=neq.camp`);
+      await HG.db.update('phase', `id=eq.${enc(ph)}`, { fund_options: null }).catch(() => {});
+      closeModal(); toast('Marked as campaign or bond', `${el.dataset.name} now shows as campaign / bond needed in this scenario.`); here();
+    },
+    async cyRemove(el) {
+      if (!confirm(`Remove ${el.dataset.name} from “${CAP.sc.name}”? Its phases and yearly costs in this scenario are deleted. Other scenarios keep it, and its details stay on the initiatives list.`)) return;
+      const iid = el.dataset.id, sid = CAP.scenarioId;
+      for (const t of ['phase', 'recurring_cost', 'scenario_initiative']) await HG.db.removeAll(t, `scenario_id=eq.${sid}&initiative_id=eq.${enc(iid)}`);
+      closeModal(); toast('Removed', `${el.dataset.name} is no longer in “${CAP.sc.name}”.`); here();
+    },
+    async cmpOutClear() { CMP.out = new Set(); here(); },
     async capOutClear() { CAP.out = new Set(); capRefresh(); },
     async capOutSave() {
       const out = [...(CAP.out || [])]; if (!out.length) return;
@@ -6075,6 +6284,7 @@
       const res = await HG.db.rpc('copy_scenario', { p_source: CAP.sc.id, p_name: name.slice(0, 80) });
       const sid = typeof res === 'string' ? res : res && res.copy_scenario;
       if (!sid) throw new UserError('The copy wasn’t made. Try again.');
+      scnMade(sid);
       for (const iid of out) {
         await HG.db.removeAll('phase', `scenario_id=eq.${sid}&initiative_id=eq.${enc(iid)}`);
         await HG.db.removeAll('recurring_cost', `scenario_id=eq.${sid}&initiative_id=eq.${enc(iid)}`);
@@ -6119,6 +6329,9 @@
     },
     async editProject(el) { openProjectEditor(el.dataset.id || null); },
     async rankMove(el) { rankMove(el); },
+    async chkConfirm(el) { await chkSet(el.dataset.key, el.dataset.sig || ''); toast('Marked as checked', 'It won’t be flagged again unless that cost changes. Undo is in “already checked”.'); },
+    async edNoteClose(el) { const n = el.closest('[data-ed-double-warn]'); const D = ED.dismissed || (ED.dismissed = new Set()); n.querySelectorAll('li[data-k]').forEach((li) => D.add(li.dataset.k)); n.remove(); },
+    async chkUndo(el) { await chkSet(el.dataset.key, null); },
     async rankScenario() { await rankScenario(); },
     async fillScenario() { await fillScenario(); },
     async rankView(el) { go(`#/d/${enc(S.district.slug)}/plan/ranking/${el.dataset.v}`); },
@@ -6134,6 +6347,7 @@
       const res = await HG.db.rpc('copy_scenario', { p_source: sc.id, p_name: name.slice(0, 80) });
       const sid = typeof res === 'string' ? res : res && res.copy_scenario;
       if (!sid) throw new UserError('The copy wasn’t made. Try again.');
+      scnMade(sid);
       const movePhases = async (iid, mvs) => { for (const m of mvs) await HG.db.update('phase', `scenario_id=eq.${sid}&initiative_id=eq.${enc(iid)}&fy=eq.${m.fy}&status=not.in.(done,underway)`, { fy: m.toFy }); };
       if (g.pulledForward) {   // the target itself has to finish earlier
         const last = Math.max(...t.years), d = g.byFY - last;
@@ -6141,7 +6355,7 @@
       }
       if (o.kind === 'rank') await HG.db.upsert('scenario_initiative', o.order.map((id, n) => ({ scenario_id: sid, initiative_id: id, district_id: S.district.id, rank: n + 1, included: true })), 'scenario_id,initiative_id');
       else for (const m of o.moves) await movePhases(m.id, (m.delta > 0 ? HGSuggest.moves(m).slice().reverse() : HGSuggest.moves(m)));
-      RK.sid = sid; RK.goal = null; toast('Scenario made', `“${name}” funds ${t.name}. The original is unchanged.`); here();
+      RK.sid = sid; RK.goal = null; toast('Scenario made', `“${name}” funds ${t.name}. It’s now the scenario on screen, and on Plan → Scenarios. The original is unchanged.`); here();
     },
     async rankSchedule() {
       const S = RK.sched, sc = RK.rows.scenarios.find((x) => x.id === RK.sid); if (!S || !S.moves.length || !sc) return;
@@ -6149,9 +6363,10 @@
       const res = await HG.db.rpc('copy_scenario', { p_source: sc.id, p_name: name.slice(0, 80) });
       const sid = typeof res === 'string' ? res : res && res.copy_scenario;
       if (!sid) throw new UserError('The copy wasn’t made. Try again.');
+      scnMade(sid);
       // all moves go later: latest first, so a phase never lands on a year another phase still has to leave
       for (const m of S.moves.slice().sort((a, b) => b.fromFY - a.fromFY)) await HG.db.update('phase', `scenario_id=eq.${sid}&initiative_id=eq.${enc(m.id)}&fy=eq.${m.fromFY}&status=not.in.(done,underway)`, { fy: m.toFY });
-      RK.sid = sid; toast('Scenario made', `“${name}”: ${new Set(S.moves.map((m) => m.id)).size} initiative(s) moved to the year they can be paid for.`); here();
+      RK.sid = sid; toast('Scenario made', `“${name}”: ${new Set(S.moves.map((m) => m.id)).size} initiative(s) moved to the year they can be paid for. It’s now the scenario on screen, and on Plan → Scenarios.`); here();
     },
     async rankFromTiers() {
       if (!confirm('Reorder the whole list by priority (must-have, strategic, nice to have), keeping the current order within each? You can then move items across priorities.')) return;
@@ -6164,6 +6379,7 @@
       const res = await HG.db.rpc('copy_scenario', { p_source: sc.id, p_name: name.slice(0, 80) });
       const sid = typeof res === 'string' ? res : res && res.copy_scenario;
       if (!sid) throw new UserError('The copy wasn’t made. Try again.');
+      scnMade(sid);
       // move this initiative's phases that haven't started, each by the same number of years
       const order = g.delta > 0 ? HGSuggest.moves(g).slice().reverse() : HGSuggest.moves(g);
       for (const m of order) await HG.db.update('phase', `scenario_id=eq.${sid}&initiative_id=eq.${enc(g.id)}&fy=eq.${m.fy}&status=not.in.(done,underway)`, { fy: m.toFy });
@@ -6193,14 +6409,15 @@
       fitTables(document.querySelector('[data-modal]')); const n = box.querySelector('[data-phase-row] input[name=label]'); if (n) n.focus();
     },
     async costsRecurring(el) {
-      const box = el.closest('[data-costs]'); box.classList.remove('no-yearly');
-      if (!box.querySelector('[data-yearly-row]')) { const t = document.querySelector('[data-yearly-template]'); box.querySelector('[data-yearly-body]').insertAdjacentHTML('beforeend', t.innerHTML); }
-      fitTables(document.querySelector('[data-modal]')); const a = box.querySelector('[data-yearly-row] input[name=y_amount]'); if (a) a.focus();
+      const box = el.closest('[data-costs]'), shut = box.classList.contains('no-yearly'); box.classList.remove('no-yearly');
+      if (!shut || !box.querySelector('[data-yearly-row]')) { const t = document.querySelector('[data-yearly-template]'); box.querySelector('[data-yearly-body]').insertAdjacentHTML('beforeend', t.innerHTML); }
+      fitTables(document.querySelector('[data-modal]')); const rs = box.querySelectorAll('[data-yearly-row] input[name=y_amount]'), a = rs[rs.length - 1]; if (a) a.focus();
     },
     async removePhaseRow(el) { const f = el.closest('form'); el.closest('[data-phase-row]').remove(); updateEdDouble(f); },
     async addYearlyRow() { const t = document.querySelector('[data-yearly-template]'); document.querySelector('[data-yearly-body]').insertAdjacentHTML('beforeend', t.innerHTML); fitTables(document.querySelector('[data-modal]')); },
     async removeYearlyRow(el) { const f = el.closest('form'); el.closest('[data-yearly-row]').remove(); updateEdDouble(f); },
     async closeModal() { closeModal(); },
+    async goClose(el) { closeModal(); go(`#/d/${enc(S.district.slug)}/${el.dataset.to}`); },
     async editFinancing(el) { openFinancingEditor(el.dataset.id || null); },
     async removeFinancing(el) { if (!confirm('Remove this financing from the scenario?')) return; await HG.db.remove('financing', `id=eq.${enc(el.dataset.id)}`); closeModal(); toast('Removed'); here(); },
     async copyScenario() { await scenarioAction('copy'); },
@@ -6365,7 +6582,13 @@
     if (button) button.disabled = true;
     try { await fn(); } catch (err) { showError(err); } finally { if (button && button.isConnected) button.disabled = false; }
   }
+  // 21 Oct: a year (or a colour band in it) on the capital plan's chart opens what's in it
+  const capYearGo = (e) => { const g = e.target.closest && e.target.closest('[data-cap-year]'); if (!g || !CAP.inputs) return false;
+    const band = e.target.closest('[data-band]'); run(async () => capYearPanel(Number(g.dataset.capYear), band ? band.dataset.band : null), null); return true; };
+  const fundGo = (e) => { const g = e.target.closest && e.target.closest('[data-fund-go]'); if (!g || !FUNDX.b) return false; run(async () => fundPanel(g.dataset.fundGo), null); return true; };
+  document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[data-cap-year],[data-fund-go]')) { e.preventDefault(); if (!capYearGo(e)) fundGo(e); } });
   document.addEventListener('click', (e) => {
+    if (capYearGo(e) || fundGo(e)) return;
     if (e.target.matches && e.target.matches('[data-modal]')) { closeModal(); return; }
     const n = e.target.closest('[data-notbuilt]');
     if (n) { e.preventDefault(); try { HG.notBuilt(n.dataset.notbuilt, n.dataset.phase); } catch (err) { showError(err); } return; }
@@ -6442,6 +6665,8 @@
       if (!on.length) { cp.checked = true; return; }
       CMP.ids = on; document.getElementById('cmp-table').innerHTML = compareTableHtml(); return;
     }
+    const cmo = e.target.closest('[data-cmp-out]');
+    if (cmo && cmo.matches('input')) { if (cmo.checked) CMP.out.add(cmo.dataset.cmpOut); else CMP.out.delete(cmo.dataset.cmpOut); const y = window.scrollY; here().then(() => window.scrollTo(0, y)); return; }
     const gr = e.target.closest('[data-gf-roster]');
     if (gr) { run(() => gfRoster(gr), gr); return; }
     const du = e.target.closest('[data-dir-upload]');

@@ -1118,3 +1118,109 @@ table.pd-mt th:nth-child(1){width:36%}table.pd-mt th:nth-child(2){width:20%}tabl
 .sv-form textarea{width:100%}
 .cq-res{display:flex;flex-direction:column;gap:12px}
 .cq-res-q{margin-bottom:4px}
+
+/* 21 Oct: the public survey page sits in one centred reading column (it was a 420px form hugging the left edge) */
+.content.sv-page{max-width:780px;margin:0 auto}
+.sv-page form.sv-form{max-width:none;width:100%}
+.sv-page .sv-scale{flex-wrap:wrap}
+.sv-acts{gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.sv-empty{margin:10px 0 0}
+.sv-older{display:flex;flex-direction:column;gap:8px}
+details.sv-past>summary{justify-content:flex-start;flex-wrap:wrap;gap:4px 12px}
+details.sv-past>summary .sv-past-n{font-weight:600}
+details.sv-past>.card{padding:0 0 14px}
+.sv-else{align-items:center;flex-wrap:wrap;gap:10px;margin-top:6px}
+details.sv-past>summary .small{font-weight:400}
+/* 21 Oct: the initiatives table, calmer: name over a muted line, one pill (status), Edit always visible */
+.ini-card table.data td{vertical-align:top;padding-top:11px;padding-bottom:11px}
+.ini-card .ini-name{font-weight:600}
+.ini-card .ini-name a{color:var(--text);text-decoration:none}
+.ini-card .ini-name a:hover{text-decoration:underline}
+.ini-card .ini-sub{font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.35}
+.ini-card td.num{white-space:nowrap}
+.ini-card td:last-child{text-align:right;white-space:nowrap}
+.ini-card .st{white-space:nowrap}
+/* 21 Oct: initiative editor tidy-up */
+.modal form[data-form=saveProject] .fgrid{align-items:start}
+.modal form[data-form=saveProject] .fgrid > label.field > span:first-child{display:inline-flex;align-items:center;gap:6px}
+.ed-adds{flex-wrap:wrap;margin-top:12px}
+@media (min-width: 821px){
+table.yr-table{width:100%;table-layout:fixed}
+table.yr-table col.c-what{width:17%} table.yr-table col.c-fund{width:18%} table.yr-table col.c-amt{width:15%}
+table.yr-table col.c-fy{width:12%} table.yr-table col.c-grow{width:21%} table.yr-table col.c-x{width:44px}
+table.yr-table td{padding-left:4px;padding-right:4px}
+table.yr-table select,table.yr-table input{width:100%;max-width:none;min-width:0;box-sizing:border-box}
+}
+.ed-takeout{margin-top:16px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:#FBFAF7;display:flex;flex-direction:column;gap:10px}
+.ed-takeout .to-list{display:flex;flex-wrap:wrap;gap:6px}
+.ed-takeout .apick.is-locked{opacity:.6}
+[data-ed-double] details.fold.notice{margin-top:12px}
+.ini-card td:nth-child(5) > div:first-child{white-space:nowrap}
+/* 21 Oct: Rank & fund drag handle (the arrows and typed rank stay) */
+table.ranktable td.rk-pos{white-space:nowrap}
+.rk-grip{display:inline-block;width:14px;height:22px;margin-right:6px;vertical-align:middle;cursor:grab;touch-action:none;border-radius:4px;
+  background:radial-gradient(circle,#8A948F 1.4px,transparent 1.6px) 0 0/7px 6px;opacity:.75}
+.rk-grip:hover{opacity:1;background-color:#EEF3F8}
+tr.rk-dragging{background:#EEF3F8 !important;box-shadow:0 2px 10px rgba(0,0,0,.12);position:relative;z-index:2}
+body.rk-drag-on,body.rk-drag-on *{cursor:grabbing !important;user-select:none}
+/* 21 Oct: one calm list of things to check with the business office (fund rules + may be counted twice) */
+details.chk-fold > summary{font-size:15px}
+.chk-list{display:flex;flex-direction:column;gap:10px;padding-left:18px;margin:4px 0 10px}
+.chk-list li{line-height:1.45}
+.chk-tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--muted);background:#F3F1EB;border-radius:6px;padding:1px 7px;margin-right:4px;vertical-align:1px}
+.chk-btn{margin-top:6px}
+.chk-by{margin-left:6px}
+details.chk-done{margin:4px 0 12px}
+details.chk-done > summary{color:var(--muted);font-weight:500;padding:4px 0}
+.linkbtn{background:none;border:0;padding:0;color:var(--action-dark,#2F6B4F);text-decoration:underline;cursor:pointer;font:inherit}
+.notice.ed-note{position:relative;padding-right:36px}
+.ed-note-x{position:absolute;right:8px;top:6px;border:0;background:none;font-size:18px;line-height:1;color:var(--muted);cursor:pointer;padding:2px 6px}
+ul.yr-plain{list-style:none;padding:0;margin:4px 0 10px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+ul.yr-plain li{padding:8px 12px;border-radius:8px;border-left:4px solid #2F6B4F;background:#F4F8F5}
+ul.yr-plain li.yp-short{border-left-color:#B42318;background:#FBF4F2}
+/* 21 Oct: capital plan chart drill-down */
+.capchart .capyr{cursor:pointer;outline:none}
+.capchart .b-hit{fill:transparent}
+.capchart .capyr:hover .b-hit,.capchart .capyr:focus-visible .b-hit{fill:#EEF3F8}
+.capchart .capyr:hover rect[data-band],.capchart .capyr:focus-visible rect[data-band]{opacity:.85}
+.cap-hint{margin:6px 0 0}
+.cy-bands{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.cy-band{display:grid;grid-template-columns:14px 1fr auto;gap:8px;align-items:start;border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:14px}
+.cy-band.on{border-color:#2F5D9E;box-shadow:0 0 0 2px #EEF3F8}
+.cy-band i{width:12px;height:12px;border-radius:3px;margin-top:4px;display:inline-block}
+.cy-h{margin:10px 0 2px;font-size:15px}
+ul.cy-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column}
+ul.cy-list li{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid #EFEBE2}
+ul.cy-list li.leftout .cy-name{text-decoration:line-through;color:var(--muted)}
+.cy-acts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px}
+.cy-guide ul{margin:6px 0 0;padding-left:18px}
+details.cap-out-fold > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+.cbar-row[data-fund-go]{cursor:pointer;border-radius:8px;padding:4px 6px;margin:0 -6px}
+.cbar-row[data-fund-go]:hover,.cbar-row[data-fund-go]:focus-visible{background:#F6F8F7;outline:none}
+.cbar-more{color:var(--action-dark,#2F6B4F);font-weight:500;margin-left:6px}
+.fp-tiles{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+/* 21 Oct: Budget vs. actual, every fund: grouped Revenue / Spending, status under each forecast, fits without scrolling */
+table.ba-funds{width:100%;font-size:13.5px}
+table.ba-funds td.num,table.ba-funds th.num{white-space:nowrap}
+table.ba-funds tr.ba-grp th{text-align:center;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border-bottom:2px solid #E4E0D6}
+table.ba-funds td.num .ubar{margin-left:auto;display:block;width:110px}
+table.ba-funds td.num .pill{white-space:nowrap}
+/* 21 Oct: Share → Board reports: each report and packet is an obvious, clickable row; the community page is a button */
+.doc-list{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+a.doc-row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:#fff;color:var(--text);text-decoration:none;transition:border-color .12s,box-shadow .12s}
+a.doc-row:hover,a.doc-row:focus-visible{border-color:var(--action);box-shadow:0 2px 10px rgba(30,58,47,.08);color:var(--text);outline:none}
+.doc-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.doc-main b{font-size:15px}
+.doc-ic{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:#EEF3F0;color:var(--action-dark,#2F6B4F)}
+.doc-go{color:var(--action);font-weight:600;font-size:14px;white-space:nowrap}
+.doc-card{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center}
+.doc-card h3{margin:0}
+.doc-card p{margin:2px 0 0}
+.doc-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+@media (max-width:700px){.doc-card{grid-template-columns:auto 1fr}.doc-acts{grid-column:1/-1;justify-content:flex-start}}
+.plan-ctl{display:grid;grid-template-columns:1.4fr 1fr 1.2fr;gap:14px 22px;align-items:start}
+.plan-ctl .pc-lab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px}
+.plan-ctl .pc-what{margin:6px 0 0}
+.plan-ctl .pc-name{grid-column:1/-1}
+.plan-ctl .pc-name > summary{color:var(--muted)}
+@media (max-width:1000px){.plan-ctl{grid-template-columns:1fr}}

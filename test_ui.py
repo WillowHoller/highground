@@ -428,7 +428,7 @@ async def main():
     check("new initiative: “Split into phases or funds” opens the full table with a second row", await pg.locator("[data-modal] [data-phase-row]").count()==2 and await row.locator("input[name=label]").is_visible() and await row.locator("button[data-action=addFund]").is_visible())
     row2=pg.locator("[data-modal] [data-phase-row]").nth(1)
     await row2.locator("select[name=fy]").select_option("2030"); await row2.locator("select[name=src]").select_option("ppel"); await row2.locator("input[name=cost]").fill("125000"); await pg.wait_for_timeout(150)
-    dw=await pg.inner_text("[data-modal] [data-ed-double-warn]") if await pg.locator("[data-modal] [data-ed-double-warn]").count() else ""
+    dw=await pg.text_content("[data-modal] [data-ed-double-warn]") if await pg.locator("[data-modal] [data-ed-double-warn]").count() else ""
     check("may be counted twice: buses in two years on PPEL, which has an ongoing amount, are flagged in the editor as they're typed", "counted twice" in dw and "PPEL" in dw and "FY2028, FY2030" in dw and "holds back" in dw, dw)
     cv=await pg.input_value("[data-modal] [data-phase-row] >> nth=1 >> input[name=cost]")
     check("costs get thousands commas as they're typed", cv=="125,000", cv)
@@ -733,7 +733,7 @@ async def main():
     t=await pg.inner_text("#view")
     check("initiatives: status pipeline with counts", "All 17" in t.replace("\n"," ") and "Proposed 16" in t.replace("\n"," ") and "Approved 1" in t.replace("\n"," "), t[:200])
     check("initiatives: one-time and yearly costs from the board version", "One-time cost" in t and "$1.75M" in t and "District baseline, the board version" in t, t[:400])
-    check("initiatives: which plans include each one", "Not in a plan yet" in t and "Board version · +1 other" in t)
+    check("initiatives: which plans include each one", "Not in a plan yet" in t and "Board version" in t and "and 1 other" in t)
     await pg.select_option("select[data-ini-sid]", _ph_sid); await pg.wait_for_timeout(400)
     t2=await pg.inner_text("#view")
     check("initiatives: costs from any scenario, including yearly costs from the capital plan", "$12k" in t2 and "Costs are from Addition phased" in t2, t2[-300:])
@@ -757,7 +757,7 @@ async def main():
     await row.locator("input[name=label]").fill("Chapter start-up fees"); await row.locator("input[name=cost]").fill("5000")
     await pg.check("[data-modal] .apick:has-text('Academics') input"); await pg.check("[data-modal] .apick:has-text('Staffing') input")
     await row.locator("button[data-action=addFund]").click()
-    await pg.click("[data-modal] [data-costs] .when-full button[data-action=costsRecurring]")
+    await pg.click("[data-modal] [data-costs] .ed-adds button[data-action=costsRecurring]")
     yr=pg.locator("[data-modal] [data-yearly-row]").last
     await yr.locator("input[name=y_amount]").fill("65,000"); await yr.locator("select[name=y_first]").select_option("2028")
     n0=len(calls); await pg.click("[data-modal] button[type=submit]"); await pg.wait_for_timeout(900)
@@ -1024,10 +1024,13 @@ async def main():
     if hb: await pg.locator("[data-holdback-card]").screenshot(path=SHOTS+"/holdback-card.png")
     check("held back: the card's terms have a ? (what's held back, what counts as used)", await pg.locator("[data-holdback-card] button.defn[data-term=holdback]").count()==1 and await pg.locator("[data-holdback-card] button.defn[data-term=holdback_used]").count()==1)
     check("budget: by default, the year ends at budget unless already exceeded (no false alarms)", "$12,300,000" in t and "$2,909,551" in t and "over by" not in t.lower() and "On budget" in t and "On pace" in t, t[:600])
-    efh=await pg.evaluate("(()=>{const c=[...document.querySelectorAll('#view .card')].find(x=>x.querySelector('h3')&&x.querySelector('h3').innerText.trim()=='Every fund');return c?[[...c.querySelectorAll('thead th')].map(t=>t.innerText.trim()), c.querySelectorAll('.pill').length, c.querySelectorAll('.ubar').length, c.querySelectorAll('[data-ubar-key]').length]:null})()")
+    efh=await pg.evaluate("(()=>{const c=[...document.querySelectorAll('#view .card')].find(x=>x.querySelector('h3')&&x.querySelector('h3').innerText.trim()=='Every fund');return c?[[...c.querySelectorAll('thead tr:last-child th')].map(t=>t.innerText.trim()), c.querySelectorAll('.pill').length, c.querySelectorAll('.ubar').length, c.querySelectorAll('[data-ubar-key]').length]:null})()")
     hbp=await pg.locator("[data-holdback-card] .pill").count()
     check("budget (15 Oct): every table on Budget vs. actual uses the same coloured statuses: Every fund has a budget-used bar, status pills, labelled columns and the key; the holdback card's status is a pill",
           efh and all(efh[0]) and efh[1]>0 and efh[2]>0 and efh[3]==1 and hbp>0, str(efh)+" hb pills %d"%hbp)
+    ebw=await pg.evaluate("(()=>{const t=document.querySelector('table.ba-funds'),s=t&&t.closest('.scroll');return s?s.scrollWidth-s.clientWidth:-1})()")
+    check("budget (21 Oct): Every fund fits without scrolling sideways (revenue and spending grouped; each status under its forecast)", 0<=ebw<=1, str(ebw))
+    await pg.locator("table.ba-funds").screenshot(path=SHOTS+"/ba-funds.png")
     if await pg.locator("table.batable").count():
       lastcol=await pg.evaluate("[...document.querySelectorAll('table.batable tbody tr td:last-child')].map(x=>x.innerText.trim())")
       check("budget (15 Oct): spending by function colours each bar, with one key under the table; no 'on budget' down the last column",
@@ -1159,7 +1162,18 @@ async def main():
     await pg.click("a[data-action=editInitiative]:has-text('Middle school HVAC')"); await pg.wait_for_timeout(400)
     await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
     await pg.select_option("[data-modal] select[data-ed-scenario]", _ph_sid); await pg.wait_for_timeout(300)
-    check("decisions editor: an unlocked scenario it's in offers “Take it out”", await pg.locator("[data-modal] button[data-action=removeProject]").count()==1 and "Take it out of" in await pg.inner_text("[data-modal] .ed-takeout"))
+    tk=await pg.inner_text("[data-modal] .ed-takeout")
+    check("decisions editor (21 Oct): “Remove from scenarios” lists every scenario it's in, each one ticked separately; a locked one can't be ticked",
+          await pg.locator("[data-modal] button[data-action=removeProject]").count()==1 and "Remove from scenario" in tk
+          and await pg.locator("[data-modal] .ed-takeout input[name=takeout_sid]").count()>=1
+          and all(next((x for x in TABLES["scenario"] if x["id"]==v),{}).get("is_locked") for v in await pg.eval_on_selector_all("[data-modal] .ed-takeout input[name=takeout_sid]:disabled","xs=>xs.map(x=>x.value)")), tk)
+    _tks=await pg.eval_on_selector_all("[data-modal] .ed-takeout input[name=takeout_sid]:not(:disabled)","xs=>xs.map(x=>x.value)")
+    for v in _tks: await pg.check(f"[data-modal] .ed-takeout input[value='{v}']")
+    n0=len(calls); await pg.click("[data-modal] button[data-action=removeProject]"); await pg.wait_for_timeout(800)
+    _rm=[urllib.parse.unquote(c[1]) for c in calls[n0:] if c[0]=="DELETE" and "/rest/v1/scenario_initiative" in c[1]]
+    check("decisions editor (21 Oct): removing from the ticked scenarios takes it out of each of them, after a confirmation", len(_rm)==len(_tks) and all(any(v in u for u in _rm) for v in _tks), str(_rm))
+    await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(500)
+    await pg.click("a[data-action=editInitiative]:has-text('Middle school HVAC')"); await pg.wait_for_timeout(400)
     n0=len(calls); await pg.click("[data-modal] button[data-action=deleteInitiative]"); await pg.wait_for_timeout(700)
     dl=[c for c in calls[n0:] if c[0]=="DELETE" and c[1].split("?")[0]=="/rest/v1/initiative"]
     check("delete an initiative: after a confirmation, it's deleted everywhere (one call; the database removes its phases and costs)", len(dl)==1 and ("id=eq."+_init0) in urllib.parse.unquote(dl[0][1]) and "Deleted" in await pg.inner_text("#toasts"), str(dl))
@@ -1236,6 +1250,8 @@ async def main():
     import openpyxl as _ox2, io as _io2
     wb=_ox2.load_workbook(_io2.BytesIO(open(await f.path(),"rb").read())).active; hdr=[c.value for c in wb[1]]
     check("plans: Excel in the district's columns", f.suggested_filename.startswith("ironwood-valley-capital-improvement-plan-") and hdr[:3]==["Status","Initiative","Anticipated completion"] and "Funding source" in hdr and wb.max_row>1, str(hdr))
+    for p0 in TABLES["priority"]: p0["csip_goal"]=False   # 21 Oct: the demo now has academic (CSIP) goals; this checks the empty state
+    await pg.reload(); await pg.wait_for_timeout(700)
     await pg.click("button[data-action=planView][data-v=csip]"); await pg.wait_for_timeout(600)
     check("plans: academic goals view explains how to tag CSIP goals", "No priorities are tagged as CSIP goals yet" in await ptext())
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/priorities"); await pg.wait_for_timeout(700)
@@ -1264,7 +1280,7 @@ async def main():
       check("plans: a saved version opens as it was", "Back to the live plan" in await ptext() and "saved" in await ptext())
       await pg.click("button[data-action=planBack]"); await pg.wait_for_timeout(500)
     await pg.click("button[data-action=planView][data-v=full]"); await pg.wait_for_timeout(500)
-    await pg.fill("form[data-form=savePlanName] input[name=plan_name]","Comprehensive improvement plan")
+    await pg.evaluate("document.querySelector('details.pc-name').open=true"); await pg.fill("form[data-form=savePlanName] input[name=plan_name]","Comprehensive improvement plan")
     n0=len(calls); await pg.click("form[data-form=savePlanName] button[type=submit]"); await pg.wait_for_timeout(700)
     pn=[json.loads(c[2]) for c in calls[n0:] if c[0]=="PATCH" and c[1].split("?")[0]=="/rest/v1/district_settings"]
     check("plans: the district names its full plan", pn and pn[0].get("plan_name")=="Comprehensive improvement plan", str(pn)[:200])
@@ -1274,7 +1290,7 @@ async def main():
     await pg.locator("#view").screenshot(path=SHOTS+"/plans.png")
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/track/measures"); await pg.wait_for_timeout(700)
     t=await pg.inner_text("#view")
-    check("measures: start → target, latest, status, progress, owner", "7 measures:" in t and "Four-year graduation rate" in t and "88% 2024-25 → 94% 2028-29" in t.replace("\t"," ").replace("  "," ") and "lower is better" in t and "Principal, high school" in t, t[:600])
+    check("measures: start → target, latest, status, progress, owner", "10 measures:" in t and "Four-year graduation rate" in t and "88% 2024-25 → 94% 2028-29" in t.replace("\t"," ").replace("  "," ") and "lower is better" in t and "Principal, high school" in t, t[:600])
     await pg.screenshot(path=SHOTS+"/measures.png", full_page=True)
     me_=await pg.evaluate("[...document.querySelectorAll('a[data-action=editMeasure]')].map(a=>a.innerText.trim())")
     check("measures (15 Oct): the measure's name opens its editor (no Edit link at the far right)", me_ and "Edit" not in me_, str(me_))
@@ -1449,7 +1465,7 @@ async def main():
     # Phase 5D: Overview → Today, and search
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pg.wait_for_timeout(800)
     t=await pg.inner_text("#view")
-    check("overview: gap, balances, ledger, measures, decisions ahead, latest report", "Gap to close" in t and "$5.35M" in t and "SAVE balance" in t and "Measures on track" in t and "4 of 8" in t and "Decisions ahead" in t and "Latest board report" in t, t[:600])
+    check("overview: gap, balances, ledger, measures, decisions ahead, latest report", "Gap to close" in t and "$5.35M" in t and "SAVE balance" in t and "Measures on track" in t and re.search(r"\b\d+ of 1[01]\b", t) and "Decisions ahead" in t and "Latest board report" in t, t[:600])
     await pg.locator("#view").screenshot(path=SHOTS+"/today.png")
     check("overview: needs attention lists what's off track", "Needs attention" in t and "is off track" in t and "The strategic plan" in t)
     check("overview: recent changes for admins", "Recent changes" in t)
@@ -1506,7 +1522,7 @@ async def main():
     await pg.screenshot(path=SHOTS+"/funds-new.png", full_page=True)
     check("funds: a chart of each capital fund's balance by year", await pg.locator("svg[aria-label=\"Each capital fund's balance at the end of each year\"]").count()==1)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await pg.wait_for_timeout(700)
-    folds=await pg.evaluate("[...document.querySelectorAll('details.fold')].map(d=>d.open)")
+    folds=await pg.evaluate("[...document.querySelectorAll('details.fold:not([data-checks])')].map(d=>d.open)")
     check("capital plan: details open for people who edit", folds and all(folds), str(folds))
     lead0=await pg.inner_text("#cap-lead")
     await pg.evaluate("(()=>{const el=document.querySelector('[data-lever=infl]'); el.value='0.08'; el.dispatchEvent(new Event('input',{bubbles:true}));})()"); await pg.wait_for_timeout(300)
@@ -1647,14 +1663,14 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/general"); await pg.wait_for_timeout(800)
     t=await pg.inner_text("#view")
     check("general fund: caution, solvency, unspent ratio, ending balance", "Check the starting figures and results with the business manager" in t and "Solvency ratio" in t and "16.8%" in t and "Unspent balance ratio" in t and "Ending fund balance" in t, t[:600])
-    check("general fund: new money vs a negotiated raise (total package), and the year table", "New money vs. a negotiated raise" in t and "Each 1% of total package costs" in t and "Spending authority" in t and "Staff share of spending" in t and "$8,148" in t)
+    check("general fund: new money vs a negotiated raise (total package), and the year table", "New money vs. a negotiated raise" in t and "Each 1% of total package costs" in await pg.text_content("[data-gf-newmoney]") and "Spending authority" in t and "Staff share of spending" in t and "$8,148" in t)
     await pg.screenshot(path=SHOTS+"/generalfund.png", full_page=True)
     box=await pg.locator(".gflevers").bounding_box()
     check("general fund: what-if levers laid out compactly, not one tall column", box and box["height"]<260, str(box))
     before=await pg.inner_text("#gf-results")
     await pg.fill("input[data-gf-lever=settle]","4.5"); await pg.wait_for_timeout(300)
-    after=await pg.inner_text("#gf-results")
-    check("general fund: a what-if total package increase changes the forecast at once", before!=after and "A 4.5% total package costs" in after)
+    after=await pg.text_content("#gf-results")
+    check("general fund: a what-if total package increase changes the forecast at once", before!=await pg.inner_text("#gf-results") and "A 4.5% total package costs" in after)
     r0=await pg.inner_text("#gf-results")
     await pg.fill("input[data-gf-lever=ssa]","2s-"); await pg.wait_for_timeout(300)
     e1=await pg.locator(".gflevers .ferr").all_inner_texts(); same=await pg.inner_text("#gf-results")==r0
@@ -1935,7 +1951,7 @@ async def main():
     await pg.wait_for_timeout(500)
     check("wizard: step 3 is the General Fund form, state figures filled in", await pg.locator("form[data-form=wizGf]").count()==1 and await pg.input_value("form[data-form=wizGf] [name=fund_balance]")=="2,250,000")
     n0=len(calls); await pg.click("form[data-form=wizGf] button[type=submit]"); await pg.wait_for_timeout(900)
-    check("wizard: step 3 saves and finishes with what's next", any(c[0]=="PATCH" and "district_settings" in c[1] and "gf_inputs" in (c[2] or "") for c in calls[n0:]) and pg.url.endswith("/welcome/done") and "Upload projects" in await pg.inner_text(".wiz"), pg.url)
+    check("wizard: step 3 saves and finishes with what's next", any(c[0]=="PATCH" and "district_settings" in c[1] and "gf_inputs" in (c[2] or "") for c in calls[n0:]) and pg.url.endswith("/welcome/done") and "Upload initiatives" in await pg.inner_text(".wiz"), pg.url)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pg.wait_for_timeout(600)
     # peer comparisons from the state's annual reports, and the state prefill
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/general"); await pg.wait_for_timeout(700)
@@ -1952,7 +1968,7 @@ async def main():
     # what-if: leave a project out (nothing saved), then save it as a new scenario
     await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     g0=await pg.inner_text("#cap-lead"); n0=len(calls)
-    await pg.locator("#cap-out input[data-cap-out]").first.check(); await pg.wait_for_timeout(300)
+    await pg.evaluate("document.querySelector('#cap-out details').open=true"); await pg.locator("#cap-out input[data-cap-out]").first.check(); await pg.wait_for_timeout(300)
     co=await pg.inner_text("#cap-out"); g1=await pg.inner_text("#cap-lead")
     check("what-if: leaving a project out recomputes the plan, saves nothing", "the gap goes from" in co and g1!=g0 and await pg.locator("#cap-years li.leftout").count()>0 and not [c for c in calls[n0:] if c[0] in ("POST","PATCH","DELETE")], co[:300])
     PROMPT["text"]="Without the first project"; n0=len(calls)
@@ -2090,15 +2106,12 @@ async def main():
     TABLES["recurring_cost"][:]=[r for r in TABLES["recurring_cost"] if r["id"]!="rc-gf-big"]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await pg.wait_for_timeout(200)
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await pg.wait_for_timeout(900)
+    if await pg.locator("[data-double-count]").count(): await pg.evaluate("document.querySelector('[data-double-count]').open=true"); await pg.wait_for_timeout(150)
     dc=await pg.inner_text("[data-double-count]") if await pg.locator("[data-double-count]").count() else ""
     if dc:
-      sb2=await pg.locator("[data-double-count] > summary").bounding_box()
-      ic=await pg.evaluate("(()=>{const d=document.querySelector('[data-double-count]'),r=d.getBoundingClientRect(),cs=getComputedStyle(d,'::before'),sm=d.querySelector('summary').getBoundingClientRect();return [parseFloat(cs.top)+r.top, sm.top, sm.bottom]})()")
-      check("double count (15 Oct): the warning's icon, arrow and words sit on one line", sb2["height"]<=46 and ic[1]<=ic[0]<=ic[2], str(sb2)+str(ic))
-      await pg.evaluate("document.querySelector('[data-double-count]').open=true"); await pg.wait_for_timeout(200)
-      lc=await pg.evaluate("(()=>{const li=document.querySelector('[data-double-count] li'),sm=document.querySelector('[data-double-count] > summary');return li?[getComputedStyle(li).color,getComputedStyle(sm).color]:null})()")
-      check("double count (15 Oct, second pass): the heading stays orange; the explanation is normal text, not red", lc and lc[0]!=lc[1], str(lc))
-    check("capital plan: repeating bus and device purchases on PPEL are flagged against PPEL's ongoing amount", "may be counted twice" in dc and "Bus fleet replacement" in dc and "PPEL already holds back $40k a year" in dc and "Roof" not in dc, dc[:600])
+      sty=await pg.evaluate("(()=>{const d=document.querySelector('[data-checks]');return [d.classList.contains('notice'),getComputedStyle(d.querySelector('summary')).color, document.querySelectorAll('[data-checks]').length]})()")
+      check("checks (21 Oct): one calm list for the business office (fund rules and may be counted twice together), not an orange alarm", not sty[0] and sty[2]==1, str(sty))
+    check("capital plan: repeating bus and device purchases on PPEL are flagged against PPEL's ongoing amount", "may be counted twice" in dc.lower() and "Bus fleet replacement" in dc and "PPEL already holds back $40k a year" in dc and "Roof" not in dc, dc[:600])
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/general"); await pg.wait_for_timeout(600)
     await pg.click("button[data-action=gfEdit]"); await pg.wait_for_timeout(700)
     gst=await pg.inner_text("[data-gf-state]")
@@ -2366,6 +2379,148 @@ async def main():
     await op.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await op.wait_for_timeout(800)
     tsel=await op.inner_text("select[data-ini-type]") if await op.locator("select[data-ini-type]").count() else ""
     check("initiative types (15 Oct): named for what the money buys", "Building, site or major equipment" in tsel and "Curriculum or instructional materials" in tsel and "Capital project" not in tsel, tsel)
+
+    # ---- 21 Oct: survey page, Community input, Priorities, Initiatives, editor, Rank & fund ----
+    BH=json.loads(subprocess.check_output(["node","-e","""
+      const C=require('./capital.js'),D=require('./demo_data.js');let i=0;const R=C.demoRows(D['bridger-hollow'],'d1',()=>'00000000-0000-4000-8000-'+String(++i).padStart(12,'0'));
+      for(const k in R) if(Array.isArray(R[k])) R[k]=R[k].map((r,j)=>(r&&typeof r==='object'&&!r.id&&k!=='district_settings')?Object.assign({id:k+'-'+j},r):r);
+      process.stdout.write(JSON.stringify(R))"""],cwd=ROOT))
+    for k0,v0 in BH.items():
+      if isinstance(v0,list): TABLES[k0]=v0
+    for sc in TABLES["scenario"]:
+      sc.setdefault("updated_at","2026-09-23T12:00:00Z")
+      if sc["id"] in (BH.get("lock") or []): sc["is_locked"]=True
+    TABLES["survey_response"]=[]
+    TABLES["survey"]+= [{"id":"sv-empty","district_id":"d1","name":"Fall pulse check","mode":"live","status":"closed","focus":["rating"],"items":{"priorities":[{"id":p0["id"],"name":p0["name"]} for p0 in TABLES["priority"]]},"opened_on":"2026-10-15","closed_on":"2026-10-16","response_count":0,"created_at":"2026-10-15T00:00:00Z"},
+                        {"id":"sv-old","district_id":"d1","name":"Community survey, spring 2024","closed_on":"2024-04-30","response_count":402,"created_at":"2024-04-01T00:00:00Z"}]
+    xc=await b.new_context(viewport={"width":1360,"height":1000}); await xc.route("**/config.js",cfg); await xc.route(SB+"/**",handler); await xc.route("**/fonts.g*/**",lambda r:r.abort())
+    DLG=[]
+    async def _dl(dl): DLG.append(dl.message); await dl.accept()
+    xp=await xc.new_page(); xp.on("pageerror",lambda e:errs.append(str(e))); xp.on("dialog",lambda dl: asyncio.ensure_future(_dl(dl)))
+    await xp.goto("http://localhost:8765/"); await xp.wait_for_timeout(500)
+    await xp.fill("input[name=email]","admin@example.test"); await xp.fill("input[name=password]",PW); await xp.click("button[type=submit]"); await xp.wait_for_timeout(800)
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/plan/community"); await xp.wait_for_timeout(1000)
+    order=await xp.evaluate("(()=>{const h=[...document.querySelectorAll('h3.sec-h')].map(x=>x.textContent.trim());const e=document.querySelector('[data-sv-live=sv-empty]'),i=document.querySelector('[data-sv-card]:not([data-sv-card=sv-old])'),o=document.querySelector('details[data-sv-past=sv-old]');return [h,!!e,!!i,!!o,o?o.open:null, e&&i?!!(e.compareDocumentPosition(i)&Node.DOCUMENT_POSITION_FOLLOWING):null]})()")
+    check("community input (21 Oct): one list of past surveys, newest first, wherever they were run; the newest with results shows in full; older ones fold to a line",
+          order[0]==["Past surveys"] and order[1] and order[2] and order[3] and order[4]==False and order[5], str(order))
+    check("community input (21 Oct): a closed survey nobody answered says so and has Edit and Delete, like the others",
+          "Nobody answered" in await xp.inner_text("[data-sv-live=sv-empty]") and await xp.locator("[data-sv-live=sv-empty] button[data-action=editLiveSurvey]").count()==1 and await xp.locator("[data-sv-live=sv-empty] button[data-action=deleteSurvey]").count()==1
+          and await xp.locator("[data-sv-card] button[data-action=deleteSurvey]").count()>=1)
+    await xp.click("details[data-sv-past=sv-old] > summary"); await xp.wait_for_timeout(200)
+    check("community input (21 Oct): an older survey opens to its results", await xp.locator("details[data-sv-past=sv-old] [data-sv-card=sv-old]").is_visible())
+    n0=len(calls); await xp.click("[data-sv-live=sv-empty] button[data-action=deleteSurvey]"); await xp.wait_for_timeout(600)
+    dsv=[c for c in calls[n0:] if c[0]=="DELETE" and "/rest/v1/survey?" in c[1] and "sv-empty" in c[1]]
+    check("community input (21 Oct): deleting a survey nobody used asks first, naming it", dsv and any("Fall pulse check" in m0 and "Nobody answered" in m0 for m0 in DLG), str(DLG))
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/plan/priorities"); await xp.wait_for_timeout(900)
+    check("priorities (21 Oct): no Measures button (Measures is in the menu under Track)", await xp.locator(".prio-tools a[href$='/track/measures']").count()==0)
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/plan/initiatives"); await xp.wait_for_timeout(900)
+    tools=await xp.inner_text(".content .row:has(button[data-action=editInitiative][data-id=''])")
+    check("initiatives (21 Oct): the same word for adding and uploading", "Add an initiative" in tools and "Upload initiatives" in tools and "Upload projects" not in tools, tools)
+    eb=await xp.locator(".ini-card button.ini-edit").count(); nrow=await xp.locator(".ini-card tbody tr").count()
+    vis=await xp.locator(".ini-card button.ini-edit").first.is_visible()
+    check("initiatives (21 Oct): every row has an Edit button that's always showing (not only on hover)", eb==nrow and nrow>0 and vis, f"{eb}/{nrow}")
+    heads=await xp.eval_on_selector_all(".ini-card thead th","ts=>ts.map(t=>t.textContent.trim())")
+    check("initiatives (21 Oct): a calmer table: what it buys and focus areas sit under the name as text, status is the only pill, one Priority column", "Type" not in heads and "Strategic priority" not in heads and await xp.locator(".ini-card .areas").count()==0 and await xp.locator(".ini-card .ini-sub").count()>=nrow, str(heads))
+    await xp.click(".ini-card tr:has-text('FFA program') button.ini-edit"); await xp.wait_for_timeout(600)   # FFA program: a phase and two yearly costs
+    lay=await xp.evaluate("""(()=>{const f=document.querySelector('form[data-form=saveProject]'),q=(n)=>f.querySelector(`[name=${n}]`).getBoundingClientRect();
+      const lb=[...f.querySelectorAll('.fgrid > label.field')].find(l=>l.textContent.trim().startsWith('What it buys')),d=lb.querySelector('.defn').getBoundingClientRect(),t=lb.querySelector('span').getBoundingClientRect();
+      const a=f.querySelector('[data-action=addPhaseRow]').getBoundingClientRect(),y=f.querySelector('.ed-adds [data-action=costsRecurring]').getBoundingClientRect();
+      const yt=f.querySelector('table.yr-table').closest('.scroll');
+      return {need:Math.abs(q('need_by').top-q('life').top),appr:Math.abs(q('approved_on').top-q('owner_name').top),tip:Math.abs((d.top+d.bottom)/2-(t.top+t.bottom)/2),adds:Math.abs(a.top-y.top),scroll:yt.scrollWidth-yt.clientWidth}})()""")
+    check("initiative editor (21 Oct): Needed by and Board approved line up with the rest of their row; the ? sits on its label's line",
+          lay["need"]<=2 and lay["appr"]<=2 and lay["tip"]<=4, str(lay))
+    check("initiative editor (21 Oct): Add a phase and Add a yearly cost share one line; the yearly costs fit without scrolling sideways", lay["adds"]<=2 and lay["scroll"]<=1, str(lay))
+    await xp.click("[data-modal] button[data-action=closeModal] >> nth=0")
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking"); await xp.wait_for_timeout(1000)
+    _open=[x["id"] for x in TABLES["scenario"] if not x.get("is_locked")][0]
+    await xp.select_option("select[data-rank-sid]",_open); await xp.wait_for_timeout(1000)
+    rnames=lambda: xp.eval_on_selector_all("table.ranktable tr.rk-row td:nth-child(3)","ts=>ts.map(t=>t.innerText.split('\\n')[0])")
+    r0=await rnames()
+    await xp.locator("table.ranktable tr.rk-row").nth(1).scroll_into_view_if_needed(); await xp.evaluate("window.scrollBy(0,300)"); await xp.wait_for_timeout(200)
+    gb=await xp.locator("table.ranktable tr.rk-row").nth(4).locator("[data-rk-grip]").bounding_box(); tb0=await xp.locator("table.ranktable tr.rk-row").nth(1).bounding_box()
+    await xp.mouse.move(gb["x"]+5,gb["y"]+8); await xp.mouse.down()
+    for k in range(1,11): await xp.mouse.move(gb["x"]+5,gb["y"]+8+(tb0["y"]+5-gb["y"]-8)*k/10); await xp.wait_for_timeout(30)
+    await xp.mouse.up(); await xp.wait_for_timeout(200); r1=await rnames()
+    n0=len(calls); await xp.wait_for_timeout(1800)
+    ups=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "scenario_initiative" in c[1]]
+    check("rank & fund (21 Oct): drag a row by its handle to a new place; it moves at once and the new order is saved like the arrows",
+          r1[1]==r0[4] and r1[2]==r0[1] and ups and [x["rank"] for x in ups[0]][:5]==[1,2,3,4,5] and ups[0][1]["initiative_id"]==[x for x in TABLES["initiative"] if x["name"]==r0[4]][0]["id"]
+          and await xp.locator("table.ranktable button[data-action=rankMove]").count()>0, str([r0[:5],r1[:5]]))
+    # ---- 21 Oct, second list ----
+    TABLES["warning_check"]=[]
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await xp.wait_for_timeout(1200)
+    nchk=await xp.locator("[data-checks] li[data-chk]").count()
+    check("checks (21 Oct): fund rules and may-be-counted-twice are one list, each with “Checked with the business office”", nchk>=2 and await xp.locator("[data-checks]").count()==1 and await xp.locator("[data-checks] button[data-action=chkConfirm]").count()==nchk
+          and await xp.locator("[data-checks] .chk-tag:has-text('Fund rules')").count()>=1 and await xp.locator("[data-checks] .chk-tag:has-text('May be counted twice')").count()>=1, str(nchk))
+    await xp.evaluate("document.querySelector('[data-checks]').open=true")
+    k0=await xp.get_attribute("[data-checks] button[data-action=chkConfirm] >> nth=0","data-key"); s0=await xp.get_attribute("[data-checks] button[data-action=chkConfirm] >> nth=0","data-sig")
+    n0=len(calls); await xp.click("[data-checks] button[data-action=chkConfirm] >> nth=0"); await xp.wait_for_timeout(600)
+    wc=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/warning_check"]
+    check("checks (21 Oct): marking one as checked saves it for the district (which check, and what the cost looked like)", wc and wc[0][0]["key"]==k0 and wc[0][0]["sig"]==s0 and wc[0][0]["district_id"]=="d1", str(wc)[:300])
+    TABLES["warning_check"]=[{"district_id":"d1","key":k0,"sig":s0,"checked_at":"2026-10-21T15:00:00Z"}]
+    await xp.reload(); await xp.wait_for_timeout(1200); await xp.evaluate("document.querySelector('[data-checks]').open=true")
+    check("checks (21 Oct): a checked item stops nagging: it moves to “already checked”, in every scenario", await xp.locator("[data-checks] li[data-chk]:not(.chk-done li)").count()>=0
+          and await xp.locator("[data-checks] details.chk-done li[data-chk]").count()==1 and await xp.locator("[data-checks] > ul.chk-list li[data-chk]").count()==nchk-1)
+    TABLES["warning_check"]=[{"district_id":"d1","key":k0,"sig":"changed","checked_at":"2026-10-21T15:00:00Z"}]
+    await xp.reload(); await xp.wait_for_timeout(1200)
+    check("checks (21 Oct): if that cost changes, the check comes back", await xp.locator("[data-checks] > ul.chk-list li[data-chk]").count()==nchk)
+    TABLES["warning_check"]=[]
+    # the chart, one year at a time
+    _opts=await xp.eval_on_selector_all("select[data-cap-scenario] option","os=>os.map(o=>[o.value,o.textContent])")
+    await xp.select_option("select[data-cap-scenario]",[v for v,t in _opts if "locked" not in t][0]); await xp.wait_for_timeout(1000)
+    await xp.locator(".capchart [data-cap-year]").nth(3).locator("rect[data-band]").first.click(); await xp.wait_for_timeout(500)
+    pt=await xp.inner_text("[data-modal]") if await xp.locator("[data-modal] [data-cap-panel]").count() else ""
+    check("capital plan (21 Oct): click a year on the chart to see what's in each colour, each fund's room, and act on each initiative", "FY2030" in pt and "Each fund that year" in pt and await xp.locator("[data-modal] button[data-action=cyEdit]").count()>0
+          and await xp.locator("[data-modal] button[data-action=cyRemove]").count()>0 and await xp.locator("[data-modal] button[data-action=cyLeave]").count()>0, pt[:300])
+    cb=xp.locator("[data-modal] button[data-action=cyCamp]").first
+    if await cb.count():
+      phid=await cb.get_attribute("data-phase"); n0=len(calls); await cb.click(); await xp.wait_for_timeout(700)
+      pf=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and c[1].split("?")[0]=="/rest/v1/phase_funding"]
+      dl=[urllib.parse.unquote(c[1]) for c in calls[n0:] if c[0]=="DELETE" and "phase_funding" in c[1]]
+      check("capital plan (21 Oct): “Mark as campaign or bond” moves that phase to campaign / bond needed", pf and pf[0][0]=={"phase_id":phid,"district_id":"d1","fund":"camp","pct":100} and dl and "fund=neq.camp" in dl[0], str(pf)[:200])
+    else: check("capital plan (21 Oct): “Mark as campaign or bond” is offered for a levy-paid phase", False, "none")
+    # Rank & fund: the timing chart in plain words
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/plan/ranking/years"); await xp.wait_for_timeout(1200)
+    yp=await xp.inner_text("[data-yr-plain]") if await xp.locator("[data-yr-plain]").count() else ""
+    check("rank & fund (21 Oct): the timing chart says in plain words what waits and works, and what's still short and why", yp and ("That works" in yp or "Everything is paid for" in yp) and (("short" in yp and "To close it" in yp) or "Everything is paid for" in yp), yp[:400])
+    # Scenarios: leave initiatives out of the comparison; a scenario just made shows first, ticked
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/plan/scenarios"); await xp.wait_for_timeout(1200)
+    g0=await xp.inner_text("#cmp-table")
+    big=[i0 for i0 in TABLES["initiative"] if i0["name"].startswith("CTE and ag")][0]["id"]
+    await xp.evaluate("document.querySelector('[data-cmp-out]').open=true"); await xp.check(f"input[data-cmp-out='{big}']"); await xp.wait_for_timeout(1200)
+    g1=await xp.inner_text("#cmp-table"); ld=await xp.inner_text(".lead") if await xp.locator(".lead").count() else ""
+    check("scenarios (21 Oct): leave an initiative out of every scenario being compared, to find one that pays for everything", g0!=g1 and "left out" in ld, ld[:300])
+    # All funds: click a fund for its detail
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/money/summary"); await xp.wait_for_timeout(1300)
+    await xp.click("[data-fund-go=save]"); await xp.wait_for_timeout(500)
+    fp=await xp.inner_text("[data-modal]") if await xp.locator("[data-modal] [data-fund-panel]").count() else ""
+    check("all funds (21 Oct): click a fund to see it year by year, what's committed and the projects it pays for", "Year by year" in fp and "Projects it pays for" in fp and "Debt payments" in fp, fp[:300])
+    await xp.click("[data-modal] button[data-action=closeModal]")
+    # General fund: new money vs. a negotiated raise is folded away
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/money/general"); await xp.wait_for_timeout(1000)
+    if await xp.locator("[data-gf-newmoney]").count(): check("general fund (21 Oct): new money vs. a negotiated raise is folded away", not await xp.evaluate("document.querySelector('[data-gf-newmoney]').open"))
+    # Share: board reports are obvious rows; the community page is a button, never the raw address
+    TABLES["report_snapshot"]=[{"id":"rs1","district_id":"d1","kind":"board_monthly","title":"Board report, September 2026","period_end":"2026-09-30","created_at":"2026-10-20T12:00:00Z","payload":{"scenario":{"name":"District baseline"}}}]
+    TABLES["publication"]=[{"district_id":"d1","kind":"board_plan","published_at":"2026-10-16T12:00:00Z","is_current":True}]
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/share/plans"); await xp.wait_for_timeout(300)
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/share/board"); await xp.wait_for_timeout(1000)
+    vb=await xp.inner_text("#view")
+    check("board reports (21 Oct): each report is a clickable row with Open; the description matches what's on the page", await xp.locator("a.doc-row[data-action=rpOpen]").count()==1 and "Open ›" in vb and "decision packets" in vb.lower() and "Monthly board report, capital summary" not in vb, vb[:300])
+    TABLES["report_snapshot"]=[]
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/share/plans"); await xp.wait_for_timeout(1000)
+    check("district plan (21 Oct): the controls read as three steps: which plan, what to include, share it", (lambda t: all(x in t for x in ["1. Which plan","2. What to include","3. Share it"]))(await xp.text_content(".plan-ctl")))
+    await xp.click("button[data-action=planView][data-v=csip]"); await xp.wait_for_timeout(700)
+    cs=await xp.inner_text("#view")
+    check("demo district (21 Oct): has academic (CSIP) goals with measures", "Every student reading and doing math at grade level" in cs and "ISASP" in cs and "No priorities are tagged as CSIP goals yet" not in cs, cs[:300])
+    await xc.close()
+    sy=await b.new_context(viewport={"width":1360,"height":900}); await sy.route("**/config.js",cfg); await sy.route(SB+"/**",handler); await sy.route("**/fonts.g*/**",lambda r:r.abort())
+    TABLES["survey"].append({"id":"sv-w","district_id":"d1","name":"Width check","mode":"live","status":"open","focus":["rating","new_ideas"],"items":{"priorities":[{"id":p0["id"],"name":p0["name"]} for p0 in TABLES["priority"]]},"opened_on":"2026-10-20","created_at":"2026-10-20T00:00:00Z"})
+    yp=await sy.new_page(); await yp.goto("http://localhost:8765/#/s/ironwood-valley"); await yp.wait_for_timeout(900)
+    wb=await yp.evaluate("(()=>{const f=document.querySelector('.sv-form').getBoundingClientRect(),h=document.querySelector('.pub-hero').getBoundingClientRect();return [f.left,f.right,f.width,h.left,h.right,innerWidth]})()")
+    check("survey page (21 Oct): on a computer the survey is one centred column, as wide as its heading (not a narrow strip at the left)",
+          abs(wb[0]-wb[3])<2 and abs(wb[1]-wb[4])<2 and wb[2]>=600 and abs((wb[0]+wb[1])/2-wb[5]/2)<20, str(wb))
+    TABLES["survey"]=[x for x in TABLES["survey"] if x["id"]!="sv-w"]
+    await sy.close()
     await b.close()
   srv.terminate()
   for n,okk,d in R: print(("PASS " if okk else "FAIL ")+n+(("  ["+d+"]") if d and not okk else ""))

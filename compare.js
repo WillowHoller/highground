@@ -20,8 +20,13 @@
     infl: ['construction inflation', pct], sf: ['SF 2472 SAVE cut', (v) => (v ? 'on' : 'off')], vppel: ['V-PPEL', (v) => (v ? 'on' : 'off')],
   };
 
-  function run(rows, sid) {
+  /** out (optional): initiative ids to leave out of every scenario compared, one-time and yearly costs both (21 Oct) */
+  function run(rows, sid, out) {
     const inp = C.buildInputs(rows, sid);
+    if (out && out.size) {
+      inp.projects = inp.projects.filter((p) => !out.has(String(p.id)));
+      if (inp.levers && inp.levers.recur) inp.levers = Object.assign({}, inp.levers, { recur: inp.levers.recur.filter((r) => !out.has(String(r.initiative_id))) });
+    }
     const r = E.compute(inp.projects, inp.levers, inp.cfg);
     return { sid, sc: rows.scenarios.find((x) => x.id === sid), inp, r };
   }

@@ -149,7 +149,7 @@
     const prioId = new Map(), outId = new Map(), dir = demo.direction || null;
     if (dir) dir.priorities.forEach((pr, k) => {
       const pid = newId(); prioId.set(pr.key, pid);
-      out.priority.push({ id: pid, district_id: districtId, position: k + 1, name: pr.name, statement: pr.statement || null });
+      out.priority.push({ id: pid, district_id: districtId, position: k + 1, name: pr.name, statement: pr.statement || null, csip_goal: !!pr.csip });
       (pr.outcomes || []).forEach((o, j) => { const oid = newId(); outId.set(o.key, oid); out.outcome.push({ id: oid, district_id: districtId, priority_id: pid, position: j + 1, name: o.name }); });
       (pr.measures || []).forEach((m) => {
         const mid = newId();

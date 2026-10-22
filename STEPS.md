@@ -1,3 +1,76 @@
+# HighGround update, 21 Oct (b): one calm list of checks, capital plan drill-down, scenarios, All funds, Share
+
+Builds on 21 Oct (a). **Install (a) first if you haven't**, or just install this: it contains everything in (a). **It has one SQL file.**
+
+## Install
+1. **Supabase → SQL Editor:** paste `33_warning_checks.sql` and Run. The last result should be 4 rows, all **PASS**. (Notices about things that "do not exist, skipping" are fine.) Do this **before** uploading.
+2. **GitHub → the HighGround repository → Add file → Upload files.** Drag in: `app.js`, `styles.css`, `capital.js`, `compare.js`, `demo_data.js`, `test_ui.py`, `33_warning_checks.sql`, `STEPS.md`. Commit to `main`.
+3. In Safari, press **Cmd+Option+R**. On the iPhone, close the home-screen app and reopen it.
+4. **Reset Bridger Hollow** (Admin Portal → the demo districts box → Reset to this demo) to load its new academic goals.
+
+## What changed
+- **One list of checks, and "Checked with the business office".** The capital plan and Rank & fund had two boxes saying overlapping things ("charges to confirm with the business office" and an orange "Worth a second look: may be counted twice"). They're now one calm, folded list, "N things to check with the business office". Each item is tagged *Fund rules* or *May be counted twice* and has a **Checked with the business office** button.
+  - Once someone clicks it, that item stops being flagged, for everyone in the district and in every scenario. It moves to "already checked", with the date and an **Undo**.
+  - If that cost later changes (different fund, years or amount), the check comes back by itself.
+  - Charges the law doesn't allow at all are still a red error and can't be dismissed.
+  - In the initiative editor, a possible double count shows as a quiet note with a × to close it. It doesn't come back while you're working, and it doesn't show at all once the district has marked it as checked.
+  - Before step 1 is run, everything still works; only the Checked button says it needs part 33.
+- **Rank & fund → When each can be paid for** now says it in words above the chart. For example: "Bus replacement: FY2033 moves to FY2034. That works: it's paid for." and "FY2033 is still $713k short after moving what can wait. Middle school HVAC upgrade can't wait any longer: it's needed by FY2033. To close it: …"
+- **Making a scenario.** Every "make a scenario" button (Rank & fund's four, the capital plan's Copy and Leave projects out, the editor's working copy) now stops with a message if the copy fails, instead of saying "Scenario made". A new scenario shows first on Plan → Scenarios, marked **New** and ticked to compare. Before, the comparison kept the three it already had, so a new one looked missing.
+- **Scenarios: Leave initiatives out of the comparison.** Tick initiatives to see every scenario without them. The summary then says which scenario, if any, pays for everything that's left. Nothing is saved.
+- **Capital plan: click the chart.** Click a year, or a colour in it, to see what's in it:
+  - each band (levies and grants, boosters, financed, campaign or bond needed, over capacity);
+  - the initiatives, grouped by how they're paid, with Edit, **Leave out (what-if)**, **Mark as campaign or bond** and **Remove from scenario**;
+  - each fund's room that year.
+  
+  A year that's over capacity explains the three ways to fix it. The long "Leave projects out" checklist is folded away, because the chart does it now.
+- **General fund:** "New money vs. a negotiated raise" is folded away (closed).
+- **All funds:** click a fund's bar under "Funding vs. committed" for that fund year by year, what's already committed (debt, held back, yearly costs) and the projects it pays for.
+- **Grants and donations** no longer says "after existing debt payments and what's held back". It now says what its receipts are.
+- **Budget vs. actual, Every fund** fits without scrolling sideways. Revenue and spending are grouped, and each status sits under its forecast.
+- **Share:**
+  - Board reports and decision packets are clear, clickable rows with **Open ›**.
+  - The community page is a button (**Open the community page ↗** and **Copy link**), not the raw address.
+  - The description matches what's on the page.
+  - District plan's controls are three steps: *1. Which plan, 2. What to include, 3. Share it*. Renaming the plan is tucked under a link.
+- **Demo:** Bridger Hollow has academic (CSIP) goals: a new goal, "Every student reading and doing math at grade level", with FAST and ISASP measures. "Every graduate ready" is now tagged as a CSIP goal too.
+
+Tests: browser 577 pass, 0 fail; all unit tests pass. SQL 33 tested on a local Postgres after parts 01–30: an editor can mark a check, a viewer can read but not change one, and every change goes to the activity log.
+
+---
+
+# HighGround update, 21 Oct: survey page, Community input, Initiatives and the editor, Rank & fund drag and drop
+
+Builds on 15g (what's on GitHub now). **No SQL.** Four files.
+
+## Install
+1. **GitHub → the HighGround repository → Add file → Upload files.** Drag in `app.js`, `styles.css`, `test_ui.py` and `STEPS.md`. Commit to `main`.
+2. In Safari, press **Cmd+Option+R**. On the iPhone, close the home-screen app and reopen it.
+
+## What changed
+- **Survey page (the public link):** one centred column on a computer, as wide as its heading, instead of a narrow strip at the left.
+- **Community input:**
+  - One list, **Past surveys**, newest first, whether it was run in HighGround or elsewhere (the separate "Surveys run elsewhere" section is gone). The newest survey with results is shown in full (and anything newer, such as an empty one); older surveys fold to one line that opens to their results.
+  - Every survey card has **Edit** and **Delete**. A survey nobody answered says so ("Nobody answered this survey before it closed") instead of a table of "no answers yet".
+  - Delete asks first, naming the survey; a survey with answers can only be deleted from inside its editor.
+  - The "Time to ask the community" reminder is a blue information box, not red (red is for shortfalls).
+- **Priorities:** the Measures button is gone (Measures is under Track).
+- **Initiatives:**
+  - "Add an initiative" and **"Upload initiatives"** (was "Upload projects"), here and on the other screens that offer the upload.
+  - The table: name (click it, or the **Edit** button now on every row), with what it buys and its focus areas as plain grey text underneath; status is the only pill; Priority shows the tier with the strategic priority under it; In plans reads "Board version / and 2 others".
+- **Initiative editor:**
+  - The ? beside "What it buys" sits on the label's line.
+  - Needed by and Board approved line up with the other boxes in their rows.
+  - **Add a phase** and **Add a yearly cost** sit together on one line at the end of the costs.
+  - Yearly costs fit without scrolling sideways on a computer.
+  - "May be counted twice" uses the calmer folded style from the capital plan: one amber line, "Worth a second look: this cost may be counted twice", that opens to the explanation in normal text. (The capital plan and Rank & fund already used it.)
+  - **Remove from scenario(s):** lists every scenario the initiative is in; tick one or more and click Remove. Locked scenarios are shown but can't be ticked.
+- **Rank & fund:** drag a row by the dotted handle at its left to a new place. The ▲ ▼ arrows and typed rank still work; all three save the same way.
+
+Tests: browser 564 pass, 0 fail (13 new checks); all unit tests pass.
+
+---
+
 # HighGround update, 15 Oct (f): survey reminder emails and bot check, live community surveys, less tidy demo figures, new Priorities page, community blueprint
 
 (f) includes everything in (a) to (e). **It has SQL** (steps 1–2) and two optional pieces set up outside GitHub (the end of this file).
