@@ -2,7 +2,7 @@
      full     every goal (priorities, outcomes, measures) and every initiative, with or without a cost
      csip     only the priorities tagged as state CSIP goals (Iowa Administrative Code 281-12.8) and the initiatives serving them
      capital  the capital improvement plan: initiatives with capital-fund phases in the board version, or typed as capital
-   Items: 'approved' shows completed, in progress and approved work only; 'all' adds proposals (labelled "Proposed, not yet
+   Items: 'approved' shows completed, in progress and approved work only; 'all' adds proposals (labeled "Proposed, not yet
    approved by the board") and deferred items. Totals always count approved work only (approved, underway, done).
    Costs are the board version's phase costs within the plan years (actual cost for finished phases), plus yearly costs.
    Pure; tested by plan_test.js. */
@@ -19,7 +19,7 @@
   ];
   const GROUP_OF = { done: 'done', underway: 'underway', approved: 'approved', idea: 'proposed', proposed: 'proposed', analysis: 'proposed', deferred: 'deferred' };
   const COUNTED = new Set(['done', 'underway', 'approved']);
-  const STATUS_WORD = { idea: 'Idea', proposed: 'Proposed', analysis: 'Being analysed', approved: 'Approved', underway: 'In progress', done: 'Completed', deferred: 'Deferred', declined: 'Declined' };
+  const STATUS_WORD = { idea: 'Idea', proposed: 'Proposed', analysis: 'Being analyzed', approved: 'Approved', underway: 'In progress', done: 'Completed', deferred: 'Deferred', declined: 'Declined' };
   const TYPE_WORD = { capital: 'Building, site or equipment', program: 'Program or service', staff: 'Staff or hire', curriculum: 'Curriculum or materials', technology: 'Technology', other: 'Other' };
   const TIER_WORD = { must: 'Must-have', strategic: 'Strategic', nice: 'Nice to have' };
   const FROM_ENGINE = { High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' };

@@ -43,7 +43,7 @@ check('no completion date: schedule unknown', x.schedule === 'unknown' && x.expe
 
 // books
 x = K.status(contract, apps, { ledgerSpent: 1950000 });
-check('ledger counts retainage as spent when earned: recognised, not flagged', x.books === 'match-gross' && !x.flags.some((f) => f.k === 'books'));
+check('ledger counts retainage as spent when earned: recognized, not flagged', x.books === 'match-gross' && !x.flags.some((f) => f.k === 'books'));
 x = K.status(contract, apps, { ledgerSpent: 1452500 });
 check('a pay app missing from the ledger: flagged', x.books === 'differ' && x.flags.some((f) => f.k === 'books') && x.booksDiff < 0);
 x = K.status(contract, apps, { ledgerSpent: 1852500 + 4000 });

@@ -29,7 +29,7 @@ check('September report: progress against the plan, with spending from the ledge
 check('September report: decisions ahead, unapproved only, largest first', now.pending.every((x) => ['idea', 'proposed', 'analysis'].includes(x.status)) && !now.pending.some((x) => x.name.startsWith('CTE')) && now.pending.every((x, k, a) => !k || a[k - 1].cost >= x.cost));
 const ch = Rp.changes(now, prev), text = ch.items.join(' | ');
 check('changes: the finished phase, with its date and cost', /Finished: Secure entry vestibules \(two buildings\), on 2026-09-25, at \$210k/.test(text), text);
-check('changes: the status change', /CTE and ag building addition: Being analysed → Approved/.test(text), text);
+check('changes: the status change', /CTE and ag building addition: Being analyzed → Approved/.test(text), text);
 check('changes: balances moved', /SAVE balance down \$43k, to \$1\.31M/.test(text) && /PPEL balance down \$13k/.test(text), text);
 check('changes: the gap moved because the finished phase cost less than planned', /The gap to close (shrank|grew)/.test(text) || Math.abs(now.plan.gap - prev.plan.gap) < 0.5, text);
 check('changes: spending this period', /Spending on initiatives this period: \$211k/.test(text), text);

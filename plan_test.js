@@ -53,7 +53,7 @@ check('totals count approved work only', near(full.totals.cost, 1250000) && near
 
 const all = P.build(rows, dir, Object.assign({ view: 'full', items: 'all' }, opts));
 check('all items: proposals and deferred shown, declined never', names(all) === 'bus,coach,gym,mentor,read,roof,wait', names(all));
-check('proposals labelled and kept out of totals', all.groups.find((g) => g.key === 'proposed').label === 'Proposed, not yet approved by the board' && near(all.totals.cost, 1250000) && near(all.totals.proposedCost, 150000) && all.totals.proposedCount === 2, all.totals);
+check('proposals labeled and kept out of totals', all.groups.find((g) => g.key === 'proposed').label === 'Proposed, not yet approved by the board' && near(all.totals.cost, 1250000) && near(all.totals.proposedCost, 150000) && all.totals.proposedCount === 2, all.totals);
 check('deferred item shows its need-by year', all.list.find((x) => x.id === 'wait').completion === 'Needed by FY2031');
 check('tier suggested from the planner priority', all.list.find((x) => x.id === 'gym').priority === 'Strategic');
 

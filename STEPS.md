@@ -1,3 +1,32 @@
+# HighGround update, 21 Oct (c): spelling, sizes and polish
+
+**Install only this package.** It contains everything in 21 Oct (a) and (b). Sixteen files.
+
+## Install
+1. **Supabase → SQL Editor** (skip if you already did it for (b)): paste `33_warning_checks.sql` and Run. The last result should be 4 rows, all **PASS**.
+2. **GitHub → Add file → Upload files:** drag in **all 16 files** in this folder, including STEPS.md and the SQL file. Commit to `main`.
+3. In Safari, press **Cmd+Option+R**. On the iPhone, close the home-screen app and reopen it.
+4. **Reset Bridger Hollow** (Admin Portal → demo districts → Reset to this demo) for its academic goals.
+
+## What changed in (c)
+- **American spelling** throughout the app: color, analyzed (the "Being analyzed" status), recognized, labeled, canceled, fall (not autumn).
+- **Rank & fund:** "money runs out" sits to the left of the line when the line is near the right end, so it never falls off the card.
+- **One size for controls on a computer:** buttons and boxes are 34px tall (small buttons 28px). On a phone they stay larger for fingers.
+- **Folds inside a card** (such as "Other accounts, counted as routine spending" on Initiative progress) are a compact line.
+- **Community page publishing:**
+  - What's held back is a quiet fold ("8 initiatives held back · the board hasn't approved them yet"), not an orange box.
+  - Each option's words stay beside its tick box on a narrower window.
+  - There's room before Preview and Publish.
+  - The raw web address is replaced by Open the community page ↗ and Copy link.
+- **Priorities:**
+  - When you pick another priority, its card says "Showing below ▾" and points to the detail.
+  - The detail takes that priority's color and slides in, with its heading briefly tinted.
+  - If the detail is mostly off screen, the page scrolls to it.
+
+Tests: browser 580 pass, 0 fail; all unit tests pass.
+
+---
+
 # HighGround update, 21 Oct (b): one calm list of checks, capital plan drill-down, scenarios, All funds, Share
 
 Builds on 21 Oct (a). **Install (a) first if you haven't**, or just install this: it contains everything in (a). **It has one SQL file.**
@@ -18,7 +47,7 @@ Builds on 21 Oct (a). **Install (a) first if you haven't**, or just install this
 - **Rank & fund → When each can be paid for** now says it in words above the chart. For example: "Bus replacement: FY2033 moves to FY2034. That works: it's paid for." and "FY2033 is still $713k short after moving what can wait. Middle school HVAC upgrade can't wait any longer: it's needed by FY2033. To close it: …"
 - **Making a scenario.** Every "make a scenario" button (Rank & fund's four, the capital plan's Copy and Leave projects out, the editor's working copy) now stops with a message if the copy fails, instead of saying "Scenario made". A new scenario shows first on Plan → Scenarios, marked **New** and ticked to compare. Before, the comparison kept the three it already had, so a new one looked missing.
 - **Scenarios: Leave initiatives out of the comparison.** Tick initiatives to see every scenario without them. The summary then says which scenario, if any, pays for everything that's left. Nothing is saved.
-- **Capital plan: click the chart.** Click a year, or a colour in it, to see what's in it:
+- **Capital plan: click the chart.** Click a year, or a color in it, to see what's in it:
   - each band (levies and grants, boosters, financed, campaign or bond needed, over capacity);
   - the initiatives, grouped by how they're paid, with Edit, **Leave out (what-if)**, **Mark as campaign or bond** and **Remove from scenario**;
   - each fund's room that year.
@@ -130,7 +159,7 @@ No SQL change for this: the questions are stored with the survey.
   1. the priority (its name and why it matters);
   2. **Outcomes and how we measure them**: each outcome in bold, its measures in a simple table (Measure · Latest · Target · Status);
   3. **Initiatives serving it**: a simple table (Initiative · Status · Cost) with the total.
-  Colour appears only on the small status dot; only "Off track" is in red. The red "Needs attention" box, progress bars, trend lines and coloured pills are gone from this view (the cards already flag what's off track).
+  Color appears only on the small status dot; only "Off track" is in red. The red "Needs attention" box, progress bars, trend lines and colored pills are gone from this view (the cards already flag what's off track).
 - **Edit priorities** replaces Arrange. It lists every priority: click a name to change its name, description or outcomes; ▲▼ to reorder; **Retire** for one the district has achieved or stopped working toward.
 - **Retiring a priority** (new; needs the SQL): it leaves the cards, Home, the district plan, reports and the community page (after you next publish). Its measures and initiatives are kept; initiatives linked to it show as not linked to a priority. Retired priorities are listed under Edit priorities with **Bring it back**.
 - **Worth a second look:** the box and heading are unchanged; the explanation underneath is normal dark text instead of orange.
@@ -146,7 +175,7 @@ Plan → Community input now runs surveys inside HighGround (the old way, typing
   **Open it now** or save it as a draft.
 - **Share it:** the open survey shows its link (highground.willowholler.com/#/s/your-district) with **Copy link**, and a ready-to-paste newsletter paragraph. While it's open, the community page shows a "Take the survey" box at the top.
 - **Answering:** no sign-in, phone-friendly, big 1–5 buttons. No names, emails or addresses are asked. One answer per device (a random id the browser keeps, not a fingerprint). An optional "I am a…" (parent, staff, community member, student).
-- **Results as they come in:** average rating per priority, support per idea (highest first), the ideas people wrote, and who answered. Labelled "open input, not a scientific poll".
+- **Results as they come in:** average rating per priority, support per idea (highest first), the ideas people wrote, and who answered. Labeled "open input, not a scientific poll".
 - **Close and save the results:** stores the averages (never individual answers) so they show on Priorities and, when you next publish, on the community page under "What you told us".
 - **Reminders:** Home and Community input say "Time to ask the community" when the last survey is older than the district's setting: **every quarter by default**, or monthly, every six months, yearly, or off (a district admin changes it on Community input).
 
@@ -161,17 +190,17 @@ Plan → Community input now runs surveys inside HighGround (the old way, typing
 
 ## New in (c)
 ### Priorities (Plan → Priorities)
-- **A card per priority across the top**: its number and name in its own colour, one big number ("2 of 3 measures on track") with status dots, a red line only when something is off track, and chips for its initiatives and the community's importance score.
+- **A card per priority across the top**: its number and name in its own color, one big number ("2 of 3 measures on track") with status dots, a red line only when something is off track, and chips for its initiatives and the community's importance score.
 - **Click a card** and the detail below changes in place (no reload):
   - **Needs attention** first (off-track measures and overdue updates), or one green line saying nothing does;
-  - each **outcome** with its measures, one line each: latest → target, a progress bar from where it started, a small trend line, and a status pill in the same colours as Budget vs. actual;
+  - each **outcome** with its measures, one line each: latest → target, a progress bar from where it started, a small trend line, and a status pill in the same colors as Budget vs. actual;
   - the **initiatives serving it** as small cards with status and cost, and their total.
 - The ▲▼ arrows moved behind **Arrange priorities** (planners only). Board members and viewers see a clean page.
 - On phones the cards swipe sideways and the detail stacks underneath.
 
 ### Community page = the district blueprint
 When the district publishes (Share → Community page → Publish), the page now opens with:
-1. a band in the district's colour with the plan's name and three big numbers (priorities, measures on track, initiatives);
+1. a band in the district's color with the plan's name and three big numbers (priorities, measures on track, initiatives);
 2. **Our focus**: the priority cards, with why each matters;
 3. **What you told us**: the latest survey (if included);
 4. **What we're doing**: initiatives by priority, then what's finished;
@@ -186,15 +215,15 @@ This replaces the first 15 Oct package. If you already installed that one, insta
 
 Builds on 14 Oct (f), the version in your highground-main download. **No SQL.**
 
-**Important:** the 14 Oct (g) package (new chart colours, warning-icon fix, demo check register) was never installed: your repository has its test file but not its app.js, capital.js or styles.css. **Don't install 14 Oct (g) now**: it would undo this update. This update includes its colours and the warning fix. Its demo check register isn't included (the check register is hidden for now anyway); if you want it back later, send Claude the 14g folder to merge.
+**Important:** the 14 Oct (g) package (new chart colors, warning-icon fix, demo check register) was never installed: your repository has its test file but not its app.js, capital.js or styles.css. **Don't install 14 Oct (g) now**: it would undo this update. This update includes its colors and the warning fix. Its demo check register isn't included (the check register is hidden for now anyway); if you want it back later, send Claude the 14g folder to merge.
 
 ## New in (b)
 - **District plan (Share → District plan), on screen:** a designed page instead of a report.
-  - A band in the district's colour with the plan's name, and four big numbers: approved initiatives, one-time cost, yearly cost, and what's still to find (or "Paid for").
-  - One coloured card per goal: why it matters, "2 of 3 measures on track" with dots, each measure with its latest value, target and a progress bar from where it started.
+  - A band in the district's color with the plan's name, and four big numbers: approved initiatives, one-time cost, yearly cost, and what's still to find (or "Paid for").
+  - One colored card per goal: why it matters, "2 of 3 measures on track" with dots, each measure with its latest value, target and a progress bar from where it started.
   - Initiatives as cards by status; the years as a bar timeline; each capital fund as two bars (money to spend, planned spending).
   - **Print or save as PDF still produces the full tables**, as before.
-- **Budget vs. actual, every table speaks the same colours:** Every fund has a budget-used bar and coloured status pills (On pace, Running ahead, Over by …; revenue On budget, Ahead by …, Short by …), labelled columns and the key. The held-back card's status is a pill too.
+- **Budget vs. actual, every table speaks the same colors:** Every fund has a budget-used bar and colored status pills (On pace, Running ahead, Over by …; revenue On budget, Ahead by …, Short by …), labeled columns and the key. The held-back card's status is a pill too.
 - **The name is the link, everywhere:** measures, assumption sets, financing (bonds, leases, campaigns) and priorities now open their editor from the name, like initiatives and scenarios. The "Edit" links at the far right are gone. On Measures, the Record button stays, under a "Result" heading.
 
 ## Still open
@@ -213,13 +242,13 @@ Builds on 14 Oct (f), the version in your highground-main download. **No SQL.**
 - **Scenario pickers:** wider (up to 440 px in the top bar).
 - **Funding vs. committed:** the tan area was the empty part of the bar, because every bar was drawn to the scale of the largest fund. Now each bar is its own fund's money, full width. "Left over" is now **"Not committed yet"**, and the heading says how much that is. "Available" is the whole bar: starting balance plus every year's receipts.
 - **Initiative progress:**
-  - The unlabelled last column is gone. Its flags (over plan, contract problems) sit under the initiative's name; "No spending yet" is dropped.
+  - The unlabeled last column is gone. Its flags (over plan, contract problems) sit under the initiative's name; "No spending yet" is dropped.
   - Account linking: accounts that look like one initiative's (same project code, or its name in the description) come first. Broad accounts fold away as **routine spending**, which counts against what the fund holds back each year.
-- **Budget vs. actual:** spending-by-function bars are coloured (green on pace, orange running ahead of the year, red forecast over budget) with one key under the table; the last column only speaks up when something is over.
+- **Budget vs. actual:** spending-by-function bars are colored (green on pace, orange running ahead of the year, red forecast over budget) with one key under the table; the last column only speaks up when something is over.
 - **Check register: hidden.** No menu item, upload type, Home line or search entry. The code, tables and rules stay; one switch in app.js (`SWITCH.register`) brings it back.
 - **Initiative types** renamed for what the money buys (the stored values don't change, so fund-rule checks work as before): Building, site or major equipment · Technology · Program or service · Staff or hire · Curriculum or instructional materials · Other. Academics, Safety & security and the like stay in **Focus area**. The field is now "What it buys", with a ? that explains the difference.
 - **Phones, All funds:** two cards no longer run 2 px past the edge.
-- **Chart colours (from 14 Oct (g)):** red only for shortfalls. Campaign/bond needed is violet, financed is gold, over capacity is orange.
+- **Chart colors (from 14 Oct (g)):** red only for shortfalls. Campaign/bond needed is violet, financed is gold, over capacity is orange.
 
 ## Tests
 - Unit tests: 30 files, all pass. Golden engine cases: 32, 0 differences (the engine and the money math are unchanged).

@@ -12,7 +12,7 @@ check('balance-sheet code: 3-digit account', b.kind === 'balance' && b.account =
 check('digits run together are split by the standard lengths', G.splitCode('33000047000001001450').object === '450' && G.splitCode('36000000000001171').source === '1171');
 check('suggestions: SAVE spending, PPEL revenue, SAVE fund balance', G.suggest(e).maps_to === 'expense' && G.suggest(e).mapped_fund === 'save' && G.suggest(r).mapped_fund === 'ppel' && G.suggest(b).maps_to === 'fund_balance');
 check('cash and other balance-sheet lines are ignored', G.suggest(G.splitCode('33-0000-000-0000-101')).maps_to === 'ignore');
-check('an unrecognised code is left for review', G.suggest(G.splitCode('ABC')).maps_to === 'unmapped');
+check('an unrecognized code is left for review', G.suggest(G.splitCode('ABC')).maps_to === 'unmapped');
 // the sample export
 const rows = G.sampleExport(), L = G.detectLayout(rows);
 check('columns found by their headings', L.header === 0 && L.cols.account === 0 && L.cols.description === 1 && L.cols.month === 2 && L.cols.ytd === 3 && L.cols.budget === 4 && L.cols.encumbered === 5 && !L.missing.length, JSON.stringify(L));

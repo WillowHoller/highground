@@ -497,8 +497,8 @@ async def main():
     await pg.reload(); await pg.wait_for_timeout(700)
     t=await pg.inner_text("#view")
     check("publish: shows how many will show and how many are held back, and the public gap", "2 initiatives will show; 14 held back" in t and "The public page’s gap is" in t, t[t.find("Publish the community page"):t.find("Publish the community page")+500])
-    hl=await pg.inner_text("[data-held-list]") if await pg.locator("[data-held-list]").count() else ""
-    check("publish: names what's held back, with its status and where its money comes from, and how to show it", "Not on the community page" in hl and "campaign/bond" in hl and "untick “Hold back”" in hl, hl[:400])
+    hl=await pg.text_content("[data-held-list]") if await pg.locator("[data-held-list]").count() else ""
+    check("publish: names what's held back, with its status and where its money comes from, and how to show it", "held back" in hl and "hasn’t approved" in hl and "campaign/bond" in hl and "untick “Hold back”" in hl, hl[:400])
     n0=len(calls); await pg.click("button[data-action=publishBoard]"); await pg.wait_for_timeout(700)
     pp=[json.loads(c[2]) for c in calls[n0:] if c[0]=="POST" and "/rest/v1/publication" in c[1]]
     check("publish: held-back proposals are left out of the public copy", pp and len(pp[0]["payload"]["projects"])==2 and pp[0]["payload"]["heldBack"]==14 and pp[0]["payload"]["holdBack"], str(pp)[:200])
@@ -650,14 +650,14 @@ async def main():
     rv=await pg.inner_text("#upload-review")
     check("GL: next month, nothing new to check, same layout", "No new accounts" in rv and "21 accounts matched from earlier months" in rv and "the same layout as last time" in rv, rv[:300])
     await pg.click("button[data-action=cancelUpload]"); await pg.wait_for_timeout(200)
-    # a big first month: grouped and folded, with unrecognised accounts open
+    # a big first month: grouped and folded, with unrecognized accounts open
     TABLES["gl_account"]=[]
     lines=[GLCSV.decode().rstrip()]+["10-0%03d-1100-100-0000-111,Salaries building %d,1.00,%d.00,,"%(i,i,1000+i) for i in range(1,60)]+["XYZ-9,Odd account,1.00,5.00,,"]
     await pg.set_input_files("input[data-upload-file]",files=[{"name":"big.csv","mimeType":"text/csv","buffer":("\r\n".join(lines)+"\r\n").encode()}]); await pg.wait_for_timeout(700)
     grp=pg.locator("details.glgroup")
     titles=await grp.locator("summary").all_inner_texts()
     opened=[await grp.nth(i).get_attribute("open") is not None for i in range(await grp.count())]
-    check("GL: a long first month is grouped, unrecognised accounts first and open, the rest folded", titles and titles[0].startswith("Not recognised: 1 account") and opened[0] and not all(opened[1:]) and any(t.startswith("General Fund: spending, 6") for t in titles), str(list(zip(titles,opened)))[:300])
+    check("GL: a long first month is grouped, unrecognized accounts first and open, the rest folded", titles and titles[0].startswith("Not recognized: 1 account") and opened[0] and not all(opened[1:]) and any(t.startswith("General Fund: spending, 6") for t in titles), str(list(zip(titles,opened)))[:300])
     await pg.click("button[data-action=cancelUpload]"); await pg.wait_for_timeout(200)
     TABLES["gl_account"]=[]; TABLES["gl_amount"]=[]
     # starting numbers
@@ -955,7 +955,7 @@ async def main():
     await pg.reload(); await pg.wait_for_timeout(900)
     t=await pg.inner_text("table.pitable")
     ths=await pg.evaluate("[...document.querySelectorAll('table.pitable thead th')].map(x=>x.innerText.trim())")
-    check("progress (15 Oct): no unlabelled last column; 'No spending yet' gone", len(ths)==8 and all(ths) and "No spending yet" not in t, str(ths))
+    check("progress (15 Oct): no unlabeled last column; 'No spending yet' gone", len(ths)==8 and all(ths) and "No spending yet" not in t, str(ths))
     check("progress: spending and encumbrances from the ledger, flagged when nothing was planned this year", "$262,750" in t and "$147,250" in t and "Spending, but nothing planned this year" in t, t[:500])
     await pg.click("a[data-action=piOpen][data-id='%s']"%roof_init); await pg.wait_for_timeout(500)
     await pg.locator("#view").screenshot(path=SHOTS+"/progress.png")
@@ -1026,14 +1026,14 @@ async def main():
     check("budget: by default, the year ends at budget unless already exceeded (no false alarms)", "$12,300,000" in t and "$2,909,551" in t and "over by" not in t.lower() and "On budget" in t and "On pace" in t, t[:600])
     efh=await pg.evaluate("(()=>{const c=[...document.querySelectorAll('#view .card')].find(x=>x.querySelector('h3')&&x.querySelector('h3').innerText.trim()=='Every fund');return c?[[...c.querySelectorAll('thead tr:last-child th')].map(t=>t.innerText.trim()), c.querySelectorAll('.pill').length, c.querySelectorAll('.ubar').length, c.querySelectorAll('[data-ubar-key]').length]:null})()")
     hbp=await pg.locator("[data-holdback-card] .pill").count()
-    check("budget (15 Oct): every table on Budget vs. actual uses the same coloured statuses: Every fund has a budget-used bar, status pills, labelled columns and the key; the holdback card's status is a pill",
+    check("budget (15 Oct): every table on Budget vs. actual uses the same colored statuses: Every fund has a budget-used bar, status pills, labeled columns and the key; the holdback card's status is a pill",
           efh and all(efh[0]) and efh[1]>0 and efh[2]>0 and efh[3]==1 and hbp>0, str(efh)+" hb pills %d"%hbp)
     ebw=await pg.evaluate("(()=>{const t=document.querySelector('table.ba-funds'),s=t&&t.closest('.scroll');return s?s.scrollWidth-s.clientWidth:-1})()")
     check("budget (21 Oct): Every fund fits without scrolling sideways (revenue and spending grouped; each status under its forecast)", 0<=ebw<=1, str(ebw))
     await pg.locator("table.ba-funds").screenshot(path=SHOTS+"/ba-funds.png")
     if await pg.locator("table.batable").count():
       lastcol=await pg.evaluate("[...document.querySelectorAll('table.batable tbody tr td:last-child')].map(x=>x.innerText.trim())")
-      check("budget (15 Oct): spending by function colours each bar, with one key under the table; no 'on budget' down the last column",
+      check("budget (15 Oct): spending by function colors each bar, with one key under the table; no 'on budget' down the last column",
             await pg.locator("[data-ubar-key]").count()>=1 and "on budget" not in " ".join(lastcol) and await pg.locator("table.batable .ubar.ub-pace, table.batable .ubar.ub-ahead, table.batable .ubar.ub-over").count()>0, str(lastcol))
     else: check("budget (15 Oct): fund detail with spending by function shown", False, "no table.batable")
     await pg.select_option("select[data-ba=method]","pace"); await pg.wait_for_timeout(600); t=await pg.inner_text("#view")
@@ -1048,7 +1048,7 @@ async def main():
     t=await pg.inner_text("#view")
     check("compare: two months side by side, with the change", "Compare two months" in t and "Aug 31, 2026" in t and "+$1,454,776" in t and "different fiscal years" not in t, t[t.find("Compare two months"):t.find("Compare two months")+500])
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/settings/uploads"); await pg.wait_for_timeout(500)
-    check("uploads: balances-only is now a labelled fallback", "Fund balances only (if you can’t export the ledger)" in await pg.inner_text("select[data-upload-kind]"))
+    check("uploads: balances-only is now a labeled fallback", "Fund balances only (if you can’t export the ledger)" in await pg.inner_text("select[data-upload-kind]"))
     TABLES["fund_balance"]=TABLES["fund_balance"]+[{"district_id":"d1","fund":"save","as_of":"2026-09-30","amount":1309086,"source":"gl_import"},{"district_id":"d1","fund":"ppel","as_of":"2026-09-30","amount":788200,"source":"gl_import"}]
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/resources/funds"); await pg.wait_for_timeout(900); await pg.evaluate("document.querySelectorAll('details.fold').forEach(d=>d.open=true)")
     t=await pg.inner_text("#view")
@@ -1241,7 +1241,7 @@ async def main():
     await pg.select_option("select[data-plan-items]","all"); await pg.wait_for_timeout(600)
     t=await ptext()
     npend=len([i for i in TABLES["initiative"] if (i.get("status") or "proposed") in ("idea","proposed","analysis")])
-    check("plans: all items shows proposals, labelled and not counted, and the schedule by year", (("Proposed, not yet approved by the board" in t) and "not counted" in t and "Schedule by year" in t and "(proposed)" in t) if npend else True, f"{npend} pending; "+t[:400])
+    check("plans: all items shows proposals, labeled and not counted, and the schedule by year", (("Proposed, not yet approved by the board" in t) and "not counted" in t and "Schedule by year" in t and "(proposed)" in t) if npend else True, f"{npend} pending; "+t[:400])
     await pg.click("button[data-action=planView][data-v=capital]"); await pg.wait_for_timeout(600)
     t=await ptext()
     check("plans: the capital improvement plan has capital work and the funding picture, no goals", "Capital improvement plan" in t and "Capital funds, FY" in t and "Coming in" in t and "\nGoals\n" not in t, t[:600])
@@ -1978,7 +1978,7 @@ async def main():
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/money/summary"); await pg.wait_for_timeout(700)
     t=await pg.inner_text("#view")
     key=await pg.evaluate("[...document.querySelectorAll('.cbar-row')].map(r=>[[...r.querySelectorAll('.cbar span')].map(x=>x.style.background),[...r.querySelectorAll('.cbar-key i')].map(x=>x.style.background),r.querySelector('.cbar-key').innerText])")
-    check("funds: funding vs. committed, per fund, each bar with a key in the same colours and amounts", "Funding vs. committed" in t and "available" in t and key and all(k[0]==k[1] and "$" in k[2] for k in key), str(key)[:300])
+    check("funds: funding vs. committed, per fund, each bar with a key in the same colors and amounts", "Funding vs. committed" in t and "available" in t and key and all(k[0]==k[1] and "$" in k[2] for k in key), str(key)[:300])
     await pg.locator(".cbars").screenshot(path=SHOTS+"/funds-committed.png")
     fill=await pg.evaluate("[...document.querySelectorAll('.cbar')].map(b=>[...b.querySelectorAll('span')].reduce((a,x)=>a+parseFloat(x.style.width),0))")
     check("funds (15 Oct): each bar is its own fund's money, so it's full (no blank track); 'not committed yet' replaces 'left over'", fill and all(99<=w<=100.5 for w in fill)
@@ -2346,7 +2346,7 @@ async def main():
     await pp.click(".rail .grp[data-area=money] .kids a:has-text('Capital plan')"); await pp.wait_for_timeout(700)
     check("phone: a Menu button slides in the menu (with your account and Sign out); tapping an area opens its screens; picking one goes there and closes it", not navvis and opened and inline and "/money/capital" in pp.url and not await inview(), pp.url)
     await pp.click(".menu-btn"); await pp.wait_for_timeout(350); await pp.click(".rail button[data-action=userMenu]"); await pp.wait_for_timeout(200)
-    check("phone: one background colour behind the page (no menu column showing through)", await pp.evaluate("getComputedStyle(document.querySelector('.frame')).backgroundImage")=="none")
+    check("phone: one background color behind the page (no menu column showing through)", await pp.evaluate("getComputedStyle(document.querySelector('.frame')).backgroundImage")=="none")
     check("phone: Sign out is in the account menu at the bottom of the menu", await pp.locator(".umenu .menu-signout").is_visible())
     await pp.click(".menu-btn"); await pp.wait_for_timeout(300)
     await pp.set_viewport_size({"width":1360,"height":900}); await pp.wait_for_timeout(300)
@@ -2470,7 +2470,7 @@ async def main():
     await xp.select_option("select[data-cap-scenario]",[v for v,t in _opts if "locked" not in t][0]); await xp.wait_for_timeout(1000)
     await xp.locator(".capchart [data-cap-year]").nth(3).locator("rect[data-band]").first.click(); await xp.wait_for_timeout(500)
     pt=await xp.inner_text("[data-modal]") if await xp.locator("[data-modal] [data-cap-panel]").count() else ""
-    check("capital plan (21 Oct): click a year on the chart to see what's in each colour, each fund's room, and act on each initiative", "FY2030" in pt and "Each fund that year" in pt and await xp.locator("[data-modal] button[data-action=cyEdit]").count()>0
+    check("capital plan (21 Oct): click a year on the chart to see what's in each color, each fund's room, and act on each initiative", "FY2030" in pt and "Each fund that year" in pt and await xp.locator("[data-modal] button[data-action=cyEdit]").count()>0
           and await xp.locator("[data-modal] button[data-action=cyRemove]").count()>0 and await xp.locator("[data-modal] button[data-action=cyLeave]").count()>0, pt[:300])
     cb=xp.locator("[data-modal] button[data-action=cyCamp]").first
     if await cb.count():
@@ -2512,6 +2512,20 @@ async def main():
     await xp.click("button[data-action=planView][data-v=csip]"); await xp.wait_for_timeout(700)
     cs=await xp.inner_text("#view")
     check("demo district (21 Oct): has academic (CSIP) goals with measures", "Every student reading and doing math at grade level" in cs and "ISASP" in cs and "No priorities are tagged as CSIP goals yet" not in cs, cs[:300])
+    # ---- 21 Oct (c) ----
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/share/community"); await xp.wait_for_timeout(1000)
+    await xp.set_viewport_size({"width":1000,"height":900}); await xp.wait_for_timeout(200)
+    po=await xp.evaluate("(()=>[...document.querySelectorAll('.pub-opts label')].map(l=>{const i=l.querySelector('input').getBoundingClientRect(),t=l.querySelector('span').getBoundingClientRect();return Math.abs(i.top-t.top)<8 && t.left>i.right}).every(Boolean))()")
+    hc=await xp.evaluate("(()=>{const h=document.querySelector('[data-held-list]');return h?[h.classList.contains('notice'),getComputedStyle(h).backgroundColor]:null})()")
+    check("community page (21 Oct c): on a narrower window each option's words stay beside its tick box; what's held back is a quiet fold, not orange", po and (hc is None or not hc[0]), str([po,hc]))
+    await xp.set_viewport_size({"width":1360,"height":1000})
+    bh=await xp.evaluate("(()=>{const b=[...document.querySelectorAll('#view .btn:not(.small)')].filter(x=>x.offsetParent);return [...new Set(b.map(x=>Math.round(x.getBoundingClientRect().height)))]})()")
+    check("buttons (21 Oct c): one size for buttons on a computer (34px; small ones 28px)", bh==[34], str(bh))
+    TABLES["scenario"]=[dict(x) for x in TABLES["scenario"]]
+    await xp.goto("http://localhost:8765/#/d/ironwood-valley/plan/priorities"); await xp.wait_for_timeout(900)
+    await xp.locator(".pc-row button.pc").nth(1).click(); await xp.wait_for_timeout(120)
+    sw=await xp.evaluate("(()=>{const d=document.getElementById('prio-detail'),on=document.querySelector('.pc.on');return [d.classList.contains('pd-swap'), getComputedStyle(d).borderTopColor, on?getComputedStyle(on.querySelector('.pc-showing')).display:'']})()")
+    check("priorities (21 Oct c): picking another priority is obvious: its card says “Showing below”, and the detail takes its color and slides in", sw[0] and sw[2]=="block", str(sw))
     await xc.close()
     sy=await b.new_context(viewport={"width":1360,"height":900}); await sy.route("**/config.js",cfg); await sy.route(SB+"/**",handler); await sy.route("**/fonts.g*/**",lambda r:r.abort())
     TABLES["survey"].append({"id":"sv-w","district_id":"d1","name":"Width check","mode":"live","status":"open","focus":["rating","new_ideas"],"items":{"priorities":[{"id":p0["id"],"name":p0["name"]} for p0 in TABLES["priority"]]},"opened_on":"2026-10-20","created_at":"2026-10-20T00:00:00Z"})

@@ -1,6 +1,6 @@
 /* HighGround — the monthly board report.
    build(): a dated snapshot of everything a board looks at, computed from HighGround's own data, so it needs no
-   hand editing. The snapshot is stored as it was (report_snapshot.payload) and never recalculated afterwards.
+   hand editing. The snapshot is stored as it was (report_snapshot.payload) and never recalculated afterward.
    changes(): what changed since the previous snapshot, as plain sentences.
    Pure; tested by report_test.js. */
 (function (root, factory) {
@@ -12,7 +12,7 @@
   'use strict';
   const CAPF = ['save', 'ppel', 'vppel', 'grants'];
   const FUNDN = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants', general: 'General Fund', debt_levy: 'Debt Service' };
-  const STATUSN = { idea: 'Idea', proposed: 'Proposed', analysis: 'Being analysed', approved: 'Approved', underway: 'Underway', done: 'Done', deferred: 'Deferred', declined: 'Declined' };
+  const STATUSN = { idea: 'Idea', proposed: 'Proposed', analysis: 'Being analyzed', approved: 'Approved', underway: 'Underway', done: 'Done', deferred: 'Deferred', declined: 'Declined' };
   const fmt = (v) => { const s = v < 0 ? '−' : ''; v = Math.abs(v); return s + (v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + Math.round(v)); };
 
   /** inputs: { district, rows (capital rows), periodEnd, batch, accounts, amounts (that batch), linkedAmounts, batches, balances } */

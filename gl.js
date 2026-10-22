@@ -95,7 +95,7 @@
     if (parts.kind === 'expenditure') return `${f} spending${FUNCTION_NAME[(parts.function || '')[0]] ? ', ' + FUNCTION_NAME[parts.function[0]].toLowerCase() : ''}`;
     if (parts.kind === 'revenue') return `${f} revenue`;
     if (parts.kind === 'balance') return /^7/.test(parts.account || '') ? `${f} fund balance` : `${f} balance sheet`;
-    return f || 'Not recognised';
+    return f || 'Not recognized';
   }
 
   /* ---------- the export, line by line ---------- */

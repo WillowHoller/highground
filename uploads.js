@@ -259,13 +259,13 @@
       c.src.forEach((si) => {
         const raw = cell(si); if (options || !/\bor\b/i.test(raw)) return;
         const bs = raw.split(/\s*\bor\b\s*|\s*,\s*|\s*;\s*/i).filter(Boolean).map((x) => srcKey(x));
-        if (bs.some((b) => b === undefined)) { issues.push({ l: 'w', row: line, m: `Row ${line} “${name}”: in “${raw}”, a fund isn’t recognised. Recognised: SAVE, PPEL, V-PPEL, Grants/Donations, Boosters, Campaign/Bond.` }); return; }
+        if (bs.some((b) => b === undefined)) { issues.push({ l: 'w', row: line, m: `Row ${line} “${name}”: in “${raw}”, a fund isn’t recognized. Recognized: SAVE, PPEL, V-PPEL, Grants/Donations, Boosters, Campaign/Bond.` }); return; }
         const u = [...new Set(bs)].slice(0, 3); if (u.length > 1) options = u;
       });
       if (options) funding = [{ b: options[0], p: 100 }];
       else c.src.forEach((si, k) => {
         const raw = cell(si); if (!raw) return; const b = srcKey(raw);
-        if (b === undefined) issues.push({ l: 'w', row: line, m: `Row ${line} “${name}”: funding source “${raw}” not recognised, so SAVE was used. Recognised: SAVE, PPEL, V-PPEL, Grants/Donations, Boosters, Campaign/Bond.` });
+        if (b === undefined) issues.push({ l: 'w', row: line, m: `Row ${line} “${name}”: funding source “${raw}” not recognized, so SAVE was used. Recognized: SAVE, PPEL, V-PPEL, Grants/Donations, Boosters, Campaign/Bond.` });
         const pRaw = c.pct[k] != null ? cell(c.pct[k]).replace(/%/g, '') : ''; const p = pRaw === '' ? null : parseFloat(pRaw);
         funding.push({ b: b || 'save', p: p });
       });

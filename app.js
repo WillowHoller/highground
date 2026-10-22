@@ -17,7 +17,7 @@
   const STATUS = { live: ['b-live', 'Live'], partial: ['b-partial', 'Partly built'], wip: ['b-wip', 'Not built yet'] };
   const badge = (s) => `<span class="badge ${STATUS[s][0]}">${STATUS[s][1]}</span>`;
   const initials = (s) => (String(s || '?').replace(/[^A-Za-z ]/g, ' ').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?').toUpperCase();
-  /* HighGround's logo: 'light' (cream) on the dark green rail and sign-in panel, colour on light backgrounds */
+  /* HighGround's logo: 'light' (cream) on the dark green rail and sign-in panel, color on light backgrounds */
   /* ---- dates: Iowa's fiscal year runs July 1 to June 30, so October 2026 is in FY2027 ---- */
   const fyNow = () => { const t = new Date(); return t.getMonth() >= 6 ? t.getFullYear() + 1 : t.getFullYear(); };
   /** balances dated before this fiscal year start the plan in a year that has already ended */
@@ -185,7 +185,7 @@
 
   // ------------------------------------------------------------------ the map of the product
   // status: live | partial | wip.  phase: when the rest arrives (see 05-roadmap/phases.md).
-  /* Home plus four areas, each with its own colour (styles: --a-home, --a-plan …); setup screens sit under Settings */
+  /* Home plus four areas, each with its own color (styles: --a-home, --a-plan …); setup screens sit under Settings */
   const SECTIONS = [
     { id: 'home', label: 'Home', icon: 'home', tabs: [
       { id: 'today', label: 'Home', status: 'live', lede: 'How the district is doing, and what needs attention.', render: vOverview },
@@ -288,9 +288,9 @@
       let box = t.parentElement;
       if (!box.classList.contains('scroll')) { box = document.createElement('div'); box.className = 'scroll'; t.replaceWith(box); box.appendChild(t); }
       const heads = [...t.querySelectorAll('thead th')].map((th) => th.textContent.trim());
-      if (!t.dataset.labelled) {
+      if (!t.dataset.labeled) {
         t.querySelectorAll('tbody tr').forEach((tr) => [...tr.children].forEach((td, i) => { if (td.tagName === 'TD' && !td.hasAttribute('data-label')) td.setAttribute('data-label', heads[i] || ''); }));
-        t.dataset.labelled = '1';
+        t.dataset.labeled = '1';
       }
       const cols = Math.max(heads.length, ...[...t.querySelectorAll('tbody tr')].slice(0, 3).map((tr) => tr.children.length), 0);
       t.classList.remove('stacked'); box.classList.remove('scroll-more', 'at-end');
@@ -314,7 +314,7 @@
   }
   /** where each role starts: board members and viewers on the latest board report */
   const homePath = (role) => (['board', 'viewer'].includes(role) ? 'share/board' : 'home/today');
-  /* ---- icons for the menu (stroke icons, drawn in the current colour) ---- */
+  /* ---- icons for the menu (stroke icons, drawn in the current color) ---- */
   const ICON = {
     home: '<path d="M4 10.5 12 4l8 6.5V20h-5v-5h-6v5H4z"/>',
     plan: '<path d="M5 4v16M5 5h11l-2 3.5 2 3.5H5"/>',
@@ -762,7 +762,7 @@
     'track/registers': ['Questions from the month’s bills: new vendors, possible duplicates, changed names, payments much larger than usual.', 'The business office answers; everyone in the district can read the answers. Set the bid threshold in the settings at the bottom.'],
     'share/board': ['Create the month’s board report: it’s saved exactly as made, and the next one compares itself with it.', 'Decision packets put one initiative on one page for a vote.'],
     'share/community': ['Publish the board version to the public link, with unapproved initiatives held back.', 'Preview first; every publish is logged.'],
-    'share/plans': ['One plan, three views: the full plan (named by the district), the academic goals tagged as state CSIP goals, and the capital improvement plan.', 'Choose approved items only, or all items with proposals labelled; totals always count approved work only. Print it, download it for Excel, or save the version the board adopted.'],
+    'share/plans': ['One plan, three views: the full plan (named by the district), the academic goals tagged as state CSIP goals, and the capital improvement plan.', 'Choose approved items only, or all items with proposals labeled; totals always count approved work only. Print it, download it for Excel, or save the version the board adopted.'],
     'settings/overview': ['Every setting, grouped, with a line saying where each one stands. The banner at the top shows how much of the district’s setup is done.', 'Click a card to open that setting.'],
     'settings/district': ['The district’s name, look and public link, and its Iowa district number (for peer comparisons and pre-filled numbers).'],
     'settings/setup': ['What the capital plan starts from: receipts, balances, what each fund holds back each year, and existing debt.', 'Held back each year is one figure per fund, usually a share of receipts; tick “Split it” only if you track recurring costs and a cushion separately.', 'If the Iowa district number is set, “Fill in” uses public figures from the state and federal agencies listed below; you can change any of them before saving.'],
@@ -968,11 +968,11 @@
         <div class="dots">${p.measures.map((m) => `<i class="dot ${DOT[m.state] || 'nd'}" title="${esc(m.name)}: ${esc(MS_PILL[m.state] ? MS_PILL[m.state][1] : '')}"></i>`).join('')}</div>` : '<div class="pc-score muted small">No measures yet</div>'}
         ${off.length ? `<div class="pc-off">${off.length} off track: ${esc(off[0].name)}${off.length > 1 ? ` and ${off.length - 1} more` : ''}</div>` : ''}
         <div class="pc-chips"><span>${p.inits.length} initiative${p.inits.length === 1 ? '' : 's'}</span>${p.importance ? `<span>Community: ${p.importance.value.toLocaleString('en-US', { maximumFractionDigits: 1 })}${p.importance.of5 ? ' of 5' : ''}</span>` : ''}${p.rating ? `<span title="${esc(p.rating.survey)}">Rated ${p.rating.value.toLocaleString('en-US', { maximumFractionDigits: 1 })} of 5</span>` : ''}</div>`;
-      return link ? `<button type="button" class="pc ${sel ? 'on' : ''}" style="--g:${p.color}" role="tab" aria-selected="${sel}" data-action="prioSel" data-id="${esc(p.id)}">${inner}</button>`
+      return link ? `<button type="button" class="pc ${sel ? 'on' : ''}" style="--g:${p.color}" role="tab" aria-selected="${sel}" data-action="prioSel" data-id="${esc(p.id)}">${inner}<span class="pc-showing" aria-hidden="true">Showing below ▾</span></button>`
         : `<div class="pc" style="--g:${p.color}" role="listitem">${inner}</div>`; }).join('')}</div>`;
   }
   /** the selected priority, kept calm (15 Oct, second pass): three plain sections (the priority, its outcomes with their
-      measures, the initiatives serving it); colour only on the small status dot, red words only for what's off track */
+      measures, the initiatives serving it); color only on the small status dot, red words only for what's off track */
   const MS_WORD = { met: 'Met', ontrack: 'On track', offtrack: 'Off track', tracking: 'Recorded', nodata: 'No data yet' };
   const MS_DOTC = { met: 'met', ontrack: 'on', offtrack: 'off', tracking: 'nd', nodata: 'nd' };
   function prioMeasureRow(m, slug) {
@@ -1025,7 +1025,7 @@
     const sel = list.find((p) => p.id === PR.sel);
     return `<div id="dir-upload"></div>${tools}${edit}
       ${prioCardsHtml(list, PR.sel, true)}
-      <div class="card" id="prio-detail">${prioDetailHtml(sel, c.district.slug, true)}${c.plan ? `<div class="pd-edit"><a href="#" data-action="editPriority" data-id="${esc(sel.id)}">Edit this priority</a></div>` : ''}</div>`;
+      <div class="card prio-detail" id="prio-detail" style="--g:${sel.color}" aria-live="polite">${prioDetailHtml(sel, c.district.slug, true)}${c.plan ? `<div class="pd-edit"><a href="#" data-action="editPriority" data-id="${esc(sel.id)}">Edit this priority</a></div>` : ''}</div>`;
   }
   const DIR = { D: null };
   function openPriorityEditor(id) {
@@ -1477,7 +1477,7 @@
       ['What it’s for', 'The capital funds’ balances on one date, from the ledger or the audit. HighGround uses them as the plan’s starting point.'],
       ['Before you start', 'Keep the fund names in the first column. Fill in Balance and As-of date for each fund the district has; leave the others blank.'],
       H2('The columns'),
-      ['Fund', 'The fund’s name, as given. HighGround recognises SAVE, PPEL, V-PPEL and grants by name.'],
+      ['Fund', 'The fund’s name, as given. HighGround recognizes SAVE, PPEL, V-PPEL and grants by name.'],
       ['Iowa fund code', 'For reference (33 for SAVE, 36 for PPEL and V-PPEL). Optional.'],
       ['Balance', 'The balance in dollars: 2150000 or $2,150,000.'],
       ['As-of date', 'The date of the balances, usually June 30 or a month-end: 2026-06-30. Use the same date on every row. Balances from before this fiscal year start the plan in a year that has already ended, and HighGround will say so.'],
@@ -1840,7 +1840,7 @@
         <tbody>${body}</tbody></table></div></div>${dbl}`;
   }
   /* Rank & fund at a glance: four big numbers, then the ranked list as one bar, each initiative a block as wide as its one-time
-     cost, coloured by whether it's paid for, with the line where the money runs out */
+     cost, colored by whether it's paid for, with the line where the money runs out */
   const rkState = (x) => (x.above ? (x.outsideOnly ? 'outside' : 'fits') : x.fill && x.fill.funded ? 'fill' : x.fitsAlone ? 'alone' : 'below');
   const RK_WORD = { fits: 'Fits', outside: 'Campaign, bond or boosters', fill: 'Fits if we fill in around the gaps', alone: 'Would fit on its own', below: 'Below the line' };
   function rankHero(c, k) {
@@ -1865,7 +1865,7 @@
     const legend = ['fits', 'fill', 'alone', 'below', 'outside'].filter((st) => withCost.some((x) => rkState(x) === st))
       .map((st) => `<span><i class="rk-seg rk-${st}"></i>${RK_WORD[st]}</span>`).join('');
     return tiles + `<div class="card rk-ladder-card"><div class="rk-ladder-head"><b>Every initiative, in rank order</b><span class="small muted">each block as wide as its one-time cost (${fmtK(tot)} in all)</span></div>
-      <div class="rk-ladder" role="img" aria-label="${k.line} of ${n} initiatives fit in rank order">${segs}${cut != null ? `<span class="rk-cut" style="left:${cut.toFixed(3)}%"><span>money runs out</span></span>` : ''}</div>
+      <div class="rk-ladder" role="img" aria-label="${k.line} of ${n} initiatives fit in rank order">${segs}${cut != null ? `<span class="rk-cut${cut > 70 ? ' flip' : ''}" style="left:${cut.toFixed(3)}%"><span>money runs out</span></span>` : ''}</div>
       <div class="legend small rk-legend">${legend}</div></div>`;
   }
   /* a call-out that sends people to Rank & fund from Home and the capital plan */
@@ -2161,9 +2161,9 @@
     const rows = funds.map((k) => { const p = paths[k], c = K[k], committed = c.debt + c.ongoing + c.yearly, avail = p.open + p.receipts + committed;
       return { k, avail, debt: c.debt, other: c.ongoing + c.yearly, proj: p.spend, left: Math.max(0, avail - committed - p.spend), short: p.over }; });
     /* each bar is its own fund's money (15 Oct): a full bar = what that fund has, so there's no empty track that looks like
-       an unexplained colour. A fund that runs short gets a red piece past what it has. */
+       an unexplained color. A fund that runs short gets a red piece past what it has. */
     const SEG = [['debt', '#4B5563', 'Debt payments'], ['other', '#9AA5A0', 'Held back and yearly costs'], ['proj', '#2F6B4F', 'Board-version projects'], ['left', '#BFDCC9', 'Not committed yet'], ['short', '#B42318', 'Short']];
-    /* each fund: its bar, then a key under it with the same colours, in the same order, with the amounts */
+    /* each fund: its bar, then a key under it with the same colors, in the same order, with the amounts */
     const bars = rows.map((r) => { const segs = SEG.filter(([key]) => r[key] > 0.5), hi = Math.max(1, r.avail, r.debt + r.other + r.proj + r.left) + r.short;
       return `<div class="cbar-row" data-fund-go="${r.k}" tabindex="0" role="button" title="Click for ${esc(FUND_NAMES[r.k])} year by year"><div class="cbar-head"><span class="cbar-name">${esc(FUND_NAMES[r.k])} <span class="cbar-more small">Details ›</span></span><span class="small muted">${fmtK(r.avail)} available in all${r.short > 0.5 ? ` · <span class="gaptext">short ${fmtK(r.short)}</span>` : r.left > 0.5 ? ` · ${fmtK(r.left)} not committed yet` : ' · all committed'}</span></div>
         <div class="cbar" role="img" aria-label="${esc(FUND_NAMES[r.k])}: ${segs.map(([key, , name]) => `${name} ${fmtK(r[key])}`).join(', ')}">${segs.map(([key, color, name]) => `<span style="width:${(100 * r[key] / hi).toFixed(2)}%;background:${color}" title="${esc(name)} ${fmtK(r[key])}"></span>`).join('')}</div>
@@ -2911,9 +2911,9 @@
       <div class="card"><div class="row" style="justify-content:space-between"><h3>Capital spending by year</h3>
         <div class="legend small"><span><i class="b-funds"></i>Levies &amp; grants</span><span><i class="b-boost"></i>Boosters</span><span><i class="b-fin"></i>Financed</span><span><i class="b-camp"></i>Campaign / bond needed</span><span><i class="b-over"></i>Over capacity</span></div></div>
         <div class="scroll"><svg class="capchart" viewBox="0 0 ${yrs.length * W} ${base + 24}" role="img" aria-label="Capital spending by year">${bars}</svg></div>
-        <p class="small muted cap-hint">Click a year, or a colour in it, to see what’s in it${CAP.editable ? ' and change it' : ''}.</p></div>`;
+        <p class="small muted cap-hint">Click a year, or a color in it, to see what’s in it${CAP.editable ? ' and change it' : ''}.</p></div>`;
   }
-  /* 21 Oct: the chart, one year at a time: what's in each colour band, each fund's room, and (when a year is over what
+  /* 21 Oct: the chart, one year at a time: what's in each color band, each fund's room, and (when a year is over what
      the funds can pay) what can be done about it: move it later, mark it as a campaign or bond, leave it out, or take it out */
   const BAND = { funds: ['Levies & grants', 'SAVE, PPEL, V-PPEL and grants pay these'], boost: ['Boosters', 'Paid by booster clubs or donors'], fin: ['Financed', 'Paid by a bond, lease or campaign already in this scenario'],
     camp: ['Campaign / bond needed', 'Marked for a campaign or bond that isn’t in this scenario yet'], over: ['Over capacity', 'More than SAVE, PPEL, V-PPEL and grants can pay that year'] };
@@ -3473,7 +3473,7 @@
       setLead(`Through ${esc(day(batch.period_end))}, ${pctTxt(S.gone)} of the year:` + (gfund && gfund.revenue.budget ? ` the General Fund has received <b>${pctTxt(gfund.revenue.used)}</b> of its revenue budget and spent or committed <b>${pctTxt(gfund.spending.used)}</b> of its spending budget.` : ' see each fund below.')
         + (over.length ? ` ${over.map((f2) => esc(f2.name)).join(' and ')} ${over.length === 1 ? 'is' : 'are'} forecast over budget.` : '')); }
     const fnVar = (o) => (o.budget && o.variance > 0.5 ? `<span class="gaptext">over by ${fmt(o.variance)}</span>` : '');
-    /* 15 Oct: the bar carries the status by colour (green on pace, orange running ahead of the year, red forecast over budget),
+    /* 15 Oct: the bar carries the status by color (green on pace, orange running ahead of the year, red forecast over budget),
        explained once in a key under the table; words appear only when something is over */
     const barState = (used, spending, over) => (!spending ? 'pace' : over || used > 1 ? 'over' : used > S.gone + 0.1 ? 'ahead' : 'pace');
     const BAR_WORD = { pace: 'on pace', ahead: 'running ahead of the year', over: 'forecast over budget' };
@@ -3512,7 +3512,7 @@
           ${fns.map(([k, x]) => `<tr><td>${esc(x.name)}</td><td class="num">${fmt(x.budget)}</td><td class="num">${fmt(x.actual)}</td><td class="num">${fmt(x.encumbered)}</td><td class="num">${fmt(x.available)}</td>
             <td>${bar(x.used, true, x.variance > 0.5)} <span class="small muted">${pctTxt(x.used)}</span></td><td class="num">${fmt(x.forecast)}</td><td class="small">${fnVar(x)}</td></tr>`).join('')}
         </tbody></table></div>${barKey}` : ''}
-        <p class="small muted" style="margin-top:8px">Budget used is spent plus on order. ${BA.method === 'budget' ? 'Forecast: the budget, unless spending plus encumbrances (or revenue received) has already passed it.' : BA.method === 'pace' ? 'Forecast: actual so far plus the budget’s share for the rest of the year; suits steady items such as salaries, not front-loaded projects.' : 'Forecast: this year so far, extended to twelve months. Lumpy items, such as property taxes received in autumn and spring, can mislead this method.'}</p></div>` : ''}
+        <p class="small muted" style="margin-top:8px">Budget used is spent plus on order. ${BA.method === 'budget' ? 'Forecast: the budget, unless spending plus encumbrances (or revenue received) has already passed it.' : BA.method === 'pace' ? 'Forecast: actual so far plus the budget’s share for the rest of the year; suits steady items such as salaries, not front-loaded projects.' : 'Forecast: this year so far, extended to twelve months. Lumpy items, such as property taxes received in the fall and spring, can mislead this method.'}</p></div>` : ''}
       ${cmpHtml}`;
   }
 
@@ -3550,7 +3550,7 @@
   /* what the money buys. It decides which funds may pay (engine LEGAL_TYPE), so the stored keys never change; the area an
      initiative serves (Academics, Safety & security …) is its focus area, a separate field (15 Oct) */
   const INIT_TYPES = [['capital', 'Building, site or major equipment'], ['technology', 'Technology'], ['program', 'Program or service'], ['staff', 'Staff or hire'], ['curriculum', 'Curriculum or instructional materials'], ['other', 'Other']];
-  const INIT_STATUS = [['idea', 'Idea'], ['proposed', 'Proposed'], ['analysis', 'Being analysed'], ['approved', 'Approved'], ['underway', 'Underway'], ['done', 'Done'], ['deferred', 'Deferred'], ['declined', 'Declined']];
+  const INIT_STATUS = [['idea', 'Idea'], ['proposed', 'Proposed'], ['analysis', 'Being analyzed'], ['approved', 'Approved'], ['underway', 'Underway'], ['done', 'Done'], ['deferred', 'Deferred'], ['declined', 'Declined']];
   const YEARLY_KINDS = [['salary', 'Salary'], ['benefits', 'Benefits'], ['supplies', 'Supplies'], ['activities', 'Activities'], ['contract', 'Contract or subscription'], ['other', 'Other']];
   const YEARLY_FUNDS = [['general', 'General fund'], ['save', 'SAVE'], ['ppel', 'PPEL'], ['vppel', 'V-PPEL'], ['grants', 'Grants/Donations'], ['boost', 'Boosters'], ['other', 'Other']];
   function yearlyRowHtml(r, cfg) {
@@ -4063,14 +4063,14 @@
           <td><select data-gl-map="${c}" aria-label="Use ${c} as">${opt(GL_MAPS, s2.maps_to)}</select></td>
           <td><select data-gl-fund="${c}" aria-label="Fund for ${c}">${opt(GL_FUNDS, s2.mapped_fund || 'other')}</select></td>
           <td><input type="checkbox" data-gl-sign="${c}" ${s2.sign === -1 ? 'checked' : ''} aria-label="Amounts for ${c} are negative in this export"></td></tr>`; };
-        // group by HighGround's first suggestion, so a long first month is a scan: unrecognised accounts open, the rest folded
+        // group by HighGround's first suggestion, so a long first month is a scan: unrecognized accounts open, the rest folded
         const MAPN = Object.fromEntries(GL_MAPS), groups = new Map();
         G.rec.fresh.forEach((f) => { const k = f.suggestion.maps_to === 'unmapped' ? 'unmapped' : `${f.suggestion.mapped_fund || 'other'}|${f.suggestion.maps_to}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(f); });
         const order = ['save', 'ppel', 'vppel', 'grants', 'debt_levy', 'general', 'other'], mapOrder = ['fund_balance', 'revenue', 'expense', 'ignore'];
         const keys = [...groups.keys()].sort((x, y) => (x === 'unmapped' ? -1 : y === 'unmapped' ? 1 : 0) || (order.indexOf(x.split('|')[0]) - order.indexOf(y.split('|')[0])) || (mapOrder.indexOf(x.split('|')[1]) - mapOrder.indexOf(y.split('|')[1])));
         const head = '<thead><tr><th>Account</th><th>Description</th><th>Looks like</th><th class="num">Year to date</th><th>Use as</th><th>Fund</th><th>Negative in this export</th></tr></thead>';
         return keys.map((k) => { const list = groups.get(k), [fund, maps] = k.split('|');
-          const title = k === 'unmapped' ? `Not recognised: ${list.length} account${list.length === 1 ? '' : 's'} to decide` : `${HGGL.FUND_NAME[fund] || fund}: ${MAPN[maps].toLowerCase()}, ${list.length} account${list.length === 1 ? '' : 's'}`;
+          const title = k === 'unmapped' ? `Not recognized: ${list.length} account${list.length === 1 ? '' : 's'} to decide` : `${HGGL.FUND_NAME[fund] || fund}: ${MAPN[maps].toLowerCase()}, ${list.length} account${list.length === 1 ? '' : 's'}`;
           return `<details class="glgroup" ${k === 'unmapped' || G.rec.fresh.length <= 25 ? 'open' : ''}><summary>${esc(title)}</summary>
             <div class="scroll"><table class="data glmap">${head}<tbody>${list.map(row).join('')}</tbody></table></div></details>`; }).join('');
       })()}
@@ -4382,7 +4382,7 @@
       ${F.borrow.length ? `<p class="small"><b>Borrowing in the plan:</b> ${F.borrow.map((b) => `${esc(b.name)}, ${esc(b.kind)}, ${f(b.amount)} in FY${b.fy}${b.years ? ` over ${b.years} years` : ''}`).join('; ')}.</p>` : ''}
       <p class="small muted">From the board version “${esc(extra.boardName)}” as a whole: spending includes existing debt, ongoing costs and every phase in it${F.pending ? `, including ${F.pending} initiative${F.pending === 1 ? '' : 's'} not yet approved` : ''}.${fundList.length ? ` Approved initiatives in this view: ${fundList.join(', ')}${T.auto > 0.5 ? `, and ${f(T.auto)} the plan assigns across the capital funds` : ''}.` : ''}</p></div>` : '';
     const title = plan.view === 'full' ? (extra.planName) : plan.viewName;
-    /* 15 Oct: the screen version reads as a plan, not a report: a hero with the big numbers, one coloured card per goal with
+    /* 15 Oct: the screen version reads as a plan, not a report: a hero with the big numbers, one colored card per goal with
        its measures as progress, initiatives as cards by status, the years as a timeline, the funds as bars. Printing
        (Print or save as PDF) still uses the full tables below, which stay hidden on screen. */
     const accent = /^#[0-9a-f]{6}$/i.test(d.brand_color || '') ? d.brand_color : '#1E3A2F';
@@ -4424,7 +4424,7 @@
         <p class="legend small"><span><i style="background:#9DB8DA"></i>Starting balance plus everything coming in</span><span><i style="background:#2F6B4F"></i>Planned spending</span></p></div>` : '';
     return `${hero}${goalCards}${initCards}${timeline}${fundBars}
       <div class="printonly"><div class="card plan-head"><div class="small muted">${esc(d.name)}${saved ? ` · saved ${esc(day(saved.created_at))}` : ''}</div><h2 style="margin:4px 0">${esc(title)}</h2>
-        <p class="small muted">${esc(yrs)}${plan.board ? ` · costs from the board version “${esc(plan.board.name)}”` : ' · no board version yet, so no costs'} · ${plan.items === 'approved' ? 'approved items only' : 'all items; proposals are labelled and not counted'}</p>
+        <p class="small muted">${esc(yrs)}${plan.board ? ` · costs from the board version “${esc(plan.board.name)}”` : ' · no board version yet, so no costs'} · ${plan.items === 'approved' ? 'approved items only' : 'all items; proposals are labeled and not counted'}</p>
         <p>${lead}</p></div>
       ${goals}${groups}${sched}${funding}</div>
       <p class="small muted">Totals count approved work only (approved, in progress and completed). Costs are the board version’s phases within the plan years, at their planned cost (the actual cost once finished), plus yearly costs.${plan.unlinked ? ` ${plan.unlinked} initiative${plan.unlinked === 1 ? ' isn’t' : 's aren’t'} linked to a goal.` : ''}</p>`;
@@ -4457,7 +4457,7 @@
         <div class="pc-step"><div class="pc-lab">1. Which plan</div><div class="pipeline" role="group" aria-label="Which plan">${btn('full', esc(extra.planName))}${btn('csip', 'Academic goals (CSIP)')}${btn('capital', 'Capital improvement plan')} ${def('plans')}</div>
           <p class="small muted pc-what">${PL.view === 'full' ? 'Everything: the goals, how they’re measured, the initiatives that serve them, and how they’re paid for.' : PL.view === 'csip' ? 'Just the academic goals the district reports to the state (CSIP), with their measures and initiatives.' : 'Just the capital projects, by year and fund.'}</p></div>
         <div class="pc-step"><div class="pc-lab">2. What to include</div><div class="inline-form">
-          <label class="field">Items<select data-plan-items><option value="approved" ${PL.items === 'approved' ? 'selected' : ''}>Approved only</option><option value="all" ${PL.items === 'all' ? 'selected' : ''}>All items, proposals labelled</option></select></label>
+          <label class="field">Items<select data-plan-items><option value="approved" ${PL.items === 'approved' ? 'selected' : ''}>Approved only</option><option value="all" ${PL.items === 'all' ? 'selected' : ''}>All items, proposals labeled</option></select></label>
           <label class="field">Years<select data-plan-years>${[5, 10].map((y) => `<option value="${y}" ${PL.years === y ? 'selected' : ''}>${y} years</option>`).join('')}</select></label></div></div>
         <div class="pc-step"><div class="pc-lab">3. Share it</div><div class="row">
           <button type="button" class="btn primary" data-action="rpPrint">Print or save as PDF</button><button type="button" class="btn" data-action="planXlsx">Download Excel</button>
@@ -4605,7 +4605,7 @@
         ${P.progress.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(STATUS[x.status] || x.status)}</td><td>${x.phases ? `${x.phasesDone} of ${x.phases}` : ''}</td><td class="num">${f(x.planned)}</td><td class="num">${x.spent ? f(x.spent) : ''}</td><td class="num">${x.encumbered ? f(x.encumbered) : ''}</td></tr>`).join('')}
       </tbody></table></div>` : '<p class="muted">Nothing planned or spent this year.</p>'}</div>
       <div class="card"><h3>Decisions ahead</h3>${(P.pending || []).length ? `<p class="small muted">${P.pendingCount} initiative${P.pendingCount === 1 ? '' : 's'} not yet approved, largest first.</p><ul>${P.pending.map((x) => `<li>${esc(x.name)} <span class="small muted">· ${esc(STATUS[x.status] || x.status)}${x.cost ? ' · ' + f(x.cost) + ' in the board version' : ''}</span></li>`).join('')}</ul>` : '<p class="muted">No proposals waiting.</p>'}</div>
-      <p class="small muted">Made by HighGround on ${esc(day(snap.created_at))} from the district’s own data, with no hand editing. Figures are as they stood at the month end and don’t change afterwards.</p>
+      <p class="small muted">Made by HighGround on ${esc(day(snap.created_at))} from the district’s own data, with no hand editing. Figures are as they stood at the month end and don’t change afterward.</p>
     </div>`;
   }
   async function rpCreate() {
@@ -4661,26 +4661,26 @@
     return `
       <div class="card"><h3>Public link</h3>
         ${d.public_link_enabled
-          ? `<p>Anyone with this link sees the published board version, with what-if levers they can move. They can’t change anything, and they see nothing else: <a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a></p>`
+          ? `<p>Anyone with this link sees the published board version, with what-if levers they can move. They can’t change anything, and they see nothing else.</p>`
           : '<p>The public link is turned off for this district (Settings, District).</p>'}
         <p>${current ? `Showing <b>${esc(current.title)}</b>, published ${esc(day(current.published_at))}${current.payload && current.payload.heldBack ? ` (${current.payload.heldBack} unapproved held back)` : ''}.` : '<b>Nothing is published.</b> The link says so.'}</p>
         <div class="row">
           ${c.admin && current ? `<button type="button" class="btn danger" data-action="withdrawBoard" data-id="${esc(current.id)}">Take it down</button>` : ''}
-          ${current ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open the public page</a>` : ''}
+          ${current ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open the community page ↗</a>` : ''}${d.public_link_enabled ? `<button type="button" class="btn" data-action="svCopy" data-text="${esc(link)}">Copy link</button>` : ''}
         </div>
         ${c.admin ? '' : '<p class="small muted">Only a district admin can publish.</p>'}</div>
       ${draft ? (draft.error ? `<div class="notice">${esc(draft.error)}</div>` : `<div class="card"><h3>Publish the community page</h3>
-        <label class="field">A note to the community <span class="small muted">(optional)</span><textarea data-pub-note maxlength="1500" placeholder="A few sentences about where the plan stands and what the board is deciding next.">${esc(CP.note != null ? CP.note : lastNote)}</textarea></label>
-        <label class="row"><input type="checkbox" data-pub-hold ${CP.holdBack ? 'checked' : ''}> Hold back initiatives the board hasn’t approved (ideas, proposals, items being analysed, deferred or declined)</label>
-        <label class="row"><input type="checkbox" data-pub-plan ${CP.plan ? 'checked' : ''}> Include the district blueprint: the priorities, how each measure is doing, and the initiatives serving them${draft.blueprint ? ` (${draft.blueprint.priorities.length} priorit${draft.blueprint.priorities.length === 1 ? 'y' : 'ies'})` : CP.plan ? ' <span class="small muted">(no priorities yet: add them on Plan → Priorities)</span>' : ''}</label>
-        <label class="row"><input type="checkbox" data-pub-survey ${CP.survey ? 'checked' : ''}> Include “What you told us”: the latest community survey’s priorities and top themes${draft.survey ? ` (${esc(draft.survey.name)})` : CP.survey ? ' <span class="small muted">(no survey yet: add one on Plan → Community input)</span>' : ''}</label>
+        <label class="field"><span>A note to the community <span class="opt">(optional)</span></span><textarea data-pub-note maxlength="1500" placeholder="A few sentences about where the plan stands and what the board is deciding next.">${esc(CP.note != null ? CP.note : lastNote)}</textarea></label>
+        <div class="pub-opts"><label><input type="checkbox" data-pub-hold ${CP.holdBack ? 'checked' : ''}><span>Hold back initiatives the board hasn’t approved (ideas, proposals, items being analyzed, deferred or declined)</span></label>
+        <label><input type="checkbox" data-pub-plan ${CP.plan ? 'checked' : ''}><span>Include the district blueprint: the priorities, how each measure is doing, and the initiatives serving them${draft.blueprint ? ` (${draft.blueprint.priorities.length} priorit${draft.blueprint.priorities.length === 1 ? 'y' : 'ies'})` : CP.plan ? ' <span class="small muted">(no priorities yet: add them on Plan → Priorities)</span>' : ''}</span></label>
+        <label><input type="checkbox" data-pub-survey ${CP.survey ? 'checked' : ''}><span>Include “What you told us”: the latest community survey’s priorities and top themes${draft.survey ? ` (${esc(draft.survey.name)})` : CP.survey ? ' <span class="small muted">(no survey yet: add one on Plan → Community input)</span>' : ''}</span></label></div>
         <p class="small">${draft.shownCount} initiative${draft.shownCount === 1 ? '' : 's'} will show${draft.heldBack ? `; ${draft.heldBack} held back` : ''}. ${draft.holdBack && Math.abs(draft.gap.public - draft.gap.board) > 0.5 ? `The public page’s gap is ${f(draft.gap.public)}; the full board version’s is ${f(draft.gap.board)}.` : `Gap to close: ${f(draft.gap.public)}.`}${draft.done.length ? ` ${draft.done.length} finished phase${draft.done.length === 1 ? '' : 's'} listed under “What we’ve finished.”` : ''}</p>
         ${draft.holdBack && draft.heldList && draft.heldList.length ? (() => { const FN = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'grants', camp: 'campaign/bond', boost: 'boosters' }, ST = Object.fromEntries(INIT_STATUS);
-          return `<div class="notice warn" data-held-list><b>Not on the community page (the board hasn’t approved ${draft.heldList.length === 1 ? 'it' : 'them'} yet):</b>
+          return `<details class="fold held-fold" data-held-list><summary>${draft.heldList.length} initiative${draft.heldList.length === 1 ? '' : 's'} held back <span class="small muted">· the board hasn’t approved ${draft.heldList.length === 1 ? 'it' : 'them'} yet</span></summary>
             <ul class="small">${draft.heldList.map((x) => `<li>${esc(x.name)} <span class="muted">· ${esc((ST[x.status] || x.status).toLowerCase())}${x.funds.length ? ' · ' + esc(x.funds.map((b) => FN[b] || b).join(' + ')) : ''}${x.cost ? ' · ' + esc(f(x.cost)) : ''}</span></li>`).join('')}</ul>
-            <p class="small">${draft.heldOutside ? `That includes ${draft.heldOutside} paid partly by a campaign, bond or boosters, so the community chart shows less of those than the board version. ` : ''}To show them, set their status to Approved on Initiatives, or untick “Hold back” above.</p></div>`; })() : ''}
+            <p class="small">${draft.heldOutside ? `That includes ${draft.heldOutside} paid partly by a campaign, bond or boosters, so the community chart shows less of those than the board version. ` : ''}To show them, set their status to Approved on Initiatives, or untick “Hold back” above.</p></details>`; })() : ''}
         ${!draft.shownCount ? '<div class="notice">Nothing would show: every initiative in the board version is still unapproved. Untick “Hold back”, or approve initiatives first.</div>' : ''}
-        <div class="row"><button type="button" class="btn" data-action="previewPublic">Preview</button><button type="button" class="btn primary" data-action="publishBoard" ${draft.shownCount ? '' : 'disabled'}>Publish</button></div></div>`) : ''}
+        <div class="row pub-acts"><button type="button" class="btn" data-action="previewPublic">Preview</button><button type="button" class="btn primary" data-action="publishBoard" ${draft.shownCount ? '' : 'disabled'}>Publish</button></div></div>`) : ''}
       <div class="card"><h3>Publish log</h3>${table([
         { label: 'Published', get: (p) => new Date(p.published_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) },
         { label: 'By', get: (p) => NAME[p.published_by] || '' },
@@ -4859,7 +4859,7 @@
   // ------------------------------------------------------------------ views: Settings
   /**
    * Logos arrive in every shape: square badges, wide wordmarks, tall crests, often with a wide white or clear margin.
-   * Before upload: crop away the margin (the colour of the corners, or transparency), keep a 4% breathing space,
+   * Before upload: crop away the margin (the color of the corners, or transparency), keep a 4% breathing space,
    * and scale the longest side down to 800 px. PNG keeps a clear background clear. If anything goes wrong, the original is used.
    */
   async function trimLogo(file) {
@@ -5089,7 +5089,7 @@
     encumbered: ['On order', 'Purchase orders and contracts already signed but not paid yet. Accounting reports call this “encumbered”.'],
     solvency: ['Solvency ratio', 'The General Fund’s cushion: unassigned and assigned fund balance divided by General Fund revenue (less AEA flowthrough). Many districts aim for 5–10%.'],
     init_type: ['What it buys', 'The kind of cost: a building or major equipment, technology, a program, staff, or curriculum. It decides which funds can pay: SAVE, PPEL and V-PPEL can’t pay salaries or curriculum. The area the initiative serves (Academics, Safety & security, Activities …) is its focus area, chosen separately.'],
-    init_status: ['Status', 'Where the initiative stands. Idea and Proposed: someone has suggested it. Being analysed: costs and options are being worked up. Approved: the district has decided to do it (for most, by a board vote). Underway and Done: work has started or finished. Deferred and Declined: not now, or not at all. Status is for tracking; it doesn’t put an initiative in the adopted plan or take it out.'],
+    init_status: ['Status', 'Where the initiative stands. Idea and Proposed: someone has suggested it. Being analyzed: costs and options are being worked up. Approved: the district has decided to do it (for most, by a board vote). Underway and Done: work has started or finished. Deferred and Declined: not now, or not at all. Status is for tracking; it doesn’t put an initiative in the adopted plan or take it out.'],
     board_approved: ['Board approved it on', 'The date the school board voted to approve this initiative, as recorded in the minutes. It’s a record only: filling it in doesn’t approve anything, publish anything, or add the initiative to the adopted plan. Status (Approved) is set separately, and an initiative counts in the plan only when it’s in the adopted scenario. Leave it empty if the board hasn’t voted, or if this is a staff decision that doesn’t need a vote.'],
     fill_in: ['Fill in around the gaps', 'Instead of stopping at the first initiative that doesn’t fit, HighGround skips it for now and keeps going down the ranked list, funding lower-ranked initiatives that fit. It never funds one that would stop a higher-ranked initiative from being paid for by the year it’s needed (or within a year, if no year is set). An initiative that can’t be paid for within that time even with nothing below it, because it needs a campaign, bond or grant, doesn’t hold the others up.'],
     likely_range: ['Likely range', 'How far off a forecast like this has been. HighGround ran its own forecast for 325 Iowa districts from their FY2020 and FY2021 audited figures and compared it with what they later reported to the state. Eight in ten landed inside the range: about ±6 points a year out, widening to about ±25 points five years out. The range is wide because each year’s small misses in revenue and spending add up in the balance. Use the middle line to compare choices; use the range before telling the board a year’s number.'],
@@ -5105,7 +5105,7 @@
     retainage: ['Retainage', 'Part of each payment the district holds back (often 5%) until the work is finished. It’s earned but not yet paid, so the ledger usually shows less spent than the work completed, by about this much. That difference isn’t an error.'],
     contingency: ['Contingency', 'Money set aside in the project budget for surprises. Using it up faster than the work progresses (more than 15 points ahead of % complete) is an early warning that the project may go over.'],
     projected_final: ['Projected final cost', 'The contract sum today plus all the contingency that’s left: the conservative view, assuming every remaining contingency dollar is spent. If that’s within what the board version plans for the initiative, the project should finish on budget.'],
-    books_vs_payapps: ['Ledger vs. pay apps', 'Spending to date on the ledger accounts linked to this initiative, compared with what the pay apps say has been paid (work completed less retainage). A gap over $5,000 (or 2%) usually means a pay app hasn’t been recorded yet or was charged to another account. Some ledgers record retainage as spent when it’s earned; HighGround recognises that too.'],
+    books_vs_payapps: ['Ledger vs. pay apps', 'Spending to date on the ledger accounts linked to this initiative, compared with what the pay apps say has been paid (work completed less retainage). A gap over $5,000 (or 2%) usually means a pay app hasn’t been recorded yet or was charged to another account. Some ledgers record retainage as spent when it’s earned; HighGround recognizes that too.'],
     contract_schedule: ['On schedule', 'A rough check: % complete against a straight line from the start date to the completion date. More than 10 points behind is flagged. The contractor’s own schedule is the real source.'],
     fund_rules: ['Fund rules', 'Iowa law limits what each capital fund can pay for. PPEL and V-PPEL can’t pay salaries, travel, supplies or routine maintenance (Iowa Code 298.3). SAVE is for school infrastructure, not personnel, and uses beyond tax relief must be covered by the district’s revenue purpose statement (Iowa Code 423F.3). HighGround refuses a fund the law doesn’t allow and lists charges to confirm. It’s a guide, not legal advice.'],
     authority: ['Spending authority', 'The most a district may spend from the General Fund in a year: formula funding, plus miscellaneous income, plus the unspent balance carried forward (capped, see Unspent balance).'],
@@ -5875,7 +5875,7 @@
       <p class="small muted">This is the version the district published. Moving the levers shows what would change; it doesn’t change the district’s plan.${P.heldBack ? ` ${P.heldBack} proposal${P.heldBack === 1 ? '' : 's'} still under consideration ${P.heldBack === 1 ? 'isn’t' : 'aren’t'} shown.` : ''}</p>
       </section>`;
   }
-  /* the public page belongs to the district: its logo (or initials in its colour) and its name, nothing else */
+  /* the public page belongs to the district: its logo (or initials in its color) and its name, nothing else */
   function pubBrand(d) {
     const accent = /^#[0-9a-f]{6}$/i.test(d.brand_color || '') ? d.brand_color : '#1E3A2F';
     const mark = d.logo_path ? `<img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt="${esc(d.name)} logo" class="pub-dlogo">`
@@ -6183,6 +6183,10 @@
       PR.sel = el.dataset.id; const p = (PR.list || []).find((x) => x.id === PR.sel), box = document.getElementById('prio-detail'); if (!p || !box) return here();
       document.querySelectorAll('.pc-row .pc').forEach((b) => { const on = b.dataset.id === PR.sel; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
       const c = ctx(); box.innerHTML = prioDetailHtml(p, S.district.slug, true) + (c.plan ? `<div class="pd-edit"><a href="#" data-action="editPriority" data-id="${esc(p.id)}">Edit this priority</a></div>` : '');
+      /* 21 Oct (c): make the change obvious: the detail takes the priority's color and slides in, and if it's mostly out of
+         view it scrolls up to meet you */
+      box.style.setProperty('--g', p.color); box.classList.remove('pd-swap'); void box.offsetWidth; box.classList.add('pd-swap');
+      const r = box.getBoundingClientRect(); if (r.top > window.innerHeight * 0.55) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
     prioArrange() { PR.arrange = !PR.arrange; here(); },
     cqAdd(el) { const list = el.closest('form').querySelector('[data-cq-list]'), n = list.querySelectorAll('[data-cq-row]').length;
@@ -6462,7 +6466,7 @@
     },
     async cancelInvite(el) {
       await HG.db.remove('invitation', `id=eq.${enc(el.dataset.id)}`);
-      toast('Invitation cancelled'); here();
+      toast('Invitation canceled'); here();
     },
   };
   const FORMS = {
@@ -6582,7 +6586,7 @@
     if (button) button.disabled = true;
     try { await fn(); } catch (err) { showError(err); } finally { if (button && button.isConnected) button.disabled = false; }
   }
-  // 21 Oct: a year (or a colour band in it) on the capital plan's chart opens what's in it
+  // 21 Oct: a year (or a color band in it) on the capital plan's chart opens what's in it
   const capYearGo = (e) => { const g = e.target.closest && e.target.closest('[data-cap-year]'); if (!g || !CAP.inputs) return false;
     const band = e.target.closest('[data-band]'); run(async () => capYearPanel(Number(g.dataset.capYear), band ? band.dataset.band : null), null); return true; };
   const fundGo = (e) => { const g = e.target.closest && e.target.closest('[data-fund-go]'); if (!g || !FUNDX.b) return false; run(async () => fundPanel(g.dataset.fundGo), null); return true; };
