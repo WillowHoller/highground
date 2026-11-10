@@ -656,6 +656,230 @@
     <td><input name="debt_annual" inputmode="decimal" aria-label="Payment per year" value="${esc(x ? moneyIn(x.annual) : '')}"></td><td><input name="debt_final" inputmode="numeric" aria-label="Final fiscal year" placeholder="2033"></td>
     <td><button type="button" class="btn small danger" data-action="removeDebtRow">Remove</button></td></tr>`;
   // ------------------------------------------------------------------ views: Overview
+  /* ================================================================== Home: answer first (10 Nov 2026)
+     The green panel says where the board version stands in one sentence, with the three assumptions that move it most.
+     Changing an assumption here recalculates with the same engine as the capital plan; nothing is saved.
+     The ask bar answers a fixed list of questions, each a calculation on the district's own numbers (no AI). */
+  const HOME = {};
+  const AREA_NAME = { plan: 'Plan', money: 'Money', track: 'Track', share: 'Share', set: 'Setup', home: 'Home' };
+  const HOME_LEVERS = ['pg', 'sg', 'infl'];
+  const LEVER_SAY = { pg: 'property valuations grow', sg: 'SAVE receipts change', infl: 'construction costs rise' };
+  const LEVER_HELP = { pg: 'PPEL and V-PPEL receipts follow taxable valuation.', sg: 'SAVE is the statewide sales tax for school buildings, paid per student. Lower it to test an enrollment dip or a slower economy.',
+    infl: 'How fast building and equipment prices rise each year. Each project is priced in the year it happens.' };
+  const leverOf = (k) => LEVERS.find((z) => z.k === k);
+  const homeChanged = () => HOME.L && HOME_LEVERS.some((k) => Math.abs(HOME.L[k] - HOME.L0[k]) > 1e-9);
+  function homeCalc() {
+    const H = HOME, cr = HGEngine.compute(H.bi.projects, H.L, H.bi.cfg), ys = HGCapital.yearSummary(cr, H.bi.cfg);
+    const years = ys.map((y, i) => { const gap = (y.over || 0) + (y.campNeeded || 0), boost = y.boost || 0; return { fy: y.fy, i, total: y.total, gap, boost, paid: Math.max(0, y.total - gap - boost), label: '' }; });
+    years.forEach((y) => {   // the item a year's gap is mostly about: a campaign/bond phase first, then the largest phase that year
+      if (y.gap < 0.5) return; let best = null;
+      H.bi.projects.forEach((p) => p.phases.forEach((ph) => { if (ph.year !== y.i) return; const s = (ph.funding.some((f) => f.b === 'camp') ? 1e12 : 0) + ph.cost; if (!best || s > best.s) best = { s, name: p.name }; }));
+      y.label = best ? best.name : '';
+    });
+    return { cr, years, need: cr.need, gap: cr.gap, paid: cr.need - cr.gap, first: years.find((y) => y.gap > 0.5) || null };
+  }
+  function homeHeadline(x) {
+    const name = esc(HOME.d.short_name || HOME.d.name), f = HGReport.fmt;
+    if (x.gap <= 0.5) return `${name}’s plan is <em>fully paid for</em>${homeChanged() ? ' under these assumptions' : ''}.`;
+    if (!x.first || x.first.fy <= HOME.bi.cfg.start) return `${name}’s plan is short starting in FY${HOME.bi.cfg.start}. <span class="gapn">${f(x.gap)}</span> still needs a way to pay.`;
+    return `${name} is on solid ground <em>through FY${x.first.fy - 1}</em>. After that, <span class="gapn">${f(x.gap)}</span> of the plan still needs a way to pay.`;
+  }
+  function homeAssume() {
+    const chip = (k) => `<button type="button" class="hh-scrub" data-action="homeLever" data-k="${k}" aria-expanded="${HOME.open === k}" title="Click or drag sideways to change">${esc(leverOf(k).show(HOME.L[k]))}</button>`;
+    return `Assuming ${LEVER_SAY.pg} ${chip('pg')} a year, ${LEVER_SAY.sg} ${chip('sg')} a year, and ${LEVER_SAY.infl} ${chip('infl')} a year.`
+      + (homeChanged() ? ` <button type="button" class="hh-reset" data-action="homeLeverReset">Back to the board version</button>` : '');
+  }
+  function homeFigs(x) {
+    const f = HGReport.fmt;
+    return `<div><span>${HOME.bi.cfg.n}-year need</span><b>${f(x.need)}</b></div><div class="ok"><span>Paid for</span><b>${f(x.paid)}</b></div>
+      <div class="${x.gap > 0.5 ? 'g' : 'ok'}"><span>Still open ${def('gap')}</span><b>${f(Math.max(0, x.gap))}</b></div>`;
+  }
+  function homeChart(x) {
+    const W = 960, H = 290, L = 46, R = 10, top = 46, base = 248, f = HGReport.fmt, ys = x.years;
+    const mx = Math.max(1, ...ys.map((y) => y.total)), step = mx > 8e6 ? 2e6 : mx > 3e6 ? 1e6 : mx > 1.2e6 ? 5e5 : 2.5e5, ceil = Math.ceil((mx * 1.12) / step) * step;
+    const sc = (base - top) / ceil, col = (W - L - R) / ys.length, bw = Math.min(46, col * 0.52);
+    let g = `<defs><pattern id="hh-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F2897C" fill-opacity=".18"/><rect width="2.2" height="6" fill="#F2897C"/></pattern></defs>`;
+    for (let t = 0; t <= ceil + 1; t += step) { const y = base - t * sc; g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="hc-grid${t ? ' d' : ''}"/><text x="${L - 9}" y="${(y + 4).toFixed(1)}" class="hc-ax" text-anchor="end">${t === 0 ? '$0' : t >= 1e6 ? '$' + +(t / 1e6).toFixed(1) + 'M' : '$' + Math.round(t / 1000) + 'k'}</text>`; }
+    ys.forEach((r) => {
+      const x0 = L + r.i * col + (col - bw) / 2; let y = base;
+      [[r.paid, '#8DBBA2', 'paid for by levies, grants and financing'], [r.boost, '#D3AE58', 'from boosters'], [r.gap, 'url(#hh-hatch)', 'with no way to pay yet']].forEach(([v, c, what], j) => {
+        if (v < 0.5) return; const hh = v * sc; y -= hh;
+        g += `<rect x="${x0.toFixed(1)}" y="${(y + 0.75).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, hh - 1.5).toFixed(1)}" rx="2" fill="${c}"${j === 2 ? ' stroke="#F2897C" stroke-width="1.2"' : ''}><title>FY${r.fy}: ${f(v)} ${what}</title></rect>`;
+      });
+      if (r.total > 0.5) g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${(y - 8).toFixed(1)}" class="hc-tot${r.gap > 0.5 ? ' g' : ''}" text-anchor="middle">${f(r.total)}</text>`;
+      if (r.gap > 0.5 && r.label && r.gap >= 0.25 * Math.max(...ys.map((z) => z.gap))) g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${(y - 24).toFixed(1)}" class="hc-lbl" text-anchor="middle">${esc(r.label.length > 34 ? r.label.slice(0, 33) + '…' : r.label)}</text>`;
+      g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${base + 19}" class="hc-yr${r.fy === fyNow() ? ' now' : ''}" text-anchor="middle">FY${String(r.fy).slice(2)}</text>`;
+      if (r.fy === fyNow()) g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${base + 34}" class="hc-now" text-anchor="middle">this year</text>`;
+    });
+    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Capital spending by year, FY${ys[0].fy} to FY${ys[ys.length - 1].fy}. ${esc(f(Math.max(0, x.gap)))} has no way to pay yet.">${g}</svg>`;
+  }
+  function homeHero(c, greet) {
+    const x = homeCalc(); HOME.x = x;
+    return `<section class="home-hero hh-dark" data-home-hero>
+      <div class="hh-hi">${greet}</div>
+      <div class="hh-grid"><div class="hh-txt"><p class="lead" data-hh-head>${homeHeadline(x)}</p><p class="hh-assume" data-hh-assume>${homeAssume()}</p></div>
+        <div class="hh-figs" data-hh-figs>${homeFigs(x)}</div></div>
+      <div data-hh-panel>${homeLeverPanel()}</div>
+      <div class="hh-chart" data-hh-chart>${homeChart(x)}</div>
+      <div class="hh-foot"><div class="hh-legend"><span><i class="paid"></i>Paid for by levies, grants and financing</span><span><i class="boost"></i>Boosters</span><span><i class="gap"></i>No way to pay yet</span></div>
+        <button type="button" class="hh-math" data-action="homeMath">How HighGround got these numbers</button></div>
+    </section>`;
+  }
+  function homeLeverPanel() {
+    const k = HOME.open; if (!k) return '';
+    const m = leverOf(k), v = HOME.L[k];
+    return `<div class="hh-lever"><label for="hh-range"><b>${esc(m.label)}, per year</b> <span data-hh-val>${esc(m.show(v))}</span></label>
+      <input id="hh-range" type="range" data-home-range="${k}" min="${m.min}" max="${m.max}" step="${m.step}" value="${v}">
+      <div class="hh-ends small"><span>${esc(m.show(m.min))}</span><span>Board version: ${esc(m.show(HOME.L0[k]))}</span><span>${esc(m.show(m.max))}</span></div>
+      <p class="small">${esc(LEVER_HELP[k])} Nothing here is saved; to keep a change, make a scenario on the capital plan.</p>
+      <button type="button" class="btn small" data-action="homeLever" data-k="${k}">Done</button></div>`;
+  }
+  function homeRefresh() {
+    const box = document.querySelector('[data-home-hero]'); if (!box || !HOME.bi) return;
+    const x = homeCalc(); HOME.x = x;
+    box.querySelector('[data-hh-head]').innerHTML = homeHeadline(x);
+    box.querySelector('[data-hh-assume]').innerHTML = homeAssume();
+    box.querySelector('[data-hh-figs]').innerHTML = homeFigs(x);
+    box.querySelector('[data-hh-chart]').innerHTML = homeChart(x);
+    const val = box.querySelector('[data-hh-val]'); if (val && HOME.open) val.textContent = leverOf(HOME.open).show(HOME.L[HOME.open]);
+  }
+  const setLever = (k, v) => { const m = leverOf(k); HOME.L[k] = Math.max(m.min, Math.min(m.max, Math.round(v / m.step) * m.step)); };
+  document.addEventListener('input', (e) => {
+    const r = e.target.closest && e.target.closest('[data-home-range]'); if (r && HOME.L) { setLever(r.dataset.homeRange, Number(r.value)); homeRefresh(); return; }
+    const q = e.target.closest && e.target.closest('[data-home-ask-in]'); if (q) homeChips(q.value);
+  });
+  { let drag = null;   // drag an assumption sideways to change it
+    document.addEventListener('pointerdown', (e) => { const b = e.target.closest && e.target.closest('.hh-scrub'); if (!b || !HOME.L) return; drag = { k: b.dataset.k, x: e.clientX, v: HOME.L[b.dataset.k], moved: false }; });
+    document.addEventListener('pointermove', (e) => { if (!drag) return; const dx = e.clientX - drag.x; if (Math.abs(dx) > 4) drag.moved = true; if (!drag.moved) return;
+      const m = leverOf(drag.k), before = HOME.L[drag.k]; setLever(drag.k, drag.v + Math.round(dx / 14) * m.step); if (HOME.L[drag.k] !== before) homeRefresh(); });
+    document.addEventListener('pointerup', () => { if (drag && drag.moved) HOME.dragged = true; drag = null; });
+    document.addEventListener('keydown', (e) => { const b = e.target.closest && e.target.closest('.hh-scrub'); if (!b || !HOME.L || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      e.preventDefault(); const k = b.dataset.k; setLever(k, HOME.L[k] + (e.key === 'ArrowRight' ? 1 : -1) * leverOf(k).step); homeRefresh();
+      const nb = document.querySelector(`.hh-scrub[data-k="${k}"]`); if (nb) nb.focus(); });
+  }
+  function homeMath() {
+    const H = HOME, x = H.x, f = HGReport.fmt, cfg = H.bi.cfg, s = H.rows.settings || {};
+    modal(`<div class="stack"><div class="row" style="justify-content:space-between"><h2 id="modal-title">How HighGround got these numbers</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <p>Every project in <b>${esc(H.board.name)}</b>, the plan the board adopted, priced in the year it happens, against what SAVE, PPEL, V-PPEL, grants, boosters and any financing in that plan can pay each year. It is the same calculation as the capital plan.</p>
+      <table><tbody><tr><td>${cfg.n}-year need, FY${cfg.years[0]}–FY${cfg.years[cfg.n - 1]}</td><td class="num">${f(x.need)}</td></tr><tr><td>Paid for</td><td class="num">${f(x.paid)}</td></tr><tr><td><b>Still needs a way to pay</b></td><td class="num"><b>${f(Math.max(0, x.gap))}</b></td></tr></tbody></table>
+      <h3>Assumptions in use</h3><ul>${HOME_LEVERS.map((k) => `<li>${esc(leverOf(k).label)}: ${esc(leverOf(k).show(H.L[k]))} a year${Math.abs(H.L[k] - H.L0[k]) > 1e-9 ? ` (board version: ${esc(leverOf(k).show(H.L0[k]))}; not saved)` : ''}</li>`).join('')}</ul>
+      <h3>Where the numbers come from</h3><ul><li>Projects and their years: ${esc(H.board.name)}</li><li>Starting balances, receipts and debt: Starting numbers${H.sb ? `, balances as of ${esc(day(H.sb.as_of))}` : ''}</li>${H.gl ? `<li>Spending to date: the general ledger through ${esc(day(H.gl.period_end))}</li>` : ''}${s.plan_start_fy ? `<li>The plan starts in FY${esc(s.plan_start_fy)}</li>` : ''}</ul>
+      <p class="small"><a href="#/d/${enc(H.d.slug)}/money/capital">Open the capital plan</a> for each year’s projects and funds.</p></div>`);
+  }
+  /* ---- the ask bar: a fixed list of questions, each answered from the district's own numbers ---- */
+  function homeQuestions() {
+    const H = HOME, f = HGReport.fmt, slug = enc(H.d.slug), out = [];
+    const lk = (path, text, primary) => `<a class="btn small${primary ? ' primary' : ''}" href="#/d/${slug}/${path}">${text}</a>`;
+    if (H.bi) out.push({ q: 'Can we pay for everything in the plan?', kw: ['afford', 'pay for', 'everything', 'gap', 'short', 'bond', 'campaign', 'fund', 'paid', 'shortfall', 'enough'], a: () => {
+      const x = H.x, gy = x.years.filter((y) => y.gap > 0.5).sort((a, b) => b.gap - a.gap);
+      const others = H.rows.scenarios.slice(0, 6).map((sc) => { try { const b2 = HGCapital.buildInputs(H.rows, sc.id); return { sc, gap: HGEngine.compute(b2.projects, b2.levers, b2.cfg).gap }; } catch (e) { return null; } }).filter(Boolean);
+      return { h: x.gap > 0.5 ? `Not yet. ${f(x.gap)} of the ${f(x.need)} plan has no way to pay, most of it in FY${gy[0].fy}.` : `Yes. The board version pays for every project in the plan${homeChanged() ? ' under the assumptions above' : ''}.`,
+        p: x.gap > 0.5 ? (gy.length ? `Short years: ${gy.slice(0, 4).map((y) => `FY${y.fy} (${f(y.gap)}${y.label ? ', mostly ' + esc(y.label) : ''})`).join(', ')}.` : '') : '',
+        x: others.length > 1 ? `<div class="ha-opts">${others.map((o) => `<div class="ha-opt"><b>${esc(o.sc.name)}</b>${o.sc.is_board_version ? ' <span class="small muted">board version</span>' : ''}<span class="${o.gap > 0.5 ? 'g' : 'ok'}">${o.gap > 0.5 ? f(o.gap) + ' still open' : 'Fully paid for'}</span></div>`).join('')}</div>` : '',
+        acts: lk('plan/scenarios', 'Compare scenarios', true) + lk('plan/ranking', 'Open Rank & fund'),
+        src: [`Capital plan: ${H.board.name}`, 'Each scenario as saved, with its own assumptions'] }; } });
+    if (H.g) out.push({ q: 'When does the General Fund get tight?', kw: ['general', 'solvency', 'tight', 'cash', 'reserve', 'balance', 'unspent', 'run out', 'staff', 'salary'], a: () => {
+      const ys = H.g.R.years, low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]), under = ys.find((y) => y.solvency < 0.05);
+      return { h: under ? `It falls below 5% in FY${under.fy}, to ${pct1(under.solvency)}.` : `It is lowest in FY${low.fy}, at ${pct1(low.solvency)}.`,
+        p: `The solvency ratio is ${pct1(ys[0].solvency)} in FY${ys[0].fy} and ${pct1(ys[ys.length - 1].solvency)} by FY${ys[ys.length - 1].fy} (likely between ${pct1(ys[ys.length - 1].solvencyLow)} and ${pct1(ys[ys.length - 1].solvencyHigh)}).`,
+        x: `<div class="scroll"><table><thead><tr><th>Year</th>${ys.map((y) => `<th class="num">FY${y.fy}</th>`).join('')}</tr></thead><tbody><tr><td>Solvency ratio</td>${ys.map((y) => `<td class="num">${pct1(y.solvency)}</td>`).join('')}</tr></tbody></table></div>`,
+        acts: lk('money/general', 'Open the General Fund forecast', true), src: ['General Fund forecast, board version', 'General Fund figures in Starting numbers'] }; } });
+    if (H.D.measures.length) out.push({ q: 'Which measures are off track?', kw: ['measure', 'measures', 'off track', 'goal', 'goals', 'outcome', 'results', 'progress', 'behind'], a: () => {
+      const offs = H.off;
+      return { h: offs.length ? `${offs.length} of ${H.D.measures.length} measures ${offs.length === 1 ? 'is' : 'are'} off track.` : `None of the ${H.D.measures.length} measures is off track.`,
+        p: H.owed.length ? `${H.owed.length} ${H.owed.length === 1 ? 'has' : 'have'} an update owed.` : '',
+        x: offs.length ? `<ul class="ha-list">${offs.map((y) => `<li>${measureLink(H.d.slug, y.m)}</li>`).join('')}</ul>` : '',
+        acts: lk('track/measures', 'Open Measures', true), src: ['Each measure’s results and target'] }; } });
+    if (H.pending.length) out.push({ q: 'What is waiting on a decision?', kw: ['decision', 'decide', 'approve', 'approval', 'pending', 'waiting', 'proposed', 'vote'], a: () => ({
+      h: `${H.pending.length} initiative${H.pending.length === 1 ? ' is' : 's are'} not approved yet.`, p: '',
+      x: `<ul class="ha-list">${H.pending.slice(0, 10).map((i) => `<li>${esc(i.name)} <span class="small muted">· ${esc(i.status || 'proposed')}</span></li>`).join('')}${H.pending.length > 10 ? `<li class="muted">and ${H.pending.length - 10} more</li>` : ''}</ul>`,
+      acts: lk('plan/initiatives', 'Open Initiatives', true), src: ['Initiatives and their status'] }) });
+    if (H.bi && (H.sb || H.pb)) out.push({ q: 'How much is in SAVE and PPEL?', kw: ['save', 'ppel', 'vppel', 'balance', 'how much', 'left', 'cash', 'fund balance', 'low point'], a: () => {
+      const paths = HGCapital.fundPaths(H.x.cr, H.bi.cfg), lowOf = (b) => (paths[b] && paths[b].lowFY != null ? { end: paths[b].low, fy: paths[b].lowFY } : null);
+      const row = (b, bal, name) => { const lo = lowOf(b); return bal ? `<tr><td>${name}</td><td class="num">${f(Number(bal.amount))}</td><td>${esc(day(bal.as_of))}</td><td class="num">${lo ? `${f(lo.end)} (FY${lo.fy})` : '—'}</td></tr>` : ''; };
+      return { h: `SAVE has ${H.sb ? f(Number(H.sb.amount)) : 'no balance entered'} and PPEL has ${H.pb ? f(Number(H.pb.amount)) : 'no balance entered'}.`, p: 'The low point is the smallest year-end balance in the board version of the plan.',
+        x: `<div class="scroll"><table><thead><tr><th>Fund</th><th class="num">Balance</th><th>As of</th><th class="num">Low point</th></tr></thead><tbody>${row('save', H.sb, 'SAVE')}${row('ppel', H.pb, 'PPEL')}</tbody></table></div>`,
+        acts: lk('money/summary', 'Open All funds', true), src: ['Fund balances in Starting numbers', `Capital plan: ${H.board.name}`] }; } });
+    if (H.acts.length) out.push({ q: 'What changed recently?', kw: ['changed', 'change', 'recent', 'recently', 'new', 'happened', 'activity', 'who'], a: () => ({
+      h: `The last ${H.acts.length} changes in ${esc(H.d.short_name || H.d.name)}.`, p: '',
+      x: `<ul class="ha-list">${H.acts.map((a2) => { const r0 = a2.new_row || a2.old_row || {}; return `<li>${esc(TABLE_NAMES[a2.table_name] || a2.table_name)}${r0.name ? ': ' + esc(r0.name) : ''} <span class="small muted">· ${a2.action === 'insert' ? 'added' : a2.action === 'delete' ? 'removed' : 'changed'} ${esc(day(a2.at))}</span></li>`; }).join('')}</ul>`,
+      acts: lk('settings/activity', 'All activity', true), src: ['The activity log'] }) });
+    out.push({ q: 'When was the last board report?', kw: ['board', 'report', 'reports', 'last', 'packet', 'meeting', 'summary'], a: () => ({
+      h: H.latestRep[0] ? `The latest board report is for ${esc(day(H.latestRep[0].period_end))}.` : 'No board report has been made yet.',
+      p: H.latestRep[0] ? esc(H.latestRep[0].title || '') : 'A board report is built from the plan, the ledger and the measures, and saved exactly as made.',
+      x: '', acts: lk('share/board', H.latestRep[0] ? 'Open board reports' : 'Make one', true), src: ['Saved board reports'] }) });
+    return out;
+  }
+  const askWords = (q) => ' ' + q.toLowerCase().replace(/[^a-z0-9% -]/g, ' ').replace(/\s+/g, ' ') + ' ';
+  const askScore = (q, it) => { const w = askWords(q), toks = w.trim().split(' '); return it.kw.reduce((s, k) => s + (k.includes(' ') ? (w.includes(' ' + k + ' ') ? 1 : 0)
+    : toks.some((t) => t.length > 2 && (t === k || (t.length >= 4 && (t.startsWith(k) || k.startsWith(t))))) ? 1 : 0), 0); };
+  const askRanked = (q) => (HOME.qs || []).map((it) => ({ it, s: askScore(q, it) })).filter((r) => r.s > 0).sort((a, b) => b.s - a.s);
+  function homeChips(v) { const box = document.querySelector('[data-home-chips]'); if (box) box.innerHTML = chipsHtml(v); }
+  function chipsHtml(v) {
+    const t = (v || '').trim(), r = t ? askRanked(t).slice(0, 5).map((x) => x.it) : [];
+    const list = r.length ? r : (HOME.qs || []).slice(0, 4), label = !t ? 'Popular' : r.length ? 'HighGround can answer' : 'No match yet · popular';
+    return `<span class="ha-lbl">${label}</span>` + list.map((x) => `<button type="button" class="ha-chip" data-action="homeAsk" data-q="${esc(x.q)}">${esc(x.q)}</button>`).join('');
+  }
+  function homeAskBox() {
+    HOME.qs = homeQuestions(); if (!HOME.qs.length) return '';
+    return `<div class="ha-zone${HOME.bi ? ' lift' : ''}"><form class="ha" data-home-ask autocomplete="off" role="search">
+      <div class="ha-row">${icon('search', 19, 2)}<input type="text" data-home-ask-in aria-label="Ask a question about the district" placeholder="Type a question, or pick one below"><button type="submit" class="btn primary">Ask</button></div>
+      <div class="ha-chips" data-home-chips>${chipsHtml('')}</div></form><div data-home-answer></div></div>`;
+  }
+  function homeAnswer(q) {
+    const box = document.querySelector('[data-home-answer]'); if (!box) return;
+    q = String(q || '').trim(); if (!q) return;
+    const inp = document.querySelector('[data-home-ask-in]'); if (inp) inp.value = q;
+    const r = askRanked(q), exact = (HOME.qs || []).find((x) => x.q.toLowerCase() === q.toLowerCase());
+    const best = exact || (r[0] && r[0].s >= 2 && !(r[1] && r[1].s === r[0].s) ? r[0].it : null);
+    const head = (t) => `<div class="ha-q"><b>${esc(t)}</b><button type="button" class="btn small" data-action="homeAskClose" aria-label="Close the answer">Close</button></div>`;
+    if (!best) {
+      const near = (r.length ? r.map((x) => x.it) : HOME.qs.slice(0, 4)).slice(0, 4);
+      box.innerHTML = `<div class="ha-ans">${head(q)}<div class="ha-body"><h3>${r.length ? 'Which of these did you mean?' : 'HighGround can’t answer that one yet.'}</h3>
+        <p class="muted">${r.length ? 'Pick the closest question.' : 'It answers a set list of questions, each calculated from the district’s own numbers. These are the closest.'}</p>
+        <div class="row">${near.map((x) => `<button type="button" class="btn small" data-action="homeAsk" data-q="${esc(x.q)}">${esc(x.q)}</button>`).join('')}</div></div></div>`;
+    } else {
+      const a = best.a();
+      box.innerHTML = `<div class="ha-ans">${head(best.q)}<div class="ha-body">${best.q.toLowerCase() !== q.toLowerCase() ? `<p class="small muted">You asked: “${esc(q)}”</p>` : ''}
+        <h3>${a.h}</h3>${a.p ? `<p>${a.p}</p>` : ''}${a.x || ''}<div class="row">${a.acts}</div>
+        <details class="ha-src"><summary>Where this comes from</summary><ul>${a.src.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></details>
+        <p class="small muted ha-calc">${icon('calc', 13, 2)} Calculated from ${esc(HOME.d.short_name || HOME.d.name)}’s data as it stands now. The same question always gets the same answer.</p></div></div>`;
+      fitTables(box); stripHidden(box);
+    }
+    box.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }
+  document.addEventListener('submit', (e) => { const fm = e.target.closest && e.target.closest('form[data-home-ask]'); if (!fm) return; e.preventDefault(); homeAnswer((fm.querySelector('[data-home-ask-in]') || {}).value); });
+  /* ---- This week: what needs attention, each with where it came from ---- */
+  function srcFor(html) {
+    const t = html.replace(/<[^>]+>/g, '');
+    return /is off track/.test(t) ? 'From the measure’s latest result' : /ask the community/.test(t) ? 'From the date of the last survey and the reminder setting'
+      : /update owed/.test(t) ? 'From each measure’s reporting schedule' : /approved but not in the plan/.test(t) ? 'From Initiatives and the board version of the plan'
+      : /counted in the plan/.test(t) ? 'From the board version of the plan' : /marked as the one the board adopted/.test(t) ? 'From Scenarios'
+      : /tarting numbers|plan starts in FY/.test(t) ? 'From Starting numbers' : /check-register/.test(t) ? 'From the check register' : /similar Iowa districts/.test(t) ? 'From the state’s annual reports for similar districts' : '';
+  }
+  const SRC_IC = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>';
+  const snoozeKey = (d, k) => `highground-snooze-${k}-${d.id}`;
+  const snoozed = (d, k) => { try { return Number(localStorage.getItem(snoozeKey(d, k)) || 0) > Date.now(); } catch (e) { return false; } };
+  function weekCards(c, o) {
+    const d = c.district, f = HGReport.fmt, out = [], slug = enc(d.slug);
+    const card = (area, pill, pillCls, title, body, src, acts) => `<article class="wk-card" data-area="${area}"><div class="wk-k"><span class="pill${pillCls ? ' ' + pillCls : ''}">${pill}</span></div>
+      ${title ? `<h3>${title}</h3>` : ''}${body ? `<p class="wk-t">${body}</p>` : ''}${src ? `<p class="wk-src">${SRC_IC}<span>${esc(src)}</span></p>` : ''}${acts ? `<div class="row wk-acts">${acts}</div>` : ''}</article>`;
+    const x = HOME.x;
+    if (x && x.gap > 0.5 && x.first && (c.plan || c.admin || c.finance) && !snoozed(d, 'gap')) {
+      const top = x.years.filter((y) => y.gap > 0.5).sort((a, b) => b.gap - a.gap)[0];
+      out.push(card('money', 'Suggestion', 'sug', `Decide how to pay for ${top && top.label ? esc(top.label) : 'the rest of the plan'}`,
+        `${f(x.gap)} of the plan has no way to pay yet, starting in FY${x.first.fy}.`, x.gap >= 1e6 ? 'The plan has a gap over $1M with no funding source' : 'The plan has a gap with no funding source',
+        `<button type="button" class="btn small primary" data-action="homeAsk" data-q="Can we pay for everything in the plan?">Compare the options</button><button type="button" class="btn small" data-action="homeSnooze" data-k="gap">Not now</button>`));
+    }
+    if ((c.plan || c.finance || c.admin) && o.latestRep) {
+      const now = new Date(), prevEnd = new Date(now.getFullYear(), now.getMonth(), 0), iso = prevEnd.toISOString().slice(0, 10);
+      const last = o.latestRep[0];
+      if (last && last.period_end < iso) out.push(card('share', 'Board', '', `Make the ${prevEnd.toLocaleDateString('en-US', { month: 'long' })} board report`, '',
+        `From saved board reports: the last one is for ${day(last.period_end)}`, `<a class="btn small primary" href="#/d/${slug}/share/board">Open board reports</a>`));
+    }
+    o.attention.forEach((a) => out.push(card(a.area, AREA_NAME[a.area] || 'Home', '', '', a.html, srcFor(a.html), '')));
+    return out;
+  }
   async function vOverview(c) {
     const d = c.district, D = await loadDirection(d), rows = D.rows, f = HGReport.fmt;
     const [batches, mem, acts, latestRep, peers] = await Promise.all([
@@ -697,26 +921,35 @@
       AT('money', 'users', peers && HGPeers.overviewLine(peers.rows) ? `${esc(HGPeers.overviewLine(peers.rows))} (${link('money/summary', 'funds')}, ${link('money/general', 'General Fund')}).` : ''),
     ].filter(Boolean);
     const sb = lastBal('save'), pb = lastBal('ppel');
-    const lead = (gap == null ? '' : gap > 0.5 ? `The plan is <b>${f(gap)}</b> short. ` : 'The plan is fully paid for. ')
-      + (attention.length ? `<b>${attention.length}</b> thing${attention.length === 1 ? ' needs' : 's need'} attention.` : 'Nothing needs attention right now.');
     const hour = new Date().getHours(), hi = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
     const first = ((S.profile && S.profile.full_name) || '').trim().split(/\s+/)[0];
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const greet = `${hi}${first ? ', ' + esc(first) : ''} <span>· ${esc(today)}</span>`;
     const sc = (x) => ({ met: 'met', ontrack: 'on', offtrack: 'off' }[x.state] || 'nd');
-    return `
+    const bi = board && rows.settings ? HGCapital.buildInputs(rows, board.id) : null;
+    Object.keys(HOME).forEach((k) => { delete HOME[k]; });
+    Object.assign(HOME, { d, c, rows, D, board, bi, L: bi ? Object.assign({}, bi.levers) : null, L0: bi ? Object.assign({}, bi.levers) : null, open: null,
+      g: board ? gfRun(rows, board.id) : null, sb, pb, gl, latestRep, pending, off, owed, acts });
+    const hero = bi ? homeHero(c, greet) : `
       <section class="home-hero">
         <div class="hh-topo" aria-hidden="true" style="background-image:url(&quot;${TOPO}&quot;)"></div>
         <div class="hh-txt">
-          <div class="hh-hi">${hi}${first ? ', ' + esc(first) : ''} <span>· ${esc(today)}</span></div>
-          <p class="lead">${lead}</p>
+          <div class="hh-hi">${greet}</div>
+          <p class="lead">${(gap == null ? '' : gap > 0.5 ? `The plan is <b>${f(gap)}</b> short. ` : 'The plan is fully paid for. ') + (attention.length ? `<b>${attention.length}</b> thing${attention.length === 1 ? ' needs' : 's need'} attention.` : 'Nothing needs attention right now.')}</p>
         </div>
-      </section>
+      </section>`;
+    const ask = homeAskBox();
+    const wk = weekCards(c, { attention, latestRep });
+    return `
+      ${hero}
+      ${ask}
       ${ledgerNote(c, batches)}
       ${setupCard(c, { rows, D, mem, latestRep })}
-      <div class="grid tiles home-tiles">${overviewTiles(c, { tile, f, link, gap, cr, board, sb, pb, gl, D, on, off, pending, latestRep, mem, rows, regOpen })}
-      </div>
+      <section class="wk" aria-labelledby="wk-h"><div class="wk-head"><h2 id="wk-h">This week</h2>${wk.length ? `<span class="count">${wk.length}</span>` : ''}</div>
+        ${wk.length ? `<div class="wk-grid">${wk.join('')}</div>` : '<p class="ok">Nothing needs attention right now.</p>'}</section>
+      <section class="wk" aria-labelledby="watch-h"><div class="wk-head"><h2 id="watch-h">Keep an eye on</h2></div>
+        <div class="grid tiles home-tiles">${overviewTiles(c, { tile, f, link, gap, cr, board, sb, pb, gl, D, on, off, pending, latestRep, mem, rows, regOpen })}</div></section>
       ${c.plan && board && rows.settings ? rankCallout(d.slug, rows, board.id) : ''}
-      <div class="card attn"><h3>Needs attention ${attention.length ? `<span class="count">${attention.length}</span>` : ''}</h3>${attention.length ? `<ul class="attn-list">${attention.map((x) => `<li data-area="${x.area}"><span class="sq">${icon(x.ic, 14, 2)}</span><span>${x.html}</span></li>`).join('')}</ul>` : '<p class="ok">Nothing needs attention right now.</p>'}</div>
       ${D.priorities.length ? `<div class="card"><h3>The strategic plan</h3><div class="prio-grid">${D.priorities.map((p, k) => { const pm = ms.filter((y) => y.m.priority_id === p.id), pon = pm.filter((y) => ['ontrack', 'met'].includes(y.x.state)).length, n = rows.initiatives.filter((i) => i.priority_id === p.id).length;
         return `<a class="prio" href="#/d/${enc(d.slug)}/plan/priorities"><span class="pn">${k + 1}</span><b>${esc(p.name)}</b>
           <span class="pdots" aria-hidden="true">${pm.map((y) => `<i class="${sc(y.x)}" title="${esc(y.m.name)}"></i>`).join('')}</span>
@@ -746,7 +979,7 @@
 
   /* ---- in-page help: what this screen is for and how to use it, opened from any screen (the full Guide stays in Help) ---- */
   const HELP = {
-    'home/today': ['The tiles are the numbers to watch for your role; “Needs attention” lists what’s off track or waiting on someone.', 'Click a tile’s link or a line in “Needs attention” to go straight to it.'],
+    'home/today': ['The green panel says where the adopted plan stands. Click or drag an underlined assumption to see what changes; nothing is saved.', 'Ask a question in the box, or pick one under it. Each answer is calculated from the district’s own numbers.', '“This week” lists what’s off track or waiting on someone, and where each item came from. “Keep an eye on” shows the numbers to watch for your role.'],
     'plan/priorities': ['Priorities are the few things the district most wants to achieve; each has outcomes, and outcomes have measures.', 'Initiatives link to the priority they serve, so spending can be traced to goals.'],
     'track/measures': ['Each measure has a starting point, a target and a cadence; on track means at or ahead of a straight path to the target.', 'Record a result with “Record result”, or upload many at once.'],
     'plan/community': ['Add the community survey: how important each priority is, and the themes people raised.', 'The latest survey can appear on the public page as “What you told us”.'],
@@ -6144,6 +6377,13 @@
       form.querySelector('[data-ia-results]').innerHTML = '';
     },
     async openSearch() { await openSearch(); },
+    async homeLever(el) { if (HOME.dragged) { HOME.dragged = false; return; } const k = el.dataset.k; HOME.open = HOME.open === k ? null : k;
+      const p = document.querySelector('[data-hh-panel]'); if (p) p.innerHTML = homeLeverPanel(); homeRefresh(); const r = document.getElementById('hh-range'); if (r) r.focus(); },
+    async homeLeverReset() { HOME.L = Object.assign({}, HOME.L0); HOME.open = null; const p = document.querySelector('[data-hh-panel]'); if (p) p.innerHTML = ''; homeRefresh(); },
+    async homeMath() { homeMath(); },
+    async homeAsk(el) { homeAnswer(el.dataset.q); homeChips(''); },
+    async homeAskClose() { const b = document.querySelector('[data-home-answer]'); if (b) b.innerHTML = ''; const i = document.querySelector('[data-home-ask-in]'); if (i) i.value = ''; homeChips(''); },
+    async homeSnooze(el) { try { localStorage.setItem(snoozeKey(S.district, el.dataset.k), String(Date.now() + 30 * 864e5)); } catch (e) {} toast('Hidden for 30 days', 'HighGround will suggest it again after that.'); here(); },
     async openHelp() { openHelp(); },
     async toggleMenu(el) { const rail = document.querySelector('.rail'), open = !rail.classList.contains('open'); rail.classList.toggle('open', open); el.setAttribute('aria-expanded', String(open)); },
     async toggleRail() { toggleRail(); },
