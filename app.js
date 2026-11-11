@@ -698,6 +698,7 @@
     const W = 960, H = 290, L = 46, R = 10, top = 46, base = 248, f = HGReport.fmt, ys = x.years;
     const mx = Math.max(1, ...ys.map((y) => y.total)), step = mx > 8e6 ? 2e6 : mx > 3e6 ? 1e6 : mx > 1.2e6 ? 5e5 : 2.5e5, ceil = Math.ceil((mx * 1.12) / step) * step;
     const sc = (base - top) / ceil, col = (W - L - R) / ys.length, bw = Math.min(46, col * 0.52);
+    const placed = [];
     let g = `<defs><pattern id="hh-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F2897C" fill-opacity=".18"/><rect width="2.2" height="6" fill="#F2897C"/></pattern></defs>`;
     for (let t = 0; t <= ceil + 1; t += step) { const y = base - t * sc; g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="hc-grid${t ? ' d' : ''}"/><text x="${L - 9}" y="${(y + 4).toFixed(1)}" class="hc-ax" text-anchor="end">${t === 0 ? '$0' : t >= 1e6 ? '$' + +(t / 1e6).toFixed(1) + 'M' : '$' + Math.round(t / 1000) + 'k'}</text>`; }
     ys.forEach((r) => {
@@ -707,7 +708,14 @@
         g += `<rect x="${x0.toFixed(1)}" y="${(y + 0.75).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, hh - 1.5).toFixed(1)}" rx="2" fill="${c}"${j === 2 ? ' stroke="#F2897C" stroke-width="1.2"' : ''}><title>FY${r.fy}: ${f(v)} ${what}</title></rect>`;
       });
       if (r.total > 0.5) g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${(y - 8).toFixed(1)}" class="hc-tot${r.gap > 0.5 ? ' g' : ''}" text-anchor="middle">${f(r.total)}</text>`;
-      if (r.gap > 0.5 && r.label && r.gap >= 0.25 * Math.max(...ys.map((z) => z.gap))) g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${(y - 24).toFixed(1)}" class="hc-lbl" text-anchor="middle">${esc(r.label.length > 34 ? r.label.slice(0, 33) + '…' : r.label)}</text>`;
+      if (r.gap > 0.5 && r.label && r.gap >= 0.25 * Math.max(...ys.map((z) => z.gap))) {
+        const txt = r.label.length > 34 ? r.label.slice(0, 33) + '…' : r.label, cx = x0 + bw / 2, half = txt.length * 3.3 + 6;
+        const lx = Math.max(L + half, Math.min(W - R - half, cx));   // keep it inside the chart
+        let ly = y - 24; const hits = (b) => b.l < lx + half && lx - half < b.r && Math.abs(b.y - ly) < 15;
+        for (let k = 0; k < 3 && placed.some(hits); k++) ly -= 16;
+        if (!placed.some(hits) && ly > 10) { placed.push({ l: lx - half, r: lx + half, y: ly }); g += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" class="hc-lbl" text-anchor="middle">${esc(txt)}</text>`;
+          if (ly < y - 25) g += `<line x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="${(ly + 5).toFixed(1)}" y2="${(y - 23).toFixed(1)}" class="hc-lead"/>`; }
+      }
       g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${base + 19}" class="hc-yr${r.fy === fyNow() ? ' now' : ''}" text-anchor="middle">FY${String(r.fy).slice(2)}</text>`;
       if (r.fy === fyNow()) g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${base + 34}" class="hc-now" text-anchor="middle">this year</text>`;
     });
@@ -761,12 +769,38 @@
     const H = HOME, x = H.x, f = HGReport.fmt, cfg = H.bi.cfg, s = H.rows.settings || {};
     modal(`<div class="stack"><div class="row" style="justify-content:space-between"><h2 id="modal-title">How HighGround got these numbers</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
       <p>Every project in <b>${esc(H.board.name)}</b>, the plan the board adopted, priced in the year it happens, against what SAVE, PPEL, V-PPEL, grants, boosters and any financing in that plan can pay each year. It is the same calculation as the capital plan.</p>
-      <table><tbody><tr><td>${cfg.n}-year need, FY${cfg.years[0]}–FY${cfg.years[cfg.n - 1]}</td><td class="num">${f(x.need)}</td></tr><tr><td>Paid for</td><td class="num">${f(x.paid)}</td></tr><tr><td><b>Still needs a way to pay</b></td><td class="num"><b>${f(Math.max(0, x.gap))}</b></td></tr></tbody></table>
+      <div class="hm-sum"><div><span>${cfg.n}-year need, FY${cfg.years[0]}–FY${cfg.years[cfg.n - 1]}</span><b>${f(x.need)}</b></div><div><span>Paid for</span><b>${f(x.paid)}</b></div><div class="g"><span>Still needs a way to pay</span><b>${f(Math.max(0, x.gap))}</b></div></div>
       <h3>Assumptions in use</h3><ul>${HOME_LEVERS.map((k) => `<li>${esc(leverOf(k).label)}: ${esc(leverOf(k).show(H.L[k]))} a year${Math.abs(H.L[k] - H.L0[k]) > 1e-9 ? ` (board version: ${esc(leverOf(k).show(H.L0[k]))}; not saved)` : ''}</li>`).join('')}</ul>
       <h3>Where the numbers come from</h3><ul><li>Projects and their years: ${esc(H.board.name)}</li><li>Starting balances, receipts and debt: Starting numbers${H.sb ? `, balances as of ${esc(day(H.sb.as_of))}` : ''}</li>${H.gl ? `<li>Spending to date: the general ledger through ${esc(day(H.gl.period_end))}</li>` : ''}${s.plan_start_fy ? `<li>The plan starts in FY${esc(s.plan_start_fy)}</li>` : ''}</ul>
       <p class="small"><a href="#/d/${enc(H.d.slug)}/money/capital">Open the capital plan</a> for each year’s projects and funds.</p></div>`);
   }
   /* ---- the ask bar: a fixed list of questions, each answered from the district's own numbers ---- */
+  /* ways to close the gap, worked out from the board version: a GO bond sized to what has no source (with its tax cost and the
+     5% debt limit), a campaign, moving projects, and the other scenarios. Each is a calculation; nothing is saved. */
+  function homeOptions(lk) {
+    const H = HOME, x = H.x, f = HGReport.fmt, cfg = H.bi.cfg, cards = [], notes = [];
+    const unf = x.years.reduce((a, y) => a + Math.max(0, (y.gap || 0)), 0), over = x.cr.overflow || 0, camp = Math.max(0, x.gap - over);
+    const firstCamp = x.years.find((y) => y.gap > 0.5);
+    if (camp > 0.5 && firstCamp) {
+      const amt = Math.ceil(camp / 50000) * 50000, fin = { name: 'Bond (what-if)', kind: 'go', fy: firstCamp.fy, amount: amt, rate: 0.045, years: 20 };
+      const L2 = Object.assign({}, H.L, { fin: HGEngine.cleanFin([...(H.L.fin || []), fin], cfg) });
+      let after = null, tx = null, room = null;
+      try { after = HGEngine.compute(H.bi.projects, L2, cfg).gap; } catch (e) {}
+      try { tx = HGTax.impact(cfg, L2, H.bi.tax || {}); } catch (e) {}
+      try { room = HGEngine.goDebtRoom(cfg, H.L); } catch (e) {}
+      const peak = tx && tx.hasValuation && tx.peak ? `About ${money(Math.round(tx.peak.home))} a year on a ${money(tx.homeValue)} home at its highest (FY${tx.peak.fy}).` : 'Add the taxable valuation in Starting numbers to see the tax cost.';
+      cards.push(`<div class="ha-opt"><b>Bond vote</b><span class="${after != null && after <= 0.5 ? 'ok' : 'g'}">${after != null && after <= 0.5 ? 'Closes the gap' : after != null ? f(after) + ' still open' : ''}</span>
+        <span class="small">A ${f(amt)} general-obligation bond in FY${firstCamp.fy}, 20 years at 4.5%. ${peak} Needs 60% of voters.${room != null && amt > room ? ` <b>More than the 5% debt limit allows (${f(room)} of room).</b>` : ''}</span></div>`);
+      cards.push(`<div class="ha-opt"><b>Community campaign</b><span class="g">${f(camp)} to raise</span><span class="small">Pledges in hand before FY${firstCamp.fy}, when the first of these projects is due.</span></div>`);
+    }
+    cards.push(`<div class="ha-opt"><b>Move or leave out projects</b><span class="${over > 0.5 ? 'g' : 'muted'}">${over > 0.5 ? f(over) + ' more than the levies can pay' : 'Change what’s in the plan'}</span>
+      <span class="small">Rank & fund shows where the money runs out, which single moves fit more, and what it would take to fund one initiative by a given year.</span></div>`);
+    const others = H.rows.scenarios.filter((sc) => !sc.is_board_version).slice(0, 4).map((sc) => { try { const b2 = HGCapital.buildInputs(H.rows, sc.id); return { sc, gap: HGEngine.compute(b2.projects, b2.levers, b2.cfg).gap }; } catch (e) { return null; } }).filter(Boolean);
+    others.forEach((o) => cards.push(`<div class="ha-opt"><b>Scenario: ${esc(o.sc.name)}</b><span class="${o.gap > 0.5 ? 'g' : 'ok'}">${o.gap > 0.5 ? f(o.gap) + ' still open' : 'Fully paid for'}</span><span class="small">Saved by the district, with its own assumptions.</span></div>`));
+    return { h: `${f(x.gap)} of the plan has no way to pay yet. Here are the ways to close it.`, p: '', x: `<div class="ha-opts">${cards.join('')}</div>`,
+      acts: lk('money/capital', 'Try financing on the capital plan', true) + lk('plan/ranking', 'Open Rank & fund') + (others.length ? lk('plan/scenarios', 'Compare scenarios') : ''),
+      src: [`Capital plan: ${H.board.name}`, 'Bond what-if: 4.5% for 20 years, not saved', 'Tax cost: Iowa rollback and homestead rules, and the example home in Starting numbers', '5% debt limit: actual valuation less GO debt outstanding'] };
+  }
   function homeQuestions() {
     const H = HOME, f = HGReport.fmt, slug = enc(H.d.slug), out = [];
     const lk = (path, text, primary) => `<a class="btn small${primary ? ' primary' : ''}" href="#/d/${slug}/${path}">${text}</a>`;
@@ -778,6 +812,7 @@
         x: others.length > 1 ? `<div class="ha-opts">${others.map((o) => `<div class="ha-opt"><b>${esc(o.sc.name)}</b>${o.sc.is_board_version ? ' <span class="small muted">board version</span>' : ''}<span class="${o.gap > 0.5 ? 'g' : 'ok'}">${o.gap > 0.5 ? f(o.gap) + ' still open' : 'Fully paid for'}</span></div>`).join('')}</div>` : '',
         acts: lk('plan/scenarios', 'Compare scenarios', true) + lk('plan/ranking', 'Open Rank & fund'),
         src: [`Capital plan: ${H.board.name}`, 'Each scenario as saved, with its own assumptions'] }; } });
+    if (H.bi && H.x && H.x.gap > 0.5) out.push({ q: 'How could we close the gap?', kw: ['close', 'options', 'option', 'ways', 'bond', 'borrow', 'campaign', 'raise', 'fix', 'cover'], a: () => homeOptions(lk) });
     if (H.g) out.push({ q: 'When does the General Fund get tight?', kw: ['general', 'solvency', 'tight', 'cash', 'reserve', 'balance', 'unspent', 'run out', 'staff', 'salary'], a: () => {
       const ys = H.g.R.years, low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]), under = ys.find((y) => y.solvency < 0.05);
       return { h: under ? `It falls below 5% in FY${under.fy}, to ${pct1(under.solvency)}.` : `It is lowest in FY${low.fy}, at ${pct1(low.solvency)}.`,
@@ -869,7 +904,7 @@
       const top = x.years.filter((y) => y.gap > 0.5).sort((a, b) => b.gap - a.gap)[0];
       out.push(card('money', 'Suggestion', 'sug', `Decide how to pay for ${top && top.label ? esc(top.label) : 'the rest of the plan'}`,
         `${f(x.gap)} of the plan has no way to pay yet, starting in FY${x.first.fy}.`, x.gap >= 1e6 ? 'The plan has a gap over $1M with no funding source' : 'The plan has a gap with no funding source',
-        `<button type="button" class="btn small primary" data-action="homeAsk" data-q="Can we pay for everything in the plan?">Compare the options</button><button type="button" class="btn small" data-action="homeSnooze" data-k="gap">Not now</button>`));
+        `<button type="button" class="btn small primary" data-action="homeAsk" data-q="How could we close the gap?">Compare the options</button><button type="button" class="btn small" data-action="homeSnooze" data-k="gap">Not now</button>`));
     }
     if ((c.plan || c.finance || c.admin) && o.latestRep) {
       const now = new Date(), prevEnd = new Date(now.getFullYear(), now.getMonth(), 0), iso = prevEnd.toISOString().slice(0, 10);

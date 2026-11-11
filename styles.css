@@ -1352,3 +1352,10 @@ button.pc{position:relative}
 @media (max-width:980px){.hh-grid{grid-template-columns:minmax(0,1fr)}.hh-dark p.lead{font-size:28px}}
 @media (max-width:760px){.home-hero.hh-dark{padding:18px 16px 80px}.hh-dark p.lead{font-size:24px}.hh-figs>div+div{padding-left:10px}.hh-figs b{font-size:19px}.hh-figs span{font-size:11.5px}.ha-zone.lift{padding:0 8px}.hh-foot .hh-math{margin-left:0}}
 .frame.presenting .hh-dark p.lead{font-size:38px}
+
+.hm-sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.hm-sum>div{border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;background:var(--side)}
+.hm-sum span{font-size:12.5px;color:var(--muted)} .hm-sum b{font:600 20px var(--serif);font-variant-numeric:tabular-nums} .hm-sum .g b{color:var(--gap)}
+.ha-opt .small{color:var(--muted);line-height:1.45}
+@media (max-width:760px){.hm-sum{grid-template-columns:minmax(0,1fr)}}
+.hc-lead{stroke:rgba(241,238,228,.45);stroke-width:1}
