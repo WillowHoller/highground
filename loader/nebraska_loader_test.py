@@ -303,6 +303,29 @@ v2 = lc["99-0002-000"]
 near(v2["board_vote"], 1, "LC-2 board 70% vote"); near(v2["board_extra"], 407487, "LC-2 board amount"); ok(v2["override_first"] is None and v2["override_last"] is None, "LC-2 no override years")
 ok(L.override_fy("2023/24", True) == 2024 and L.override_fy("2027/28", False) == 2028 and L.override_fy(2023, True) == 2024 and L.override_fy(2028, False) == 2028, "override years, both NDE layouts")
 ok(L.yes("Yes") == 1 and L.yes("No") == 0 and L.yes(1) == 1, "LC-2 yes/no")
+# NDE's 2023/24 LC-2: no "District Number" heading (a blank cell above a row of codes), Yes/No text, school-year override years
+H24 = [None, None, "Certified Budget Authority", "Access to Prior Year's Unused Budget Authority ", "Total Allowable Budget Authority",
+       "Did you hold a successful election of your patrons for a levy override that applies to the current year?",
+       "Total property tax levy approved by the Patrons in excess of the Statutory Levy Limit of $1.05",
+       "What was the first year this Levy Override was in effect?", "What year will this Levy Override expire?", "Certified Assessed Valuation",
+       "2023/24 Property Tax Request Authority", "Did 70% of the School Board approve to exceed the Certified Property Tax Request Authority?",
+       "Maximum Amount Allowed:", "List the additional increase approved by the School Board.",
+       "List the total Property Tax Request Authority increase approved by the voters.", "Additional Property Tax Authority due to successful levy override",
+       "2023/24 Property Tax Request General Fund", "2023/24 Property Tax Request Special Building Fund"]
+C24 = ["AgencyID", "Name", "A-101", "A-355", "A-380", "B-400", "B-420", "B-430", "B-440", "C-100", "C-200", "C-300", "C-310", "C-320", "C-400", "C-500", "C-600", "C-700"]
+R24 = ["99-0001-000", "PRAIRIE FORK PUBLIC SCHOOLS", 4688389, 0, 4688389, "Yes", 0.09, "2023/24", "2027/28", 600000000, 5000000, "Yes", 350000, 300000, 0, 540000, 4400000, 100000]
+p24 = os.path.join(tmp, "lc2-2324.xls")
+write_xls(p24, [H24, C24, R24])
+fy24, lc24 = L.parse_lc2(L.read_book(p24))
+w = lc24.get("99-0001-000") or {}
+ok(w.get("budget_authority") == 4688389 and w.get("override_on") == 1 and w.get("override_first") == 2024 and w.get("override_last") == 2028
+   and w.get("board_vote") == 1 and w.get("board_extra") == 300000 and w.get("ov_authority") == 540000 and w.get("gf_request") == 4400000 and w.get("pta") == 5000000,
+   f"LC-2 2023/24 layout: {w}")
+bad = os.path.join(tmp, "lc2-odd.xls"); write_xls(bad, [["Something else"], ["x", "y"]])
+try:
+    L.parse_lc2(L.read_book(bad)); ok(False, "an unknown LC-2 layout should be refused")
+except ValueError:
+    ok(True, "an unknown LC-2 layout is refused with a message")
 
 # ---------------------------------------------------------------- prior year correction (a PDF, read with pdftotext)
 try:

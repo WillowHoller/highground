@@ -414,8 +414,8 @@ LC2_COLS = [   # NDE's statewide LC-2 budget submission totals (sfos.education.n
     ("eb_reserve", lambda h: h.endswith("employee benefit fund necessary cash reserve")),
     ("pta", lambda h: re.match(r"^\d{4}/\d\d property tax request authority$", h)),
     ("board_vote", lambda h: h.startswith("did 70% of the school board approve")),
-    ("board_extra", lambda h: h.startswith("enter the amount approved by the school board")),
-    ("pta_vote", lambda h: h.startswith("enter the total property tax request authority increase approved")),
+    ("board_extra", lambda h: h.startswith("enter the amount approved by the school board") or h.startswith("list the additional increase approved by the school board")),
+    ("pta_vote", lambda h: h.startswith("enter the total property tax request authority increase approved") or h.startswith("list the total property tax request authority increase approved")),
     ("gf_request", lambda h: h.endswith("property tax request general fund")),
     ("sb_request", lambda h: h.endswith("property tax request special building fund")),
     ("total_request", lambda h: re.match(r"^\d{4}/\d\d total property tax request$", h)),
@@ -449,7 +449,13 @@ def parse_lc2(book):
     """-> (fy, {agency: {...}}): the adopted budget's General Fund and Special Building property tax requests, budget authority,
     unused authority, levy overrides, valuation and reserves, for every district"""
     rows = next(iter(book.values()))
-    hi = next(i for i, r in enumerate(rows) if r and norm(r[0]) == "district number")
+    # newer files head the agency column "District Number"; NDE's 2023/24 file leaves it blank above a row of codes
+    # ("AgencyID", "A-101", ...), so the row of descriptions is found by its first description too
+    hi = next((i for i, r in enumerate(rows) if r and norm(r[0]) == "district number"), None)
+    if hi is None:
+        hi = next((i for i, r in enumerate(rows) if r and any(norm(c) == "certified budget authority" for c in r)), None)
+    if hi is None:
+        raise ValueError("not laid out like NDE's LC-2 totals (no 'District Number' or 'Certified Budget Authority' heading)")
     hdr = [norm(c) for c in rows[hi]]
     cols = {}
     for key, test in LC2_COLS:
@@ -762,7 +768,12 @@ def main():
                         + [f"NDE Statistical Information {fy - 1}/{str(fy)[2:]}"] for ag, v in data.items()]
                 table = "ne_stat"
             elif kind == "lc2":
-                fy2, data = parse_lc2(book)
+                try:
+                    fy2, data = parse_lc2(book)
+                except (ValueError, StopIteration) as e:
+                    if name != files[0][1]:   # an older year in a layout this reader doesn't know: skip it, keep the rest
+                        print(f"lc2: {name} skipped ({e})", flush=True); continue
+                    raise
                 fy = fy or fy2
                 lc = [k for k, _ in LC2_COLS]
                 cols = ["agency_id", "fiscal_year"] + lc + ["source"]
