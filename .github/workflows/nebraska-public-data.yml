@@ -1,0 +1,54 @@
+name: Nebraska public data
+
+# NDE's school-finance files and each district's Annual Financial Report page (loader/load_nebraska.py, part 35's tables).
+# Monthly; only files that changed are loaded again. The AFR pages are about 245 districts x 3 years, half a second apart.
+on:
+  schedule:
+    - cron: "41 10 5 * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Reload even if the files haven't changed"
+        type: boolean
+        default: false
+      afr_years:
+        description: "Annual Financial Report years to load"
+        type: string
+        default: "3"
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install psql, pdftotext and openpyxl
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client poppler-utils
+          python -m pip install --quiet openpyxl
+      - name: Check the readers on made-up files first
+        run: python loader/nebraska_loader_test.py
+      - name: Load NDE statistical information, state aid (TEEOSA), property tax request authority, budget authority and the LC-2 budget submissions
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python loader/load_nebraska.py --only stat --only aid --only pta --only budget --only lc2 ${{ inputs.force && '--force' || '' }}
+      - name: Load each district's Annual Financial Report and refresh the peer measures
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python loader/load_nebraska.py --only afr --afr-years ${{ inputs.afr_years || '3' }} ${{ inputs.force && '--force' || '' }}
+      - name: Record that the monthly load finished
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" -X -q -c "insert into public.ne_load_run (kind, status, message) values ('workflow_ok', 'ok', 'run ${{ github.run_id }}')"
+      - name: Record that the monthly load failed
+        if: failure()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          psql "$DATABASE_URL" -X -q -c "insert into public.ne_load_run (kind, status, message) values ('workflow', 'error', 'run ${{ github.run_id }} failed: see GitHub Actions')"
