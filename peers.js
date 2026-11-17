@@ -9,20 +9,24 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const FUND = { ALL: 'All funds', General: 'General Fund', SAVE: 'SAVE', PPEL: 'PPEL', Management: 'Management Fund', Nutrition: 'School Nutrition', 'Debt Service': 'Debt Service' };
+  const FUND = { ALL: 'All funds', General: 'General Fund', SAVE: 'SAVE', PPEL: 'PPEL', Management: 'Management Fund', Nutrition: 'School Nutrition', 'Debt Service': 'Debt Service',
+    'Special Building': 'Special Building Fund', Depreciation: 'Depreciation Fund', QCPUF: 'QCPUF' };   // the last three: Nebraska (ne_benchmark, part 35)
 
   /** which state funds each screen speaks for */
   const SCREENS = {
     general: (r) => r.fund === 'General',
     funds: (r) => ['ALL', 'Management', 'Nutrition'].includes(r.fund),
-    capital: (r) => ['SAVE', 'PPEL'].includes(r.fund),
+    capital: (r) => ['SAVE', 'PPEL', 'Special Building', 'Depreciation', 'QCPUF'].includes(r.fund),
   };
 
   /** "General Fund · Student Transportation spending", "All funds · total revenue", "General Fund · solvency ratio" */
   function label(r) {
     const fund = FUND[r.fund] || r.fund, kind = String(r.measure_key || '').split('|')[0];
     let what;
-    if (kind === 'bal') what = r.line === 'SOLVENCY' ? 'solvency ratio' : r.line === 'ENDING' ? 'ending balance' : r.line === 'ENDING_PCT' ? 'ending balance, % of spending' : String(r.line).toLowerCase() + ' balance';
+    if (kind === 'lev') what = 'levy, per $100 of valuation';
+    else if (kind === 'val') what = 'valuation';
+    else if (kind === 'bal' && r.line === 'RESERVE_PCT') what = 'cash reserve with the Depreciation and Employee Benefit funds, % of spending';
+    else if (kind === 'bal') what = r.line === 'SOLVENCY' ? 'solvency ratio' : r.line === 'ENDING' ? 'ending balance' : r.line === 'ENDING_PCT' ? 'ending balance, % of spending' : String(r.line).toLowerCase() + ' balance';
     else if (r.line === 'TOTAL') what = kind === 'rev' ? 'total revenue' : 'total spending';
     else what = r.line + (kind === 'rev' ? ' revenue' : ' spending');
     return `${fund} · ${what}`;
@@ -44,7 +48,7 @@
     return `<div class="card peers" data-peers><h3>Unusual vs. ${esc(grp)} <span class="count">${rows.length}</span></h3>
       <p class="small">${rows.length === 1 ? 'One number is' : `${rows.length} numbers are`} far outside what ${esc(grp)} report: worth asking about, not necessarily a problem.</p>
       <ul>${rows.map((r) => `<li><span class="peer-tag peer-${esc(r.flag)}">${esc(FLAG[r.flag] || r.flag)}</span> <b>${esc(label(r))}</b>: ${esc(r.callout)}. <a href="#" data-action="peerDetail" data-key="${esc(r.measure_key)}">Details</a></li>`).join('')}</ul>
-      <p class="small muted">From the district’s Certified Annual Report to the state, FY${esc(m.fy)}. Per-pupil figures use certified enrollment.</p></div>`;
+      <p class="small muted">From ${esc(m.source || 'the district’s Certified Annual Report to the state')}, FY${esc(m.fy)}. Per-pupil figures use ${esc(m.basis || 'certified enrollment')}.</p></div>`;
   }
 
   const num = (v) => (v == null || v === '' ? null : Number(v));
@@ -83,13 +87,13 @@
         <div class="scroll"><table class="data"><thead><tr><th></th><th class="num">This district</th><th class="num">Typical peer</th><th class="num">Difference</th><th></th></tr></thead><tbody>
         ${sub.map((x) => `<tr><td>${esc(partName(x))}</td><td class="num">${esc(fmtVal(x.value, x.unit))}</td><td class="num">${esc(fmtVal(x.peer_median, x.unit))}</td><td class="num">${esc(gap(x))}</td><td>${x.flag ? `<span class="peer-tag peer-${esc(x.flag)}">${esc(FLAG[x.flag])}</span>` : ''}</td></tr>`).join('')}
         </tbody></table></div>` : ''}
-      <p class="small muted">From the district’s Certified Annual Report to the state, FY${esc(m.fy)}. Peers: ${esc(r.peer_group || 'districts the same size')}. Per pupil uses certified enrollment. A difference can have good reasons (a new building, a bus route, a grant), so treat it as a question, not a finding.</p></div>`;
+      <p class="small muted">From ${esc(m.source || 'the district’s Certified Annual Report to the state')}, FY${esc(m.fy)}. Peers: ${esc(r.peer_group || 'districts the same size')}. Per pupil uses ${esc(m.basis || 'certified enrollment')}. A difference can have good reasons (a new building, a bus route, a grant), so treat it as a question, not a finding.</p></div>`;
   }
 
   /** one line for the Overview's "Needs attention" list, or '' */
-  function overviewLine(rows) {
+  function overviewLine(rows, where) {
     const n = pick(rows, 'all').length;
-    return n ? `${n} number${n === 1 ? ' stands' : 's stand'} out against similar Iowa districts in the state’s latest annual report` : '';
+    return n ? `${n} number${n === 1 ? ' stands' : 's stand'} out against similar ${where || 'Iowa'} districts in the state’s latest annual report` : '';
   }
 
   return { label, pick, cardHtml, detailHtml, parts, fmtVal, overviewLine, FUND, SCREENS };

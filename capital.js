@@ -4,10 +4,11 @@
    through demoRows() and checks the engine gives the same answers as the working planner. */
 (function (root, factory) {
   const E = root.HGEngine || (typeof require === 'function' ? require('./engine.js') : null);
-  const api = factory(E);
+  const ST = root.HGStates || (typeof require === 'function' ? require('./states.js') : null);
+  const api = factory(E, ST);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.HGCapital = api;
-})(typeof self !== 'undefined' ? self : this, function (E) {
+})(typeof self !== 'undefined' ? self : this, function (E, ST) {
   'use strict';
   const n = (v, d) => { const x = Number(v); return v === null || v === undefined || v === '' || !isFinite(x) ? d : x; };
   const CAP_FUNDS = ['save', 'ppel', 'vppel', 'grants'];
@@ -17,6 +18,7 @@
   function settingsFromRows(district, s, balances, debts) {
     const notes = [];
     s = s || {};
+    const state = ST.pack(district && district.state).code, L = (k) => ST.label(k, state);
     // latest balance per capital fund
     const latest = {};
     (balances || []).forEach((b) => {
@@ -28,9 +30,12 @@
     if (dates.length > 1) notes.push(`Fund balances have different dates (${dates.join(', ')}). The plan starts from ${asOf}.`);
     const bal = (f) => (latest[f] ? n(latest[f].amount, 0) : (f === 'save' || f === 'ppel' ? null : 0));
     const capDebts = (debts || []).filter((d) => d.fund === 'save' || d.fund === 'ppel');
-    if ((debts || []).some((d) => d.fund === 'debt_levy')) notes.push('Payments on debt repaid from the debt service levy (usually voter-approved general-obligation bonds) aren’t taken out of SAVE or PPEL here: a separate property tax pays them.');
+    if ((debts || []).some((d) => d.fund === 'debt_levy')) notes.push(`Payments on debt repaid from the ${L('debt_levy').toLowerCase()} (usually voter-approved general-obligation bonds) aren’t taken out of ${['save', 'ppel'].filter((k) => ST.on(k, state)).map(L).join(' or ')} here: a separate property tax pays them.`);
     return {
       settings: {
+        state,
+        /* state-specific inputs (part 34): Nebraska's lid figures */
+        lid: Object.assign({}, (s.state_inputs && s.state_inputs.lid) || {}),
         district: { name: district ? district.name : '', short: district ? district.short_name : '', enrollment: n(s.enrollment, null) },
         plan: Object.assign({ years: n(s.plan_years, 10) }, s.plan_start_fy != null ? { startFY: n(s.plan_start_fy, undefined) } : {}),
         balances: { asOf: asOf, save: bal('save'), ppel: bal('ppel'), vppel: bal('vppel'), grants: bal('grants') },
@@ -54,7 +59,7 @@
     const byInit = new Map();
     const fundBy = new Map();
     (funding || []).forEach((f) => { if (!fundBy.has(f.phase_id)) fundBy.set(f.phase_id, []); fundBy.get(f.phase_id).push({ b: f.fund === 'general' ? 'save' : f.fund, p: n(f.pct, 0) }); });
-    if ((funding || []).some((f) => f.fund === 'general')) notes.push('Some phases are paid from the general fund; the capital plan counts them against SAVE for now.');
+    if ((funding || []).some((f) => f.fund === 'general')) notes.push(`Some phases are paid from the general fund; the capital plan counts them against ${ST.label('save', cfg.state)} for now.`);
     let outside = 0;
     (phases || []).filter((p) => p.scenario_id === scenarioId)
       .sort((a, b) => (a.fy - b.fy) || (a.seq - b.seq))
@@ -132,7 +137,8 @@
     if (recur.length) stored.recur = recur;
     const notes = st.notes.concat(pr.notes);
     const ss = rows.settings || {};
-    const tax = { valuation: n(ss.taxable_valuation, 0), homeValue: n(ss.tax_home_value, 150000), agPerAcre: n(ss.ag_value_per_acre, 0) };
+    const tax = { valuation: n(ss.taxable_valuation, 0), homeValue: n(ss.tax_home_value, 150000), agPerAcre: n(ss.ag_value_per_acre, 0),
+      creditShare: ss.state_inputs && ss.state_inputs.taxCredit && ss.state_inputs.taxCredit.share != null ? Number(ss.state_inputs.taxCredit.share) : null };
     if (recur.some((r) => r.grows === 'settlement') && !(stored.settle > 0)) notes.push('Yearly costs set to grow with negotiated raises stay flat until the scenario uses an assumption set with a total package increase.');
     return { cfg, projects: pr.projects, stored, levers: E.leversOf(stored, cfg), notes, tax, set };
   }
@@ -140,8 +146,8 @@
   /* ------------------------------------------------ demo data → database rows */
   /** Rows for every table, in the order they must be inserted. ids come from newId() (crypto.randomUUID in the browser). */
   function demoRows(demo, districtId, newId) {
-    const s = demo.settings;
-    const startFY = E.fyOfDate(s.balances.asOf);
+    const s = demo.settings, state = ST.pack(demo.state).code;
+    const startFY = E.fyOfDate(s.balances.asOf, state);
     const out = { district_settings: [], fund_balance: [], debt_obligation: [], initiative: [], scenario: [],
                   scenario_initiative: [], phase: [], phase_funding: [], financing: [], recurring_cost: [], lock: [],
                   priority: [], outcome: [], measure: [], measure_value: [], survey: [], survey_result: [] };
@@ -173,6 +179,7 @@
       grants_avg: s.grants.avg, grants_yield: s.grants.yield, construction_inflation: s.inflation,
       ...(s.tax ? { tax_home_value: s.tax.homeValue, ag_value_per_acre: s.tax.agPerAcre } : {}),
       ...(s.gf ? { gf_inputs: s.gf } : {}),
+      ...(s.lid ? { state_inputs: { lid: s.lid } } : {}),
     });
     CAP_FUNDS.forEach((f) => out.fund_balance.push({ district_id: districtId, fund: f, as_of: s.balances.asOf, amount: s.balances[f] || 0, source: 'manual' }));
     (s.debt || []).forEach((d) => out.debt_obligation.push({ district_id: districtId, name: d.name, fund: d.fund, annual_payment: d.annual, final_fy: d.lastFY, first_year_timing: d.timing || 'spread' }));
@@ -209,7 +216,7 @@
         fund: r.fund, first_fy: r.first, last_fy: r.last == null ? null : r.last, annual_amount: r.amount, grows_with: r.grows || 'none' }));
       (L.fin || []).forEach((f) => out.financing.push({ district_id: districtId, scenario_id: sid, name: f.name, kind: f.kind, issue_fy: f.fy,
         amount: f.amount, rate: f.rate || 0, years: f.years || 0,
-        repay_from: f.kind === 'rev' ? 'save' : f.kind === 'lease' ? (f.repay === 'save' ? 'save' : 'ppel') : f.kind === 'gift' ? 'none' : 'levy' }));
+        repay_from: f.kind === 'rev' ? 'save' : f.kind === 'lease' ? (f.repay === 'save' ? 'save' : f.repay === 'vppel' ? 'vppel' : 'ppel') : f.kind === 'gift' ? 'none' : 'levy' }));
     });
     if (dir && dir.survey) {   // after the initiatives exist, so themes can link to them
       const sv = dir.survey, sid = newId();
@@ -219,7 +226,10 @@
         initiative_id: r.project != null ? initId.get(r.project) || null : null }));
     }
     evenKeys(out.phase);
-    Object.assign(out, demoLedger(demo, districtId, newId, out, startFY));
+    /* the sample ledger uses Iowa's chart of accounts and July–September; other states' demos start with no ledger */
+    if (state === 'IA') Object.assign(out, demoLedger(demo, districtId, newId, out, startFY));
+    else if (state === 'NE') Object.assign(out, demoLedgerNE(demo, districtId, newId, out, startFY));
+    else Object.assign(out, { import_batch: [], gl_account: [], gl_amount: [] });
     return out;
   }
   /** bulk inserts need the same fields on every row: a field some rows have is set to null on the others */
@@ -307,6 +317,11 @@
           Number(ph.cost) * Number(f.pct) / 100, (m) => [0, 0.18, 0.46, 0.62][m], 0.24, ph.initiative_id]);
       });
     });
+    return emitLedger(out, acct, months, districtId, newId, startFY);
+  }
+  /* the month-end batches for a list of ledger accounts (shared by every state's demo ledger) */
+  function emitLedger(out, acct, months, districtId, newId, startFY) {
+    const r0 = (v) => Math.round(v);
     if (!acct.length) return out;
     const ids = acct.map(() => newId());
     acct.forEach((a, k) => out.gl_account.push({ id: ids[k], district_id: districtId, code: a[0], fund_code: a[1], function_code: a[2], object_code: a[3], description: a[4],
@@ -321,6 +336,49 @@
       });
     });
     return out;
+  }
+  /* Nebraska's demo ledger: September, October and November of the plan's first year (the fiscal year starts September 1),
+     in NDE AFR account codes (fund-type-code-object; NDE 2025/26 master code list). Fictional, like every demo figure. */
+  function demoLedgerNE(demo, districtId, newId, rows, startFY) {
+    const s = demo.settings || {}, g = s.gf, out = { import_batch: [], gl_account: [], gl_amount: [] };
+    if (!startFY) return out;
+    const cal = startFY - 1, months = [[9, 30], [10, 31], [11, 30]].map(([m, d], k) => ({ m: k + 1, end: `${cal}-${String(m).padStart(2, '0')}-${d}` }));
+    const acct = [];
+    const even = (m) => m / 12, tenMonth = (m) => Math.max(0, m - 0.5) / 10, summer = (m) => [0, 0.22, 0.4, 0.52][m], lagged = (m) => Math.max(0, m - 1) / 12;
+    const taxes = (m) => [0, 0.02, 0.05, 0.38][m];   // Nebraska's first half of property taxes is due December 31
+    if (g) {
+      const staff = (g.staff || []).reduce((t, x) => t + Number(x.fte) * (Number(x.salary) * (1 + Number(x.benefits == null ? 0.1709 : x.benefits)) + Number(x.health || 0)), 0);
+      const spend = staff + Number(g.nonstaff || 0), aid = Number(g.state_aid || 0);
+      [['01100', 'Taxes levied by the school district', Number(g.property_tax || 0), taxes], ['03110', 'State aid (TEEOSA)', aid, even],
+        ['03120', 'Special education reimbursement', Number(g.other_state || 0), lagged], ['01990', 'Other local revenue', Number(g.misc_income || 0), lagged]].forEach(([src, d, amt, pace]) => {
+        if (amt > 0) acct.push([`01-1-${src}-000`, '01', '0000', src, d, 'revenue', 'general', amt, pace, 0]);
+      });
+      [['01100', 'Regular instruction', 0.52, tenMonth, 0.01], ['01200', 'Special education instruction', 0.11, tenMonth, 0.01], ['02100', 'Support services: students', 0.04, tenMonth, 0.02],
+        ['02200', 'Support services: instruction', 0.03, even, 0.03], ['02300', 'General administration', 0.03, even, 0.02], ['02400', 'Office of the principal', 0.06, even, 0.01],
+        ['02500', 'Central services', 0.03, even, 0.02], ['02600', 'Operation and maintenance of plant', 0.11, (m) => even(m) * 1.12, 0.05],
+        ['02700', 'Student transportation', 0.05, tenMonth, 0.04], ['03100', 'Food service and other', 0.02, tenMonth, 0.02]].forEach(([fn, d, sh, pace, enc]) =>
+        acct.push([`01-2-${fn}-000`, '01', fn.slice(1), '000', d, 'expense', 'general', spend * sh, pace, enc]));
+      if (s.save && Number(s.save.receipts) > 0) acct.push(['01-2-08000-911', '01', '8000', '911', 'Transfer to the Depreciation Fund', 'expense', 'general', Number(s.save.receipts), (m) => (m >= 2 ? 1 : 0), 0]);
+    }
+    const debt = (fund) => (s.debt || []).filter((x) => x.fund === fund).reduce((t, x) => t + Number(x.annual || 0), 0);
+    if (s.save && Number(s.save.receipts) > 0) acct.push(['02-1-05200-000', '02', '0000', '05200', 'Fund transfers in (from the General Fund)', 'revenue', 'save', Number(s.save.receipts), (m) => (m >= 2 ? 1 : 0), 0]);
+    if (s.ppel && s.ppel.receipts) {
+      acct.push(['08-1-01100-000', '08', '0000', '01100', 'Special Building levy', 'revenue', 'ppel', Number(s.ppel.receipts), taxes, 0]);
+      if (s.ppel.ongoing) acct.push(['08-2-02600-730', '08', '2600', '730', 'Equipment (Special Building)', 'expense', 'ppel', Number(s.ppel.ongoing), summer, 0.2]);
+      if (debt('ppel')) acct.push(['08-2-05000-830', '08', '5000', '830', 'Lease-purchase payments (Special Building)', 'expense', 'ppel', debt('ppel'), (m) => (m >= 2 ? 0.5 : 0), 0]);
+    }
+    if (s.vppel && s.vppel.status === 'active' && s.vppel.annual) acct.push(['09-1-01100-000', '09', '0000', '01100', 'QCPUF levy', 'revenue', 'vppel', Number(s.vppel.annual), taxes, 0]);
+    const board = (rows.scenario || []).find((x) => x.is_board_version) || (rows.scenario || [])[0];
+    const INIT = new Map((rows.initiative || []).map((i) => [i.id, i])), FUNDCODE = { save: '02', ppel: '08', vppel: '09' };
+    let n = 0;
+    (rows.phase || []).filter((ph) => board && ph.scenario_id === board.id && ph.fy === startFY && ph.status !== 'done').forEach((ph) => {
+      (rows.phase_funding || []).filter((f) => f.phase_id === ph.id && FUNDCODE[f.fund]).forEach((f) => {
+        const i = INIT.get(ph.initiative_id) || {}; n++;
+        acct.push([`${FUNDCODE[f.fund]}-2-04600-45${n}`, FUNDCODE[f.fund], '4600', `45${n}`, `${i.name || 'Project'}${ph.label ? ': ' + ph.label : ''}`, 'initiative', f.fund,
+          Number(ph.cost) * Number(f.pct) / 100, (m) => [0, 0.18, 0.46, 0.62][m], 0.24, ph.initiative_id]);
+      });
+    });
+    return emitLedger(out, acct, months, districtId, newId, startFY);
   }
   /* what each capital fund is already committed to over the plan, before any project: payments on existing debt and new
      borrowing, ongoing commitments, and yearly costs of programs and hires charged to the fund (year 0 scaled like receipts) */

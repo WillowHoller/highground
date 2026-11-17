@@ -1,7 +1,8 @@
 /* HighGround: the demo districts' month-end ledger (14 Oct). Run: node demo_ledger_test.js */
 const C = require('./capital.js'), D = require('./demo_data.js'), B = require('./budget.js');
 let pass = 0, fail = 0; const check = (n, c, d) => { if (c) pass++; else { fail++; console.log('FAIL', n, d ?? ''); } };
-Object.keys(D).forEach((slug) => {
+/* Iowa demos carry a sample ledger in Iowa's chart of accounts; another state's demo (Prairie Fork, Nebraska) starts without one */
+Object.keys(D).filter((slug) => !D[slug].state || D[slug].state === 'IA').forEach((slug) => {
   let i = 0; const R = C.demoRows(D[slug], 'd1', () => 'x' + (++i));
   check(`${slug}: three month-ends, July to September of the plan's first year`, R.import_batch.length === 3 && R.import_batch.every((b) => b.kind === 'gl_monthly' && b.status === 'uploaded' && b.fiscal_year === 2027), R.import_batch.map((b) => b.period_end));
   check(`${slug}: revenue and spending accounts only, so applying it never changes the starting balances`, R.gl_account.length > 0 && R.gl_account.every((a) => ['revenue', 'expense', 'initiative'].includes(a.maps_to)));

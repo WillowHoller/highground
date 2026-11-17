@@ -1,6 +1,6 @@
 # HighGround
 
-Strategy, decisions, capital planning and accountability for Iowa school districts, by Willow Holler. Live at **highground.willowholler.com**.
+Strategy, decisions, capital planning and accountability for school districts (Iowa, with Nebraska in preview), by Willow Holler. Live at **highground.willowholler.com**.
 
 The app is plain HTML, CSS and JavaScript with no build step; GitHub Pages serves this repository as it is. Data, sign-in and access rules live in Supabase.
 
@@ -11,6 +11,7 @@ The app is plain HTML, CSS and JavaScript with no build step; GitHub Pages serve
 | `SETUP.md` | Setting up GitHub and Supabase from scratch, and the order to run the SQL files |
 | `GO_LIVE.md` | What must be done before the first real district signs in. Read this first when "going live" comes up |
 | `DATABASE.md` | What each table holds, in plain language |
+| `STATES.md` | How states work: the guardrail, fund slots, state packs, the Admin Portal's state view, adding a state |
 | `PUBLIC_DATA.md` | The Iowa state data: peer comparisons, the state prefill, check-register questions, and the monthly loader |
 
 ## What's in the repository

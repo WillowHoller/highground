@@ -16,10 +16,13 @@
   'use strict';
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const monthEnd = (y, m) => new Date(y, m, 0);   // m is 1-12
+  /* the month a fiscal year closes in the state on screen (states.js): from its fiscal year start */
+  const ST_ = (typeof self !== 'undefined' && self.HGStates) || (typeof require === 'function' ? (() => { try { return require('./states.js'); } catch (e) { return null; } })() : null);
+  const closeMonth = () => { const sm = ST_ ? ST_.fyStartMonth() : 7; return sm === 1 ? 12 : sm - 1; };
   /** the date a period ends, or null if it can't be read */
   function periodEnd(p) {
     const s = String(p || '').trim(); let m;
-    if ((m = s.match(/^(?:FY\s?)(\d{4})$/i))) return iso(monthEnd(+m[1], 6));
+    if ((m = s.match(/^(?:FY\s?)(\d{4})$/i))) return iso(monthEnd(+m[1], closeMonth()));
     if ((m = s.match(/^(\d{4})\s?[-–/]\s?(\d{2}|\d{4})$/)) && !/^\d{4}-(0[1-9]|1[0-2])$/.test(s)) {
       const y2 = m[2].length === 2 ? Math.floor(+m[1] / 100) * 100 + +m[2] : +m[2];
       if (y2 === +m[1] + 1) return iso(monthEnd(y2, 6));
@@ -83,7 +86,7 @@
     ppel_balance: { name: 'PPEL balance', unit: '$', better: 'up', source: 'import', cadence: 'monthly' },
     general_balance: { name: 'General Fund balance', unit: '$', better: 'up', source: 'import', cadence: 'monthly' },
   };
-  const fyOf = (isoDate) => { const d = new Date(isoDate + 'T12:00:00'); return d.getMonth() >= 6 ? d.getFullYear() + 1 : d.getFullYear(); };
+  const fyOf = (isoDate) => { const d = new Date(isoDate + 'T12:00:00'); return d.getMonth() + 1 > closeMonth() ? d.getFullYear() + 1 : d.getFullYear(); };
   /** data: { phases (board version, with fy, cost, status, actual_cost, done_date), inflation, startFY, balances, reports } */
   function autoValues(metric, data) {
     const out = [];
@@ -95,7 +98,7 @@
         const list = byFY[fy];
         const ok = list.filter((p) => metric === 'phases_on_schedule' ? fyOf(p.done_date) <= p.fy
           : Number(p.actual_cost) <= Number(p.cost) * Math.pow(1 + (data.inflation || 0), Math.max(0, p.fy - (data.startFY || p.fy))) * 1.05).length;
-        out.push({ period: `FY${fy}`, period_end: `${fy}-06-30`, value: Math.round(ok / list.length * 1000) / 10, auto: true, note: `${ok} of ${list.length} phases` });
+        out.push({ period: `FY${fy}`, period_end: iso(monthEnd(+fy, closeMonth())), value: Math.round(ok / list.length * 1000) / 10, auto: true, note: `${ok} of ${list.length} phases` });
       });
     } else if (metric === 'capital_gap') {
       const byMonth = {};

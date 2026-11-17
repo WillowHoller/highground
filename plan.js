@@ -25,6 +25,10 @@
   const FROM_ENGINE = { High: 'must', Med: 'strategic', Low: 'nice', '10-yr': 'nice' };
   const FUND_WORD = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants and donations', boost: 'Boosters', camp: 'Capital campaign', general: 'General Fund', other: 'Other', debt_levy: 'Debt service levy' };
   const FUND_ORDER = ['save', 'ppel', 'vppel', 'grants', 'boost', 'camp', 'general', 'other'];
+  /* a fund's name in the state on screen (states.js); the home state keeps this file's own words */
+  const ST_ = (typeof self !== 'undefined' && self.HGStates) || (typeof require === 'function' ? (() => { try { return require('./states.js'); } catch (e) { return null; } })() : null);
+  const stWord = (k, map) => (ST_ && ST_.current().code !== 'IA' && ['save', 'ppel', 'vppel', 'debt_levy'].includes(k) ? ST_.label(k) : map[k]);
+
   const n = (v) => (v == null || v === '' || isNaN(Number(v)) ? 0 : Number(v));
 
   const fyText = (ys) => {
@@ -73,13 +77,13 @@
         const tot = fs.reduce((t, f) => t + n(f.pct), 0) || 100;
         fs.forEach((f) => { byFund[f.fund] = (byFund[f.fund] || 0) + (c * n(f.pct)) / tot; });
         /* a phase with fund choices ("SAVE or PPEL") is described that way; its cost counts under the first choice */
-        if (Array.isArray(p.fund_options) && p.fund_options.length > 1) choices.add(p.fund_options.map((k) => FUND_WORD[k] || k).join(' or '));
+        if (Array.isArray(p.fund_options) && p.fund_options.length > 1) choices.add(p.fund_options.map((k) => stWord(k, FUND_WORD) || k).join(' or '));
         else fs.forEach((f) => { named[f.fund] = (named[f.fund] || 0) + (c * n(f.pct)) / tot; });
       });
       const yearlyRows = rc.filter((r) => (!start || (n(r.first_fy) <= last && (r.last_fy == null || n(r.last_fy) >= start))));
       const yearly = yearlyRows.reduce((t, r) => t + n(r.annual_amount), 0);
       const yearlyFunds = [...new Set(yearlyRows.map((r) => r.fund))];
-      const funds = FUND_ORDER.filter((k) => named[k] > 0.5 || yearlyFunds.includes(k)).map((k) => FUND_WORD[k]).concat([...choices]);
+      const funds = FUND_ORDER.filter((k) => named[k] > 0.5 || yearlyFunds.includes(k)).map((k) => stWord(k, FUND_WORD)).concat([...choices]);
       if (auto > 0.5) funds.push('Capital funds, as the plan assigns');
       const phaseYears = ph.map((p) => n(p.fy));
       const doneDates = ph.map((p) => p.done_date).filter(Boolean).sort();

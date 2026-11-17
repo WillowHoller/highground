@@ -59,6 +59,17 @@ TABLES["audit_log"]=[{"id":2,"district_id":"d1","table_name":"initiative","row_p
   {"id":1,"district_id":"d1","table_name":"scenario","row_pk":"y","action":"insert","actor":"u-someone-else","at":"2026-09-30T14:00:00Z","old_row":None,"new_row":{"name":"Plan B"}}]
 TABLES["access_request"]=[{"id":"req1","district_id":"d1","email":"asker@example.test","message":"New principal at the middle school","created_at":"2026-09-29T15:00:00Z","status":"pending"}]
 # state annual-report data (part 16): fictional figures for the fictional demo district
+# Nebraska (part 35), fictional: NDE's figures for Prairie Fork
+NE_PREFILL={"agency_id":"99-0001-000","name":"PRAIRIE FORK PUBLIC SCHOOLS","class":"3",
+  "stat":{"fiscal_year":2026,"valuation":612345678,"gen_levy":0.8123,"sb_levy":0.045,"qcpuf_levy":0.01,"bond_levy":0.0911,"mem_total":600,"source":"NDE Statistical Information 2025/26"},
+  "aid":{"fiscal_year":2027,"formula_need":8300000,"local_effort":6123457,"option_funding":0,"income_tax":60000,"other_receipts":900000,"formula_students":600.12,"calc_aid":1636615,"prior_year_corr":-12000,"source":"NDE 2026/27 state aid certification"},
+  "pta":{"fiscal_year":2027,"gf_ask":4145194,"authority":5126579,"prior_unused":440433,"base_growth_rate":0.0695,"g_member":0.0369,"g_lep":0,"g_poverty":0.0025,"board_pct":0.07,"source":"NDE 2026/27 property tax request authority certification"},
+  "mem_hist":[{"fiscal_year":2023,"k12":246},{"fiscal_year":2024,"k12":238},{"fiscal_year":2025,"k12":238},{"fiscal_year":2026,"k12":260}],
+  "afr":{"fiscal_year":2025,"balances":{"general":3016870,"save":790628,"ppel":936270,"vppel":124836,"employee_benefit":120000,"contingency":50000},"receipts":{"ppel":676195,"vppel":187254,"save":156045},
+    "general":{"revenue":10298970,"property_tax":6283412,"state_aid":998688,"sped":416120,"other_state":624180,"other_financing":72821,"expenditures":9830835},
+    "debt_payments":{"ppel":75942,"debt_levy":348500},"funds":{"eb_transfer":30000,"eb_paid":25000},"source":"NDE Annual Financial Report, 2024/25"}}
+NE_BENCH=[{"measure_key":"exp|General|Student transportation","grp":"main","fund":"General","line":"Student transportation","unit":"per_pupil","amount":878820,"value":1464.7,"peer_group":"Nebraska districts with 600–999 students","peer_n":12,"peer_mean":505,"peer_median":503.6,"peer_p25":490,"peer_p75":520,"pct_rank":1,"vs_mean_pct":190,"prior_value":1420,"change_pct":3.1,"peer_change_median_pct":3,"flag":"high","callout":"$1,465/pupil — 2.9× the average of 12 Nebraska districts with 600–999 students (higher than 100% of them)"},
+  {"measure_key":"exp|Special Building|TOTAL","grp":"main","fund":"Special Building","line":"TOTAL","unit":"per_pupil","amount":480000,"value":800,"peer_group":"Nebraska districts with 600–999 students","peer_n":12,"peer_mean":300,"peer_median":290,"peer_p25":250,"peer_p75":330,"pct_rank":0.96,"vs_mean_pct":167,"prior_value":760,"change_pct":5.3,"peer_change_median_pct":4,"flag":"high","callout":"$800/pupil — 2.7× the average of 12 Nebraska districts with 600–999 students (higher than 96% of them)"}]
 IA_BENCH=[{"measure_key":"exp|General|Student Transportation","grp":"exp","fund":"General","line":"Student Transportation","unit":"per_pupil","flag":"high","peer_group":"districts your size",
            "callout":"$1,210/pupil — 1.8× the average of 41 districts your size (higher than 95% of them)"},
           {"measure_key":"bal|SAVE|ENDING","grp":"bal","fund":"SAVE","line":"ENDING","unit":"per_pupil","flag":"low","peer_group":"districts your size","callout":"$310/pupil — 62% below the average of 41 districts your size (lower than 93% of them)"},
@@ -148,6 +159,11 @@ async def handler(route):
     return await ok({"Key":path.split("/object/")[1]})
   if path=="/rest/v1/rpc/copy_scenario": return await ok("copied-scenario-id")
   if path=="/rest/v1/rpc/ia_benchmark": return await ok(IA_BENCH)
+  if path=="/rest/v1/rpc/ne_prefill": return await ok(NE_PREFILL)
+  if path=="/rest/v1/rpc/ne_benchmark": return await ok(NE_BENCH)
+  if path=="/rest/v1/rpc/ne_district_search": return await ok([{"agency_id":"99-0001-000","name":"PRAIRIE FORK PUBLIC SCHOOLS","county":"Prairie"}])
+  if path=="/rest/v1/ne_measure": return await ok([{"fiscal_year":2025}])
+  if path=="/rest/v1/ne_district": return await ok([{"agency_id":"99-0001-000","name":"PRAIRIE FORK PUBLIC SCHOOLS","county":"Prairie"}])
   if path=="/rest/v1/rpc/ia_prefill": return await ok(IA_PREFILL)
   if path=="/rest/v1/rpc/ia_prefill_more": return await ok(IA_MORE)
   if path=="/rest/v1/rpc/ia_levy": return await ok({"de_district":"7777","fiscal_year":2027,"voted_ppel":1.34,"regular_ppel":0.33,"debt_service":2.1,"management":0.9,"total_rate":13.2,"source":"Iowa Department of Management, School Tax Rates, FY2027"})
@@ -2564,6 +2580,141 @@ async def main():
           abs(wb[0]-wb[3])<2 and abs(wb[1]-wb[4])<2 and wb[2]>=600 and abs((wb[0]+wb[1])/2-wb[5]/2)<20, str(wb))
     TABLES["survey"]=[x for x in TABLES["survey"] if x["id"]!="sv-w"]
     await sy.close()
+    # ---- 11 Nov 2026: the state layer. Nebraska (Prairie Fork, fictional) in its own words; the Admin Portal's state view ----
+    NEROWS=json.loads(subprocess.check_output(["node","-e","const C=require('./capital.js'),D=require('./demo_data.js');let i=0;process.stdout.write(JSON.stringify(C.demoRows(D['prairie-fork'],'d2',()=>'00000000-0000-4000-9000-'+String(++i).padStart(12,'0'))))"],cwd=ROOT))
+    SAVED={t:list(v) for t,v in TABLES.items()}; D2SAVED=dict(D2); ADM=USERS["admin@example.test"]
+    for t,v in NEROWS.items():
+      if t=="lock" or not isinstance(v,list): continue
+      TABLES[t]=[r for r in TABLES.get(t,[]) if r.get("district_id")!="d2"]+[dict(r) for r in v]
+    for sc in TABLES["scenario"]:
+      if sc["id"] in NEROWS["lock"]: sc["is_locked"]=True
+      sc.setdefault("updated_at","2026-11-11T12:00:00Z")
+    D2.update(state="NE",name="Prairie Fork Public Schools",short_name="Prairie Fork",state_district_id="99-0001-000")
+    USERS["admin@example.test"]=(ADM[0],ADM[1],[("d1","admin"),("d2","admin")],ADM[3])
+    nx,npg=await session("admin@example.test")
+    IOWA_WORDS=r"\b(SAVE|PPEL|V-PPEL|Iowa|SF ?2472|IPERS|AEA)\b|per \$1,000"
+    leaks={}
+    for r0 in ["home/today","money/capital","money/summary","resources/funds","money/general","settings/setup","plan/initiatives","plan/ranking","plan/scenarios","share/board","share/community","help/guide",
+               "track/actuals","track/registers","track/measures","track/initiatives","share/plans","settings/uploads","settings/exports","settings/assumptions","settings/district","settings/overview","plan/priorities"]:
+      await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/"+r0); await npg.wait_for_timeout(1300)
+      txt=await npg.evaluate("document.querySelector('#frame') ? document.querySelector('#frame').innerText : document.body.innerText")
+      if os.environ.get("NE_DUMP"):
+        with open(os.environ["NE_DUMP"],"a") as df: df.write("\n\n######## "+r0+"\n"+txt)
+      found=sorted(set(m.group(0) for m in re.finditer(IOWA_WORDS,txt)))
+      if found: leaks[r0]=found
+      R.append(("nebraska (11 Nov): "+r0+" loads with no error notice", not await npg.locator("#view .notice.error:not([hidden])").count(), r0))
+    check("nebraska (11 Nov): no Iowa fund names, laws or units on any screen (SAVE, PPEL, V-PPEL, Iowa, SF 2472, per $1,000)", not leaks, str(leaks))
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/money/capital"); await npg.wait_for_timeout(1500)
+    cap=await npg.evaluate("document.getElementById('view').innerText")
+    check("nebraska (11 Nov): the capital plan names Special Building and QCPUF", "Special Building" in cap and "QCPUF" in cap, cap[:300])
+    check("nebraska (11 Nov): no SF 2472 switch and no SAVE revenue-bond room", not await npg.locator("[data-lever=sf]").count() and "revenue-bond room" not in cap)
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/setup"); await npg.wait_for_timeout(1300)
+    st=await npg.evaluate("[!!document.querySelector('[name=save_receipts]'),!!document.querySelector('[name=bal_save]'),!!document.querySelector('[name=lid_gf_rate]'),!!document.querySelector('[name=lid_authority]'),(document.querySelector('[name=lid_gf_rate]')||{}).value,[...document.querySelectorAll('#view h3')].map(h=>h.textContent).join('|')]")
+    check("nebraska (11 Nov; 12 Nov: the save slot is the Depreciation Fund): Starting numbers has Depreciation fields, the $1.05 lid and request authority", st[0] and st[1] and st[2] and st[3] and st[4]=="0.82" and "Depreciation Fund" in st[5] and not await npg.locator("[name=sf2472]:visible").count(), str(st))
+    check("nebraska (11 Nov): the levy cards are the Special Building Fund and the QCPUF levy", "Special Building Fund" in st[5] and "Qualified Capital Purpose Undertaking Fund" in st[5], st[5])
+    hint=await npg.evaluate("[...document.querySelectorAll('.hint')].map(x=>x.textContent).join(' ')")
+    check("nebraska (11 Nov): balances close on August 31 (September–August year)", "August 31" in hint, hint[:200])
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/money/general"); await npg.wait_for_timeout(1300)
+    gfx=await npg.evaluate("document.getElementById('view').innerText")
+    check("nebraska (11 Nov): the General Fund forecast shows property tax, state aid and a fund balance ratio (no Iowa spending authority)", "Fund balance ratio" in gfx and "Property tax" in gfx and "Spending authority" not in gfx and "Unspent balance" not in gfx, gfx[:300])
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/plan/scenarios"); await npg.wait_for_timeout(1300)
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/money/capital"); await npg.wait_for_timeout(1300)
+    opts=await npg.evaluate("[...document.querySelectorAll('select option')].filter(o=>o.offsetParent!==null||o.closest('select')).map(o=>[o.value,o.textContent.trim()])")
+    sv_=[t for v,t in opts if v=="save"]
+    check("nebraska (11 Nov; 12 Nov): pickers offer no SAVE revenue bond, and the save slot reads as Depreciation", all(v!="rev" for v,t in opts) and all("SAVE" not in t for v,t in opts) and (not sv_ or all("Depreciation" in t for t in sv_)), str(opts[:40]))
+    # ---- 12 Nov 2026: NDE public data (part 35): Starting numbers, the General Fund with TEEOSA, peers, the agency ID ----
+    n0=len(calls)
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/setup"); await npg.wait_for_timeout(1500)
+    ne1=await npg.evaluate("[!!document.querySelector('[data-ne-state]'),(document.querySelector('[data-ne-state]')||{}).textContent||'']")
+    check("nebraska data (12 Nov): Starting numbers compares with NDE's reports (Depreciation, Special Building, QCPUF cash at August 31; the request authority and its unused part)", ne1[0] and "From NDE" in ne1[1] and "Depreciation Fund cash, August 31, 2025" in ne1[1] and "Prior years’ unused authority" in ne1[1] and "QCPUF levy" in ne1[1], ne1[1][:400])
+    check("nebraska data (12 Nov): asks the database for ne_prefill with the agency ID, never Iowa's tables", any("/rpc/ne_prefill" in c[1] and "99-0001-000" in (c[2] or "") for c in calls[n0:]) and not any("/rpc/ia_prefill" in c[1] or "/rpc/ia_levy" in c[1] for c in calls[n0:]), str([c[1] for c in calls[n0:] if "/rpc/" in c[1]][:8]))
+    await npg.evaluate("document.querySelector('[data-ne-state]').closest('details') && (document.querySelector('[data-ne-state]').closest('details').open=true)")
+    await npg.click("[data-ne-state] [data-action=setupPrefill]"); await npg.wait_for_timeout(500)
+    fv=await npg.evaluate("['bal_ppel','bal_vppel','ppel_receipts','lid_carry','lid_authority','lid_growth','ppel_rate','enrollment','save_receipts','lid_mem_hist','lid_mem_growth'].map(n=>(document.querySelector('[name='+n+']')||{}).value)")
+    check("nebraska data (12 Nov): Fill in puts NDE's figures in the fields (authority less the carry; the carry on its own; membership for NDE's growth formula, no fixed growth)", fv[:5]==["936,270","124,836","676,195","440,433","4,686,146"] and fv[5]=="" and fv[6]=="0.045" and fv[7]=="600" and fv[8]=="156,045" and fv[9]=="246, 238, 238, 260" and fv[10]=="2", str(fv))
+    nb=await npg.evaluate("[!!document.querySelector('[name=lid_ov_cents]'),!!document.querySelector('[name=tax_credit_share]'),(document.querySelector('[name=tax_credit_share]')||{}).closest ? document.querySelector('[name=tax_credit_share]').closest('label').innerText : '',(document.querySelector('[data-ne-state]')||{}).textContent||'']")
+    check("nebraska (14 Nov): Starting numbers has the levy override (the 17.5¢ Special Building), the school tax credit share, and NDE's growth parts", nb[0] and nb[1] and "School District Property Tax Relief Credit" in nb[2] and "26.2%" in nb[2] and "of which fall membership" in nb[3] and "K-12 fall membership" in nb[3], str(nb)[:400])
+    await npg.fill("[name=lid_ov_cents]","3.5"); await npg.fill("[name=lid_ov_first]","2028"); await npg.fill("[name=lid_ov_last]","2032"); await npg.fill("[name=ppel_rate]","0.16"); await npg.fill("[name=tax_credit_share]","30"); n2=len(calls)
+    await npg.click("form[data-form=saveSetup] button[type=submit]"); await npg.wait_for_timeout(1200)
+    ps=[json.loads(c[2]) for c in calls[n2:] if c[0] in ("POST","PATCH") and "district_settings" in c[1] and c[2]]
+    si=(ps[-1][0] if ps and isinstance(ps[-1],list) else (ps[-1] if ps else {})).get("state_inputs",{})
+    check("nebraska (14 Nov): saving keeps the levy override, NDE's membership and the credit share", si.get("lid",{}).get("override")=={"cents":3.5,"first":2028,"last":2032} and si.get("lid",{}).get("memHist")==[246,238,238,260] and abs((si.get("taxCredit") or {}).get("share",0)-0.3)<1e-9 and "growth" not in si.get("lid",{}), str(si)[:300])
+    # ---- 14 Nov (b): NDE's LC-2 fills the levy override (a pre-2024 one adds to the authority) and the board's 70% vote ----
+    NE_PREFILL["lc2"]={"fiscal_year":2027,"valuation":626635675,"gf_request":4487374,"sb_request":120000,"pta":5126579,"unused_pta":639205,"override_on":1,
+                       "override_levy":0.09,"override_years":5,"override_first":2024,"override_last":2028,"ov_authority":564000,"board_vote":1,"board_extra":300000}
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/overview"); await npg.wait_for_timeout(600)
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/setup"); await npg.reload(); await npg.wait_for_timeout(1800)
+    await npg.evaluate("document.querySelector('[data-ne-state]') && document.querySelector('[data-ne-state]').closest('details') && (document.querySelector('[data-ne-state]').closest('details').open=true)")
+    lt=await npg.evaluate("(document.querySelector('[data-ne-state]')||{}).textContent||''")
+    await npg.click("[data-ne-state] [data-action=setupPrefill]"); await npg.wait_for_timeout(500)
+    lv=await npg.evaluate("[['lid_ov_cents','lid_ov_first','lid_ov_last','lid_authority'].map(n=>(document.querySelector('[name='+n+']')||{}).value), ['lid_ov_authority','lid_board_bump'].map(n=>!!(document.querySelector('[name='+n+']')||{}).checked)]")
+    check("nebraska (14 Nov b): the LC-2 fills the levy override's cents and years, ticks “authority too” and the board's 70% vote, and adds the board's amount to the authority",
+          lv[0][:3]==["9","2024","2028"] and lv[1]==[True,True] and lv[0][3]=="4,986,146", str(lv))
+    check("nebraska (14 Nov b): NDE's override years read as school years, and the board's and the override's authority are listed", "2023/24 to 2027/28" in lt and "70% board vote" in lt and "approved before 2024" in lt, lt[:400])
+    del NE_PREFILL["lc2"]
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/money/general"); await npg.wait_for_timeout(1500)
+    gpe=await npg.evaluate("(document.querySelector('[data-peers]')||{}).innerText||''")
+    check("nebraska data (12 Nov): the General Fund shows peer callouts against Nebraska districts, from the AFR", "Nebraska districts with 600–999 students" in gpe and "Annual Financial Report to NDE" in gpe and "Special Building" not in gpe, gpe[:300])
+    await npg.click("[data-action=gfEdit]"); await npg.wait_for_timeout(1200)
+    gh=await npg.evaluate("(document.querySelector('.notice[data-gf-state]')||{}).innerText||''")
+    check("nebraska data (12 Nov): the General Fund editor offers NDE's figures, TEEOSA included", "TEEOSA" in gh and "need $8.30M" in gh and "calculated aid $1.64M" in gh and "$1.62M to be paid" in gh and "From NDE" in gh, gh[:300])
+    await npg.click(".notice[data-gf-state] [data-action=gfPrefill]"); await npg.wait_for_timeout(400)
+    if os.environ.get("NE_DUMP"):
+      mt=await npg.evaluate("(document.querySelector('.modal, [role=dialog], #modal')||document.body).innerText")
+      with open(os.environ["NE_DUMP"],"a") as df: df.write("\n\n######## GF editor (after Fill)\n"+mt)
+    ebv=await npg.evaluate("['eb_balance','eb_transfer','eb_use','cont_balance'].map(n=>(document.querySelector('[name='+n+']')||{}).value)")
+    check("nebraska (12 Nov b): the General Fund editor fills the Employee Benefit and Contingency funds from the AFR", ebv==["120,000","30,000","25,000","50,000"], str(ebv))
+    gv=await npg.evaluate("['t_need','t_local','t_itr','t_other','t_students','state_aid','property_tax','fund_balance','enrollment','t_pyc'].map(n=>(document.querySelector('[name='+n+']')||{}).value)")
+    check("nebraska data (12 Nov): Fill these in sets the TEEOSA fields, certified aid, the property tax request and General Fund cash", gv==["8,300,000","6,123,457","60,000","900,000","600.12","1,624,615","4,145,194","3,016,870","600.12","-12,000"], str(gv))
+    check("nebraska (14 Nov b): the aid to be paid includes last year's correction, kept in its own field for the first year", gv[5]=="1,624,615" and gv[9]=="-12,000", str(gv))
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/money/capital"); await npg.wait_for_timeout(1500)
+    cpe=await npg.evaluate("(document.querySelector('[data-peers]')||{}).innerText||''")
+    check("nebraska data (12 Nov): the capital plan's peer card has the Special Building Fund", "Special Building Fund" in cpe, cpe[:200])
+    await npg.evaluate("document.querySelectorAll('details').forEach(d=>d.open=true)"); await npg.wait_for_timeout(300)
+    tt=await npg.evaluate("[(document.querySelector('[data-tax-table]')||{}).innerText||'', document.getElementById('view').innerText]")
+    check("nebraska (12 Nov b): what it means for taxpayers shows the cost after the School District Property Tax Relief Credit (bonds get none)", "after the credit" in tt[0] and "School District Property Tax Relief Credit" in tt[1], tt[0][:300])
+    await npg.goto("http://localhost:8765/#/d/cottonwood-ridge/settings/district"); await npg.wait_for_timeout(1300)
+    dl=await npg.evaluate("[...document.querySelectorAll('label.field')].map(l=>l.innerText).find(t=>/agency ID/.test(t))||''")
+    dw=await npg.evaluate("document.getElementById('view').innerText")
+    check("nebraska data (12 Nov): Settings → District asks for the NDE agency ID, in NDE's words (a demo linked to a real ID is warned, without naming Iowa)", "NDE agency ID" in dl and "Iowa" not in dl and "linked to a real district’s state number" in dw and "Iowa" not in dw, dl+" | "+dw[:300])
+    await npg.fill("[data-ia-q]","prairie"); await npg.click("[data-action=iaSearch]"); await npg.wait_for_timeout(600)
+    hit=await npg.evaluate("(document.querySelector('[data-ia-results]')||{}).innerText||''")
+    check("nebraska data (12 Nov): Find looks the name up in NDE's district list", "Use 99-0001-000" in hit and "Prairie County" in hit, hit)
+    await npg.fill("[name=state_district_id]","9900001000"); n1=len(calls); await npg.click("form[data-form=saveDistrict] button[type=submit]"); await npg.wait_for_timeout(800)
+    err=await npg.evaluate("[...document.querySelectorAll('.toast,.notice.error')].map(x=>x.innerText).join(' ')")
+    check("nebraska data (12 Nov): an agency ID that can't be one is refused with NDE's format", "01-0003-000" in err, err[:200])
+    await npg.fill("[name=state_district_id]","99-1-0"); n1=len(calls); await npg.click("form[data-form=saveDistrict] button[type=submit]"); await npg.wait_for_timeout(900)
+    pd=[c for c in calls[n1:] if c[0]=="PATCH" and "/district?" in c[1]]
+    check("nebraska data (12 Nov): a loosely typed agency ID is saved the NDE way", pd and json.loads(pd[-1][2]).get("state_district_id")=="99-0001-000", str(pd[-1:]))
+    # Iowa is untouched next to it
+    await npg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await npg.wait_for_timeout(1500)
+    ia=await npg.evaluate("[document.getElementById('view').innerText.includes('SAVE'), document.documentElement.dataset.state]")
+    check("state layer (11 Nov): an Iowa district right after a Nebraska one is back in Iowa's words", ia[0] and ia[1]=="IA", str(ia))
+    await nx.close()
+    # the Admin Portal: per-district state, a new district's state, and the internal state view
+    sx,spg=await session("staff@example.test")
+    await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(1200)
+    sv=await spg.evaluate("[!!document.querySelector('[data-state-view-card] select[data-state-view]'),[...document.querySelectorAll('[data-state-view] option')].map(o=>o.value),!!document.querySelector('select[data-district-state]'),!!document.querySelector('form[data-form=createDistrict] select[name=state]')]")
+    check("admin portal (11 Nov): a State view card (each district's own, Iowa, Nebraska), a state per district, and a state for a new district", sv[0] and sv[1]==["","IA","NE"] and sv[2] and sv[3], str(sv))
+    await spg.select_option("[data-state-view]","NE"); await spg.click("[data-action=setStateView]"); await spg.wait_for_timeout(800)
+    now=await spg.evaluate("[localStorage.getItem('highground-state-view'),(document.querySelector('[data-state-view-now]')||{}).textContent]")
+    check("admin portal (11 Nov): choosing Nebraska keeps it in this browser and says so", now[0]=="NE" and "Nebraska" in (now[1] or ""), str(now))
+    await spg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await spg.wait_for_timeout(1500)
+    pv=await spg.evaluate("[!!document.querySelector('[data-state-view-banner]'),document.getElementById('view').innerText.includes('Special Building'),/\\bSAVE\\b/.test(document.getElementById('view').innerText),document.documentElement.dataset.state]")
+    # an Iowa district's own SAVE money still shows in the preview (its data isn't changed); everything else reads as Nebraska
+    check("state view (11 Nov): an Iowa district previews in Nebraska's view, with a banner saying it's an internal preview", pv[0] and pv[1] and pv[3]=="NE", str(pv))
+    await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(900)
+    await spg.select_option("[data-state-view]",""); await spg.click("[data-action=setStateView]"); await spg.wait_for_timeout(600)
+    await spg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await spg.wait_for_timeout(1300)
+    back=await spg.evaluate("[!!document.querySelector('[data-state-view-banner]'),document.getElementById('view').innerText.includes('SAVE'),localStorage.getItem('highground-state-view')]")
+    check("state view (11 Nov): back to each district's own state: no banner, Iowa words", not back[0] and back[1] and back[2] is None, str(back))
+    n0=len(calls); await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(900)
+    await spg.locator("select[data-district-state]").nth(0).select_option("NE"); await spg.locator("[data-action=setDistrictState]").nth(0).click(); await spg.wait_for_timeout(900)
+    pat=[c for c in calls[n0:] if c[0]=="PATCH" and "/district?" in c[1]]
+    check("admin portal (11 Nov): setting a demo district's state saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
+    await sx.close()
+    for t,v in SAVED.items(): TABLES[t]=v
+    D2.clear(); D2.update(D2SAVED); USERS["admin@example.test"]=ADM
     await b.close()
   srv.terminate()
   for n,okk,d in R: print(("PASS " if okk else "FAIL ")+n+(("  ["+d+"]") if d and not okk else ""))

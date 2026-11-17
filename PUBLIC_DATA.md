@@ -106,3 +106,35 @@ Other functions:
 - **The GitHub Action.** It has never run on GitHub.
 
 **Storage (estimated):** the full state history, about 1M source rows of which roughly half are zeros and dropped, plus stored measures, is about 150–250 MB. That fits in the Free plan's 500 MB but uses a third to half of it.
+
+---
+
+# Nebraska public data (part 35, 12 Nov 2026)
+
+## What it loads (`loader/load_nebraska.py`, GitHub workflow "Nebraska public data", the 5th of each month)
+| Kind | NDE source | Table |
+|---|---|---|
+| `stat` | Statistical Information for Public School Districts (one file per school year, 2017/18 on): valuation, general / bond / special building / QCPUF levies, fall membership | `ne_stat`, `ne_district` |
+| `aid` | State aid certification, newest year: State Aid Calculated by System (A1), the allowances (A2: basic funding, student growth adjustment and its correction, poverty and LEP allowances) Formula Students (A3), and the prior year correction (a PDF, read with pdftotext) | `ne_aid` |
+| `pta` | Property tax request authority certification (2023/24 on), with prior years' unused authority | `ne_pta` |
+| `budget` | Certified General Fund budget authority and allowable reserve % (NDE "budget factors"), the current year, with its parts (formula need, last year's budget, special grants, SPED, lid exclusions, adjusted expenditures, unused budget authority) | `ne_budget` |
+| `lc2` | NDE's LC-2 budget submissions (sfos.education.ne.gov), every district: valuation, General Fund and Special Building requests, the authority and its unused part, adopted budget, SPED, lid exclusions, reserve %, levy override (cents, years, and the authority NDE adds for one approved before 2024), the board's 70% vote and its amount | `ne_lc2` |
+| `afr` | Each district's Annual Financial Report page on sfos.education.ne.gov, every account, the newest 3 years | `ne_afr`, then `ne_measure` |
+
+- Fall membership history (K-12) also drives the property tax request authority's base growth formula.
+- Files are found from NDE's own pages, so new years are picked up without a code change. A file that hasn't changed (same SHA-256) is skipped; `--force` reloads.
+- The older StatInfo files are Excel 97-2003 (.xls); the loader reads them itself, so it needs only openpyxl and psql.
+- Try it without a database: `python3 loader/load_nebraska.py --dry-run --only stat` or `--only afr --afr-limit 5 --dry-run`.
+- Load a file by hand: `--file stat2026=2526_StatInfo.xls`, `--file aid2027=A1.xlsx --file aid_a2=A2.xlsx --file aid_a3=A3.xlsx`, `--file pta=PTA.xlsx`, `--file aid_pyc=2627SA_CalcOfPriorYearCorrFor2627SACertC.pdf`, `--file lc2=lc2-2627.xls`, `--file afr=page.html`.
+- Reader tests: `python3 loader/nebraska_loader_test.py` (made-up districts in NDE's exact layouts).
+
+## In the app
+- **Settings → District:** the NDE agency ID (county-district number, 01-0003-000), with Find by name.
+- **Starting numbers:** "From NDE's reports" lists Depreciation, Special Building and QCPUF cash at August 31, their receipts, valuation, levies, fall membership and the property tax request authority. "Fill in the form" puts them in. NDE's authority includes the prior years' unused authority; HighGround stores the two apart and adds what goes unused each year.
+- **General Fund:** "From NDE's reports" fills property tax (the latest tax asking), certified TEEOSA aid and its figures (need, local effort, option, income tax, other receipts, formula students), other state aid, other income, General Fund cash, the certified budget authority and its parts, the adopted budget and General Fund request from the LC-2, basic funding per formula student for the student growth adjustment, and the Employee Benefit and Contingency funds.
+- **Peers:** the same callout rules and card as Iowa's, against Nebraska districts in the same fall-membership band (under 250, 250–399, 400–599, 600–999, 1,000–2,499, 2,500–7,499, 7,500+). Measures: General Fund spending and revenue per pupil (and by function), state aid per pupil, the cash reserve with Depreciation and Employee Benefit as % of spending, Special Building and Depreciation per pupil, levies.
+
+## Tested 12 Nov 2026
+- Local PostgreSQL 16: part 35 installs twice cleanly, all 4 checks PASS; `ne_prefill`, `ne_refresh_measures` and `ne_benchmark` on 13 made-up districts; the loader loaded files laid out like NDE's, then skipped them as unchanged on the second run; a partial AFR run replaced only those districts.
+- Layouts checked in a browser against NDE's real files: StatInfo 2021/22–2025/26 (.xls) and 2020/21 (.xlsx), A1 and A3 2026/27, PTA 2024/25–2026/27, the 2024/25 AFR page.
+- **Not yet run against NDE from GitHub.** The first run of the workflow is the test; if NDE refuses GitHub's servers, download the files by hand and use `--file`.

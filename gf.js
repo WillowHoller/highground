@@ -183,5 +183,160 @@
     t.total = t.salaries + t.benefits + t.health; return t;
   }
 
-  return { RULES, DEFAULTS, forecast, fromBudget, roster, ROSTER_TEMPLATE, healthTwice, staffCost };
+  /* ------------------------------------------------------------------ Nebraska (state pack NE)
+     Revenue  = General Fund property tax (grows with the property tax request authority, 3% by default)
+              + state aid: TEEOSA when its figures are entered (see teeosa() below), otherwise the amount entered, growing
+                with the state aid assumption
+              + other state aid (special education and the rest; grows with the state aid assumption) + other income.
+     Spending = staff groups, settlement, health and other spending, as Iowa's forecast, plus the plan's yearly General
+                Fund costs and the planned transfers to the Depreciation Fund.
+     Fund balance ratio = ending General Fund balance ÷ revenue (5% / 10% marks [assumed]).
+     Allowable reserve (79-1027): the General Fund balance plus the Depreciation Fund balance may not exceed 45% / 35% / 25% /
+     20% of the General Fund budget, by average daily membership; flagged when the forecast goes over. */
+  const NE_RULES = { checked: '2026-11-12', authorityGrowth: 0.03, ratioTarget: [0.05, 0.10], status: 'assumed', contingencyShare: 0.05,
+    budget: { growth: 0.025, needShare: 1.10, unusedUse: 0.02 },   // 79-1025/77-3446 (2.5%), 79-1023(3) (110% of formula need), 79-1030 (2%)   // 79-1072: Contingency Fund payouts ≤5% of budgeted General Fund spending
+    teeosa: { localEffortRate: 1.00, foundationPerStudent: 1500, foundationResourceShare: 0.60, needGrowth: 0.025, needCap: 0.12 } };
+
+  /* TEEOSA (Tax Equity and Educational Opportunities Support Act), Nebraska's school aid formula, as NDE certifies it
+     (2026/27 FAQ and State Aid Calculated by System, verified 12 Nov 2026):
+       resources   = local effort ($1.00 per $100 of adjusted valuation) + net option funding + allocated income tax
+                     + other actual receipts + 60% of foundation aid ($900 per formula student)
+       equalization aid = formula need − resources, if positive
+       state aid   = equalization aid + foundation aid ($1,500 per formula student) + allocated income tax + net option funding
+     Forecast [assumed]: need grows with needGrowth and formula students; local effort with valuation; the rest held. */
+  function teeosa(t, i, o) {
+    const T = Object.assign({}, NE_RULES.teeosa, o && o.rules), k = (v) => Number(v) || 0;
+    const stu0 = k(t.students), stu = stu0 * Math.pow(1 + ((o && o.enroll) || 0), i);
+    /* formula need can't fall below last year's or rise more than 12% a year (79-1007.11(2),(3)); a student growth adjustment
+       is added on top and isn't held to the 12% (it's in need for the year it's approved, 79-1007.20) */
+    const r = Math.min(1 + T.needCap, Math.max(1, (1 + (t.need_growth == null ? T.needGrowth : Number(t.need_growth))) * (1 + ((o && o.enroll) || 0))));
+    /* a student growth adjustment correction from two years before (79-1007.20(3)) is added to or taken off need (79-1007.11(1)) */
+    const need = Math.max(0, k(t.need) * Math.pow(r, i) + ((o && o.sga) || 0) + ((o && o.sgaCorr) || 0));
+    const local = k(t.local) * Math.pow(1 + ((o && o.valuationGrowth) || 0), i);
+    const found = T.foundationPerStudent * stu, foundIn = found * T.foundationResourceShare;
+    const resources = local + k(t.option) + k(t.itr) + k(t.other) + foundIn;
+    const eq = Math.max(0, need - resources);
+    return { need, local, resources, eq, foundation: found, foundationIn: foundIn, students: stu, aid: eq + found + k(t.itr) + k(t.option) };
+  }
+
+  function forecastNE(gfi, a, years, extraByFY, ctx) {
+    const g = gfi || {}, out = [], C = ctx || {};
+    const groups = (g.staff || []).map((s) => ({ name: s.name, fte: Number(s.fte) || 0, salary: Number(s.salary) || 0, benefits: s.benefits == null ? 0.1709 : Number(s.benefits), health: Number(s.health) || 0 }));
+    let enroll = Number(g.enrollment) || 0, ptax = Number(g.property_tax) || 0, aid = Number(g.state_aid) || 0, otherAid = Number(g.other_state) || 0;
+    let misc = Number(g.misc_income) || 0, nonstaff = Number(g.nonstaff) || 0, balance = Number(g.fund_balance) || 0;
+    const ptaxGrowth = g.ptax_growth == null ? NE_RULES.authorityGrowth : Number(g.ptax_growth);
+    /* with no growth of its own, property tax follows the request authority's yearly growth from the capital plan
+       (NDE's base growth formula, engine.authorityGrowth) when there is one */
+    const ptaxPath = g.ptax_growth == null && Array.isArray(C.authorityGrowth) ? C.authorityGrowth : null;
+    const useT = !!(g.teeosa && Number(g.teeosa.need) > 0);
+    /* the Employee Benefit Fund (filled from the General Fund; pays benefits the General Fund would otherwise pay; counts
+       toward the allowable reserve, 79-1027) and the Contingency Fund (filled from the General Fund; pays uninsured losses
+       and legal defense, at most 5% of budgeted General Fund spending a year, 79-1072; not in the reserve) */
+    const F = g.funds || {}, eb = F.eb || {}, cf = F.cont || {}, nz = (v) => Math.max(0, Number(v) || 0);
+    let ebBal = nz(eb.balance), cfBal = nz(cf.balance);
+    /* the General Fund budget authority (79-1023, 79-1025, 79-1030; NDE's certified figure for the first year): each later year
+       the greater of last year's adjusted budget × (1 + basic allowable growth, 2.5%) and 110% of TEEOSA formula need less last
+       year's special education × 1.025, or last year's budget plus a student growth adjustment (79-1023). "Adjusted" leaves out special education, special
+       grants and lid exclusions. The board budgets the whole authority or what it plans to spend (budget.mode). Unused authority carries forward; a year
+       may use up to 2% of last year's adjusted spending of it. */
+    const BA = g.budget && Number(g.budget.authority) > 0 ? g.budget : null, BR = NE_RULES.budget;
+    let bAuth = BA ? Number(BA.authority) : null, bUnused = BA ? nz(BA.unused) : 0, bSped = BA ? nz(BA.sped) : 0, bExcl = BA ? nz(BA.excluded) : 0;
+    /* the allowable reserve: NDE's certified percentage when it's there, else by size (79-1027) */
+    const RS = BA && Number(BA.reserve_pct) > 0 ? Number(BA.reserve_pct) / 100 : C.reserveShare;
+    const budgetMode = BA && BA.mode === 'spending' ? 'spending' : 'authority';
+    let bPrev = BA ? (Number(BA.prior_adjusted) > 0 ? Number(BA.prior_adjusted) : bAuth / (1 + BR.growth)) : 0;
+    /* student growth adjustments by year, the growth each was estimated on and the growth the plan expects, for the correction
+       two years on: (actual − estimated) × basic funding per formula student, a cut no bigger than the adjustment (79-1007.20(3)) */
+    const sgaH = [], estH = [], actH = [];
+    years.forEach((fy, i) => {
+      if (i > 0) {
+        ptax *= 1 + (ptaxPath && ptaxPath[i] != null ? ptaxPath[i] : ptaxGrowth); aid *= 1 + (a.ssa || 0); otherAid *= 1 + (a.ssa || 0); misc *= 1 + (g.misc_growth == null ? DEFAULTS.misc_growth : Number(g.misc_growth));
+        enroll *= 1 + (a.enroll || 0); nonstaff *= 1 + (a.inflation || 0);
+        groups.forEach((s) => { s.salary *= 1 + (a.settle || 0) - (Number(g.turnover_savings) || 0); s.health *= 1 + (a.health || 0); if (g.fte_follow_enrollment) s.fte = s.fte * (1 + (a.enroll || 0)); });
+      }
+      /* a student growth adjustment (79-1007.20) for a district that expects to apply: basic funding per formula student ×
+         (approved growth − the greater of 25 students or 1% of fall membership) + 50% of it × that threshold. It raises TEEOSA
+         need and is the budget authority's second method (79-1023(2)(b)). The first plan year's is in NDE's certified figures. */
+      const SG = (BA && BA.sga) || (g.teeosa && g.teeosa.sga) || null;
+      let sga = 0;
+      if (SG && i > 0 && Number(SG.students) > 0 && Number(SG.bfps) > 0) {
+        const fm = (Number(SG.fm) || enroll) * Math.pow(1 + (a.enroll || 0), i), th = Math.max(25, 0.01 * fm), gro = Number(SG.students);
+        if (gro > th) sga = Number(SG.bfps) * (gro - th) + 0.5 * Number(SG.bfps) * th;
+      }
+      const TT = g.teeosa || {}, bfps = Number((SG && SG.bfps) || TT.bfps) || 0, fm0 = Number((SG && SG.fm) || enroll) || 0;
+      const fmI = fm0 * Math.pow(1 + (a.enroll || 0), i), thI = Math.max(25, 0.01 * fmI);
+      if (i === 0 && Number(TT.sga0) > 0 && bfps > 0) { sgaH[0] = Number(TT.sga0); estH[0] = sgaH[0] / bfps + 0.5 * thI; }   // NDE's, backed out
+      else if (sga > 0) { sgaH[i] = sga; estH[i] = Number(SG.students); }
+      actH[i] = Math.max(0, fmI * (a.enroll || 0));
+      let sgaCorr = 0;
+      if (i >= 2 && sgaH[i - 2] > 0 && bfps > 0) sgaCorr = Math.max(-sgaH[i - 2], (actH[i - 2] - estH[i - 2]) * bfps);
+      const T = useT ? teeosa(g.teeosa, i, { enroll: a.enroll || 0, valuationGrowth: C.valuationGrowth == null ? 0.03 : C.valuationGrowth, sga, sgaCorr }) : null;
+      /* the first year's aid as NDE pays it: plus or less the correction for last year's aid (79-1065). Later corrections come
+         from final data no plan can know, so they're taken as none. */
+      const pyc = i === 0 ? Number(TT.pyc) || 0 : 0;
+      const stateAid = (T ? T.aid : aid) + (T ? pyc : 0);
+      const revenue = ptax + stateAid + otherAid + misc;
+      const staff = groups.reduce((t, s) => t + s.fte * (s.salary * (1 + s.benefits) + s.health), 0);
+      const salaries = groups.reduce((t, s) => t + s.fte * s.salary, 0);
+      const extra = (extraByFY && extraByFY[fy]) || 0;
+      const ebIn = nz(eb.transfer), cfIn = nz(cf.transfer);
+      const ebUse = Math.min(nz(eb.use), ebBal + ebIn), cfWant = nz(cf.use), cfUse = Math.min(cfWant, cfBal + cfIn);
+      ebBal += ebIn - ebUse; cfBal += cfIn - cfUse;
+      /* transfers out are General Fund spending; benefits paid from the Employee Benefit Fund come off the General Fund's */
+      const spending = staff + nonstaff + extra + ebIn + cfIn - ebUse;
+      balance = balance + revenue - spending;
+      const ratio = revenue > 0 ? balance / revenue : null;
+      const other = C.otherReserve && C.otherReserve[fy] != null ? C.otherReserve[fy] : 0;
+      let bMethod = BA ? (BA.method || null) : null, bUsable = null, bRestricted = null, bOver = false, bBudget = null;
+      if (BA) {
+        const spedPrev = bSped;
+        if (i > 0) {
+          bSped *= 1 + (a.inflation || 0); bExcl *= 1 + (a.inflation || 0);
+          const byBudget = bPrev * (1 + BR.growth), byGrowth = sga > 0 ? bPrev + sga : -Infinity, byNeed = T ? T.need * BR.needShare - spedPrev * (1 + BR.growth) : -Infinity;
+          bAuth = Math.max(byBudget, byGrowth, byNeed); bMethod = bAuth === byNeed ? 'F' : bAuth === byGrowth ? 'SGA' : 'B';
+        }
+        bRestricted = spending - bSped - bExcl;
+        bUsable = bAuth + Math.min(BR.unusedUse * bPrev, bUnused);
+        bOver = bRestricted > bUsable + 0.5;
+        /* what the board budgets: its whole authority (most Nebraska districts do, to keep the base growing; NDE's LC-2 shows
+           it), or what the forecast spends. Unused authority is authority less the budget (79-1030), so budgeting the whole
+           authority adds none; budgeting less adds the difference. */
+        const budget = budgetMode === 'authority' ? Math.max(bAuth, Math.min(bRestricted, bUsable)) : Math.min(bRestricted, bUsable);
+        const draw = Math.max(0, budget - bAuth);
+        bUnused = Math.max(0, bUnused - Math.min(draw, Math.min(BR.unusedUse * bPrev, bUnused))) + Math.max(0, bAuth - budget);
+        bBudget = budget;
+        bPrev = budget;
+      }
+      const allowed = RS ? RS * spending : null;
+      const cfCap = NE_RULES.contingencyShare * spending;
+      out.push({ fy, enrollment: enroll, budgetEnrollment: enroll, dcpp: null, regular: ptax, guarantee: 0, guaranteeStatePaid: false,
+        other: stateAid + otherAid, misc, revenue, staff, salaries, nonstaff, extra, spending, net: revenue - spending, balance,
+        solvency: ratio, solvencyLow: ratio, solvencyHigh: ratio, authorized: null, certified: null, authority: null, carried: null, uabLost: 0,
+        unspent: null, unspentRatio: null, staffShare: spending > 0 ? staff / spending : null, propertyTax: ptax, stateAid, otherStateAid: otherAid, teeosa: T,
+        reserve: balance + other + ebBal, reserveAllowed: allowed, depreciationBalance: other,
+        budgetAuthority: bAuth, budgetUsable: bUsable, budgetRestricted: bRestricted, budgetUnused: BA ? bUnused : null, budgetMethod: bMethod, budgetOver: bOver,
+        budgetRoom: BA ? bUsable - bRestricted : null, budgetAdopted: bBudget, sga, sgaCorr, priorCorrection: pyc,
+        ebTransfer: ebIn, ebUse, ebBalance: ebBal, ebShort: nz(eb.use) - ebUse, contTransfer: cfIn, contUse: cfUse, contBalance: cfBal, contCap: cfCap, contShort: cfWant - cfUse });
+    });
+    out.forEach((y, i) => {
+      if (!i) { y.newMoney = null; return; }
+      const p = out[i - 1], ben = groups[0] ? groups[0].benefits : 0.1709;
+      y.newMoney = (y.regular + y.other) - (p.regular + p.other);
+      y.settlementCost = p.salaries * (a.settle || 0) * (1 + ben); y.costPerPoint = p.salaries * 0.01 * (1 + ben);
+      y.affordableSettlement = y.costPerPoint > 0 ? y.newMoney / y.costPerPoint / 100 : null;
+    });
+    const lt = (k, lim) => out.filter((y) => y[k] != null && y[k] < lim).map((y) => y.fy);
+    const low = lt('solvency', NE_RULES.ratioTarget[0]);
+    const bOverYears = out.filter((y) => y.budgetOver).map((y) => y.fy);
+    return { years: out, state: 'NE', teeosa: useT, budget: !!BA, budgetMode: BA ? budgetMode : null, reserveShare: RS || null, reserveFromNDE: !!(BA && Number(BA.reserve_pct) > 0), flags: { lowSolvency: low, lowSolvencyLikely: low, lowSolvencyPossible: low, negativeUnspent: bOverYears, budgetOver: bOverYears, lowUnspent: [],
+      guarantee: [], guaranteeStatePaid: [], uabCap: [], deficit: out.filter((y) => y.net < -0.5).map((y) => y.fy),
+      reserveOver: out.filter((y) => y.reserveAllowed != null && y.reserve > y.reserveAllowed + 0.5).map((y) => y.fy),
+      contOver: out.filter((y) => y.contUse > y.contCap + 0.5).map((y) => y.fy), contShort: out.filter((y) => y.contShort > 0.5).map((y) => y.fy),
+      ebShort: out.filter((y) => y.ebShort > 0.5).map((y) => y.fy) },
+      funds: !!(eb.balance || eb.transfer || eb.use || cf.balance || cf.transfer || cf.use), baseEnroll: Number(g.enrollment) || 0 };
+  }
+  /** the forecast for a district's state ('IA' or none: Iowa's; 'NE': Nebraska's) */
+  const forecastFor = (state, gfi, a, years, extraByFY, ctx) => (state === 'NE' ? forecastNE(gfi, a, years, extraByFY, ctx) : forecast(gfi, a, years, extraByFY));
+
+  return { RULES, NE_RULES, DEFAULTS, forecast, forecastNE, forecastFor, teeosa, fromBudget, roster, ROSTER_TEMPLATE, healthTwice, staffCost };
 });

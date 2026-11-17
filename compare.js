@@ -42,7 +42,10 @@
       else if (f.kind === 'gift') asks.push(`Raise ${fmt(f.amount)} through a campaign or gifts by FY${f.fy}`);
       else asks.push(`A ${KIND[f.kind]} of ${fmt(f.amount)} in FY${f.fy}`);
     });
-    if (cfg.vStatus === 'proposed' && L.vppel) asks.push(`A V-PPEL vote (proposed through FY${cfg.vLast})`);
+    if (cfg.vStatus === 'proposed' && L.vppel) {   // a voter levy needs a vote; Nebraska's QCPUF is adopted by the board
+      const ST = (typeof self !== 'undefined' && self.HGStates) || (typeof require === 'function' ? require('./states.js') : null), vf = ST ? ST.fund('vppel', cfg.state) : {};
+      asks.push(vf.voter === false ? `The board adopting the ${vf.label} levy (proposed through FY${cfg.vLast})` : `A V-PPEL vote (proposed through FY${cfg.vLast})`);
+    }
     const levy = (L.fin || []).filter((f) => f.repay === 'levy').reduce((a, f) => a + E.pmt(f.amount, f.rate, f.years), 0);
     if (levy > 0.5) asks.push(`Debt service levy of about ${fmt(levy)} a year while the bond is repaid`);
     if (r.unfunded > 0.5) asks.push(`${fmt(r.unfunded)} of campaign or bond projects not yet paid for`);

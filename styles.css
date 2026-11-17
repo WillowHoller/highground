@@ -1359,3 +1359,4 @@ button.pc{position:relative}
 .ha-opt .small{color:var(--muted);line-height:1.45}
 @media (max-width:760px){.hm-sum{grid-template-columns:minmax(0,1fr)}}
 .hc-lead{stroke:rgba(241,238,228,.45);stroke-width:1}
+.row.nowrap{flex-wrap:nowrap;gap:6px;align-items:center}

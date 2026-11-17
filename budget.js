@@ -1,5 +1,6 @@
 /* HighGround — budget vs. actual vs. forecast, from a month-end GL import.
-   Iowa school fiscal year: 1 July – 30 June. Share of the year gone = whole months since 1 July ÷ 12.
+   The fiscal year starts in the state's month (states.js: Iowa 1 July, Nebraska 1 September). Share of the year gone =
+   whole months since the year started ÷ 12.
    Forecast (full year):
      budget   = the budget, unless already exceeded (spending: actual + encumbered; revenue: received)   (default)
      pace     = actual so far + budget × share of the year still to come                                 (steady items)
@@ -7,10 +8,11 @@
    Pure; tested by budget_test.js. */
 (function (root, factory) {
   const G = root.HGGL || (typeof require === 'function' ? require('./gl.js') : null);
-  const api = factory(G);
+  const ST = root.HGStates || (typeof require === 'function' ? require('./states.js') : null);
+  const api = factory(G, ST);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.HGBudget = api;
-})(typeof self !== 'undefined' ? self : this, function (G) {
+})(typeof self !== 'undefined' ? self : this, function (G, ST) {
   'use strict';
   const FUNCTION_NAME = { '1': 'Instruction', '2': 'Support services', '3': 'Noninstructional programs', '4': 'Facilities acquisition and construction',
     '5': 'Debt service', '6': 'Other financing uses' };
@@ -20,7 +22,8 @@
   /** share of the fiscal year gone at a month-end date */
   function elapsed(periodEnd) {
     const d = new Date(String(periodEnd) + 'T12:00:00');
-    const monthsSinceJuly = (d.getMonth() - 6 + 12) % 12 + 1;   // July → 1 … June → 12
+    const sm = (ST ? ST.fyStartMonth() : 7) - 1;
+    const monthsSinceJuly = (d.getMonth() - sm + 12) % 12 + 1;   // Iowa: July → 1 … June → 12 (Nebraska: September → 1)
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     return d.getDate() === lastDay ? monthsSinceJuly / 12 : (monthsSinceJuly - 1 + d.getDate() / lastDay) / 12;
   }

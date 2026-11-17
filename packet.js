@@ -39,6 +39,7 @@
     // taxpayers
     const tWith = T ? T.impact(cfg, L, inp.tax) : null, tWithout = T ? T.impact(cfg, without.L, inp.tax) : null;
     const peak = (t) => (t && t.peak && t.hasValuation ? t.peak.home : 0);
+    const peakNet = (t) => (t && t.peak && t.hasValuation && t.peak.homeNet != null ? t.peak.homeNet : null);   // after a state's school tax credit (Nebraska)
     // funding line
     const k = K.build(rows, scenarioId), item = k.items.find((x) => x.id === id) || null;
     const flags = k.flags.filter((f) => f.low.id === id || f.high.id === id).map((f) => f.text);
@@ -57,7 +58,7 @@
       yearly, oneTimeAll, phases: (proj ? proj.phases : []).map((ph) => ({ fy: cfg.start + ph.year, label: ph.label || '', cost: ph.cost, status: ph.status || 'planned' })),
       recur: recur.map((r) => ({ kind: r.kind, fund: r.fund, amount: r.amount, first: r.first, last: r.last, grows: r.grows })),
       gap: { with: rWith.gap, without: rWithout.gap, effect: rWith.gap - rWithout.gap }, lows,
-      tax: { with: peak(tWith), without: peak(tWithout), homeValue: tWith ? tWith.homeValue : 150000, hasValuation: !!(tWith && tWith.hasValuation) },
+      tax: { with: peak(tWith), without: peak(tWithout), withNet: peakNet(tWith), withoutNet: peakNet(tWithout), credit: tWith && tWith.credit ? tWith.credit.name : null, homeValue: tWith ? tWith.homeValue : 150000, hasValuation: !!(tWith && tWith.hasValuation) },
       fundingLine: item ? { position: item.position, of: k.items.length, above: item.above, fitsAlone: !!item.fitsAlone, lineAt: k.line, outsideOnly: !!item.outsideOnly, camp: item.camp > 0.5 } : null, flags, others,
     };
   }

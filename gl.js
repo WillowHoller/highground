@@ -1,4 +1,4 @@
-/* HighGround — reading a month-end general-ledger export (Iowa Uniform Financial Accounting).
+/* HighGround — reading a month-end general-ledger export (Iowa Uniform Financial Accounting, and other states' charts from their packs).
    Iowa account codes (Iowa Department of Education, Iowa Chart of Account Coding):
      expenditures   fund–facility–function–program–project–object   (2-4-4-3-4-3 digits)
      revenues       fund–facility–program–project–source             (2-4-3-4-4)
@@ -7,12 +7,15 @@
    A capital fund's balance at month end = its fund-equity accounts + year-to-date revenue − year-to-date spending.
    Pure; tested by gl_test.js. */
 (function (root, factory) {
-  const api = factory();
+  const ST = root.HGStates || (typeof require === 'function' ? require('./states.js') : null);
+  const api = factory(ST);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.HGGL = api;
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (ST) {
   'use strict';
-  const FUND_OF = { '10': 'general', '33': 'save', '36': 'ppel', '40': 'debt_levy', '31': 'other', '32': 'other' };
+  /* fund codes by state (states.js glFunds) */
+  const FUND_OF = new Proxy({}, { get: (_, k) => ST.current().glFunds[k], has: (_, k) => k in ST.current().glFunds,
+    ownKeys: () => Reflect.ownKeys(ST.current().glFunds), getOwnPropertyDescriptor: (_, k) => ({ enumerable: true, configurable: true, value: ST.current().glFunds[k] }) });
   const FUND_NAME = { general: 'General Fund', save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants', debt_levy: 'Debt Service', other: 'Other' };
   const FUNCTION_NAME = { 1: 'Instruction', 2: 'Support services', 3: 'Noninstructional', 4: 'Facilities acquisition and construction', 5: 'Debt service', 6: 'Other financing uses' };
 
@@ -72,6 +75,15 @@
       else if (d.length === 16) segs = cut([2, 4, 3, 4, 3]);
     }
     const p = { code: raw, fund: segs[0] || '' };
+    /* Nebraska (NDE AFR master code list): fund-type-code-object, type 1 = revenue (source), 2 = expenditure (5-digit
+       function, 3-digit object), 0 = cash (CSHOH or TREAS, BEG or END). Function 01100 is NCES function 1100. */
+    if (segs.length >= 3 && /^\d{1,2}$/.test(segs[0]) && /^[012]$/.test(segs[1]) && segs[2].length === 5) {
+      p.fund = segs[0].padStart(2, '0'); p.layout = 'NE';
+      if (segs[1] === '1') Object.assign(p, { kind: 'revenue', source: segs[2], object: segs[3] || '' });
+      else if (segs[1] === '2') Object.assign(p, { kind: 'expenditure', function: segs[2].replace(/^0/, ''), object: segs[3] || '' });
+      else Object.assign(p, { kind: 'balance', account: segs[2] + (segs[3] ? '-' + segs[3] : ''), cashEnd: /END$/i.test(segs[3] || '') });
+      return p;
+    }
     if (segs.length >= 6) Object.assign(p, { kind: 'expenditure', facility: segs[1], function: segs[2], program: segs[3], project: segs[4], object: segs[5] });
     else if (segs.length === 5 && segs[4].length === 4) Object.assign(p, { kind: 'revenue', facility: segs[1], program: segs[2], project: segs[3], source: segs[4] });
     else if (segs.length === 5) Object.assign(p, { kind: 'balance', facility: segs[1], program: segs[2], project: segs[3], account: segs[4] });
@@ -85,7 +97,7 @@
     if (parts.kind === 'expenditure') return { account_type: 'expenditure', maps_to: 'expense', mapped_fund: fund, sign: 1 };
     if (parts.kind === 'revenue') return { account_type: 'revenue', maps_to: 'revenue', mapped_fund: fund, sign: 1 };
     if (parts.kind === 'balance') {
-      const equity = /^7/.test(parts.account || '');
+      const equity = /^7/.test(parts.account || '') || parts.cashEnd === true;   // fund equity 7xx; Nebraska ending cash
       return { account_type: 'balance_sheet', maps_to: equity ? 'fund_balance' : 'ignore', mapped_fund: fund, sign: 1 };
     }
     return { account_type: 'other', maps_to: 'unmapped', mapped_fund: FUND_OF[parts.fund] || null, sign: 1 };

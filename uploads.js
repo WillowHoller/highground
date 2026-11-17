@@ -12,6 +12,11 @@
   const MAX_PH = 12;
   const NAMES = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants/Donations', boost: 'Boosters', camp: 'Campaign/Bond' };
   const fmtExact = (v) => '$' + Math.round(v).toLocaleString('en-US');
+  /* the state on screen (states.js): its fund names in templates and exports, its default fund, its fund numbers */
+  const ST_ = (typeof self !== 'undefined' && self.HGStates) || (typeof require === 'function' ? (() => { try { return require('./states.js'); } catch (e) { return null; } })() : null);
+  const isIA = () => !ST_ || ST_.current().code === 'IA';
+  const fname = (k) => (!isIA() && ['save', 'ppel', 'vppel'].includes(k) ? ST_.label(k) : NAMES[k]);
+  const DEF = () => (ST_ && ST_.defaultFund ? ST_.defaultFund() : 'save');
 
   // ---------------------------------------------------------------- reading files
   function parseCSV(text) {
@@ -187,6 +192,9 @@
   }
   function srcKey(s) {
     s = String(s || '').toLowerCase().trim(); if (!s) return null;
+    if (/qcpuf|qualified capital/.test(s)) return 'vppel';         // Nebraska's QCPUF levy sits in the second levy slot
+    if (/special building/.test(s)) return 'ppel';                 // Nebraska's Special Building Fund sits in the board levy slot
+    if (/depreciation/.test(s)) return 'save';                     // Nebraska's Depreciation Fund sits in the shared-revenue slot
     if (/v-?\s?ppel|voter|voted/.test(s)) return 'vppel';
     if (/ppel|physical plant/.test(s)) return 'ppel';
     if (/save|sales tax|secure an advanced/.test(s)) return 'save';
@@ -265,11 +273,11 @@
       if (options) funding = [{ b: options[0], p: 100 }];
       else c.src.forEach((si, k) => {
         const raw = cell(si); if (!raw) return; const b = srcKey(raw);
-        if (b === undefined) issues.push({ l: 'w', row: line, m: `Row ${line} “${name}”: funding source “${raw}” not recognized, so SAVE was used. Recognized: SAVE, PPEL, V-PPEL, Grants/Donations, Boosters, Campaign/Bond.` });
+        if (b === undefined) issues.push({ l: 'w', row: line, m: `Row ${line} “${name}”: funding source “${raw}” not recognized, so ${fname(DEF())} was used. Recognized: SAVE, PPEL, V-PPEL, Grants/Donations, Boosters, Campaign/Bond.` });
         const pRaw = c.pct[k] != null ? cell(c.pct[k]).replace(/%/g, '') : ''; const p = pRaw === '' ? null : parseFloat(pRaw);
-        funding.push({ b: b || 'save', p: p });
+        funding.push({ b: b || DEF(), p: p });
       });
-      if (!funding.length && !options) { funding.push({ b: 'save', p: 100 }); issues.push({ l: 'w', row: line, m: `Row ${line} “${name}”: no funding source, so SAVE was used.` }); }
+      if (!funding.length && !options) { funding.push({ b: DEF(), p: 100 }); issues.push({ l: 'w', row: line, m: `Row ${line} “${name}”: no funding source, so ${fname(DEF())} was used.` }); }
       const given = funding.filter((f) => f.p != null); let sumGiven = given.reduce((a, f) => a + f.p, 0);
       /* Excel %-formatted cells arrive as fractions: 1 = 100%, 0.6 = 60% */
       if (sumGiven > 0 && sumGiven <= 1.0001) { given.forEach((f) => { f.p *= 100; }); sumGiven *= 100; }
@@ -314,8 +322,9 @@
       const row = rows[r], cell = (i) => (i >= 0 ? String(row[i] == null ? '' : row[i]).trim() : '');
       const nm = cell(cName), code = cell(cCode).replace(/\D/g, '');
       let b = srcKey(nm);
-      if (!b && /capital projects/i.test(nm)) { b = 'save'; issues.push({ l: 'w', row: r + 1, m: `Row ${r + 1} “${nm}”: read as SAVE. If it also holds bond proceeds, enter the SAVE part only.` }); }
-      if (!b && code === '33') b = 'save'; if (!b && code === '36') b = 'ppel';
+      if (!b && isIA() && /capital projects/i.test(nm)) { b = 'save'; issues.push({ l: 'w', row: r + 1, m: `Row ${r + 1} “${nm}”: read as SAVE. If it also holds bond proceeds, enter the SAVE part only.` }); }
+      if (isIA()) { if (!b && code === '33') b = 'save'; if (!b && code === '36') b = 'ppel'; }
+      else if (!b && code) { const BC = ST_.current().balanceCodes || {}, hit = Object.keys(BC).find((k) => BC[k].replace(/^0+/, '') === code.replace(/^0+/, '')); if (hit) b = hit; }
       if (b === 'boost' || b === 'camp') b = undefined;
       if (!b) { if (nm || code) issues.push({ l: 'w', row: r + 1, m: `Row ${r + 1} “${nm || code}”: not a fund the capital plan uses, so it was skipped.` }); continue; }
       const m = parseMoney(cell(cBal));
@@ -334,6 +343,17 @@
     'Priority', 'Focus area', 'Cost confidence (Firm/Estimate)', 'Status', 'Actual cost', 'Condition', 'Remaining life (years)'];
   function projectTemplate(startFY) {
     const f = startFY || 2027;
+    if (!isIA()) {   // another state: its own fund names in the examples
+      const S = fname('save'), P = fname('ppel'), V = fname('vppel'), on = (k) => ST_.on(k);
+      return toCSV([PROJECT_HEAD,
+        ['Secure entry vestibule', '', 'FY' + f, '185000', on('vppel') ? V : P, '100', '', '', '', '', 'Must-have', 'Safety & security', 'Estimate'],
+        ['Roof replacement — north wing', 'Sections A–B', 'FY' + (f + 1), '160000', P, '100', '', '', '', '', 'Must-have', 'Facilities', 'Estimate', '', '', 'Poor', '2'],
+        ['Roof replacement — north wing', 'Sections C–D', 'FY' + (f + 3), '175000', P, '60', 'Grants/Donations', '40', '', '', 'Must-have', 'Facilities', 'Estimate'],
+        ['Replace route bus', '', 'FY' + (f + 1), '135000', on('save') ? S : P, '100', '', '', '', '', 'Strategic', 'Transportation', 'Firm'],
+        ['Playground equipment', '', 'FY' + (f + 2), '90000', on('save') ? `${S} or ${P}` : P, '', '', '', '', '', 'Nice to have', 'Facilities', 'Estimate'],
+        ['Track resurface', '', 'FY' + (f + 4), '250000-300000', 'Campaign/Bond', '70', 'Boosters', '30', '', '', 'Nice to have', 'Activities', 'Estimate'],
+      ]);
+    }
     return toCSV([PROJECT_HEAD,
       ['Secure entry vestibule', '', 'FY' + f, '185000', 'SAVE', '100', '', '', '', '', 'Must-have', 'Safety & security', 'Estimate'],
       ['Roof replacement — north wing', 'Sections A–B', 'FY' + (f + 1), '160000', 'SAVE', '60', 'PPEL', '40', '', '', 'Must-have', 'Facilities', 'Estimate', '', '', 'Poor', '2'],
@@ -348,8 +368,8 @@
     const rows = [PROJECT_HEAD];
     projects.forEach((p) => p.phases.forEach((ph) => {
       const r = [p.name, ph.label || '', 'FY' + (startFY + ph.year), ph.cost];
-      if (ph.options && ph.options.length > 1) r.push(ph.options.map((b) => NAMES[b]).join(' or '), '', '', '', '', '');
-      else for (let i = 0; i < 3; i++) { const f = ph.funding[i]; r.push(f ? NAMES[f.b] : '', f ? f.p : ''); }
+      if (ph.options && ph.options.length > 1) r.push(ph.options.map((b) => fname(b)).join(' or '), '', '', '', '', '');
+      else for (let i = 0; i < 3; i++) { const f = ph.funding[i]; r.push(f ? fname(f.b) : '', f ? f.p : ''); }
       r.push(TIER_WORD[p.tier || tierKey(p.pri)] || '', p.area || '', p.est ? 'Estimate' : 'Firm', ph.status === 'done' ? 'Complete' : ph.status === 'underway' ? 'Underway' : '',
              ph.actual != null ? ph.actual : '', p.cond || '', p.life != null ? p.life : '');
       rows.push(r);
@@ -357,6 +377,12 @@
     return toCSV(rows);
   }
   function balanceTemplate() {
+    if (!isIA()) {
+      const P = ST_.current(), BC = P.balanceCodes || {};
+      return toCSV([['Fund', `${P.adj} fund number`, 'Balance', 'As-of date'],
+        ...['save', 'ppel', 'vppel'].filter((k) => ST_.on(k)).map((k) => [ST_.longLabel(k), BC[k] || '', '', '']),
+        ['Grants / donations restricted to capital', '', '', '']]);
+    }
     return toCSV([['Fund', 'Iowa fund code', 'Balance', 'As-of date'],
       ['SAVE (Secure an Advanced Vision for Education)', '33', '', ''],
       ['PPEL (board-approved)', '36', '', ''],

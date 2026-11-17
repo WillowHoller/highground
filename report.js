@@ -12,6 +12,9 @@
   'use strict';
   const CAPF = ['save', 'ppel', 'vppel', 'grants'];
   const FUNDN = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants', general: 'General Fund', debt_levy: 'Debt Service' };
+  /* a fund's name in the state on screen (states.js); the home state keeps this file's own words */
+  const ST_ = (typeof self !== 'undefined' && self.HGStates) || (typeof require === 'function' ? (() => { try { return require('./states.js'); } catch (e) { return null; } })() : null);
+  const stWord = (k, map) => (ST_ && ST_.current().code !== 'IA' && ['save', 'ppel', 'vppel', 'debt_levy'].includes(k) ? ST_.label(k) : map[k]);
   const STATUSN = { idea: 'Idea', proposed: 'Proposed', analysis: 'Being analyzed', approved: 'Approved', underway: 'Underway', done: 'Done', deferred: 'Deferred', declined: 'Declined' };
   const fmt = (v) => { const s = v < 0 ? '−' : ''; v = Math.abs(v); return s + (v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1000 ? '$' + Math.round(v / 1000) + 'k' : '$' + Math.round(v)); };
 
@@ -59,7 +62,7 @@
       balances: bal, budget, progress, initiatives, done, pending: pending.slice(0, 12), pendingCount: pending.length,
       holdback,
       contracts: inp.contracts || [],   // [{ id, name, sentence, status, flags: [text] }] worked out by the app from the pay apps
-      tax: tax && tax.taxed.length && tax.hasValuation ? { home: tax.peak.home, fy: tax.peak.fy, homeValue: tax.homeValue } : null,
+      tax: tax && tax.taxed.length && tax.hasValuation ? { home: tax.peak.home, homeNet: tax.peak.homeNet, credit: tax.credit ? tax.credit.name : null, fy: tax.peak.fy, homeValue: tax.homeValue } : null,
       gf: inp.gf || null,   // the General Fund forecast's headline figures, when the district has set it up
     };
     function pick(o) { return { budget: o.budget, actual: o.actual, encumbered: o.encumbered, forecast: o.forecast, variance: o.variance }; }
@@ -81,7 +84,7 @@
     });
     ['save', 'ppel', 'vppel', 'debt_levy', 'general'].forEach((f) => {
       const a = (now.balances || {})[f], b = (prev.balances || {})[f];
-      if (a && b && Math.abs(a.amount - b.amount) > 0.5) items.push(`${FUNDN[f]} balance ${a.amount > b.amount ? 'up' : 'down'} ${fmt(Math.abs(a.amount - b.amount))}, to ${fmt(a.amount)}.`);
+      if (a && b && Math.abs(a.amount - b.amount) > 0.5) items.push(`${stWord(f, FUNDN)} balance ${a.amount > b.amount ? 'up' : 'down'} ${fmt(Math.abs(a.amount - b.amount))}, to ${fmt(a.amount)}.`);
     });
     if (now.gf && prev.gf && now.gf.solvency != null && prev.gf.solvency != null && Math.abs(now.gf.solvency - prev.gf.solvency) >= 0.001)
       items.push(`General Fund solvency ${now.gf.solvency > prev.gf.solvency ? 'rose' : 'fell'} from ${(prev.gf.solvency * 100).toFixed(1)}% to ${(now.gf.solvency * 100).toFixed(1)}%.`);
@@ -90,7 +93,7 @@
     (now.holdback || []).forEach((h) => {
       const p = (prev.holdback || []).find((x) => x.fund === h.fund);
       if (h.status === 'over' && !(p && p.status === 'over' && now.fiscalYear === prev.fiscalYear))
-        items.push(`${FUNDN[h.fund]} spending outside the plan’s initiatives (${fmt(h.used)}) has passed what the plan holds back for the year (${fmt(h.held)}).`);
+        items.push(`${stWord(h.fund, FUNDN)} spending outside the plan’s initiatives (${fmt(h.used)}) has passed what the plan holds back for the year (${fmt(h.held)}).`);
     });
     (now.contracts || []).forEach((k) => {
       const p = (prev.contracts || []).find((x) => x.id === k.id);

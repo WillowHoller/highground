@@ -19,15 +19,17 @@
   const initials = (s) => (String(s || '?').replace(/[^A-Za-z ]/g, ' ').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?').toUpperCase();
   /* HighGround's logo: 'light' (cream) on the dark green rail and sign-in panel, color on light backgrounds */
   /* ---- dates: Iowa's fiscal year runs July 1 to June 30, so October 2026 is in FY2027 ---- */
-  const fyNow = () => { const t = new Date(); return t.getMonth() >= 6 ? t.getFullYear() + 1 : t.getFullYear(); };
+  /* the fiscal year today, in the state on screen (its fiscal year, states.js) */
+  const fyNow = () => { const t = new Date(), iso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; return HGStates.fyOfDate(iso) || (t.getMonth() >= 6 ? t.getFullYear() + 1 : t.getFullYear()); };
   /** balances dated before this fiscal year start the plan in a year that has already ended */
   const staleStart = (asOf) => { const fy = asOf && HGEngine.fyOfDate(asOf), now = fyNow();
-    return fy && fy < now ? `Balances dated ${day(asOf)} start the plan in FY${fy}, a year that has already ended (it’s FY${now} now). Use balances from June 30, ${now - 1} or later, from the audit or the ledger, so the plan starts this year.` : ''; };
+    return fy && fy < now ? `Balances dated ${day(asOf)} start the plan in FY${fy}, a year that has already ended (it’s FY${now} now). Use balances from ${HGStates.closeDay()}, ${now - 1} or later, from the audit or the ledger, so the plan starts this year.` : ''; };
   /** how old the state's annual-report figures are: districts file by September 15 and the state posts them later in the fall */
   const stateAge = (stFY) => { const now = fyNow();
+    if (stFY && stFY < now - 1 && PACK().code !== 'IA') return `FY${stFY} is the newest year ${PACK().code === 'NE' ? 'NDE has' : 'the state has'} posted. FY${now - 1} reports are filed after the year closes on ${HGStates.closeDay()}, ${now - 1} and appear some months later; until then, use newer figures from the district’s own audit or ledger where you have them.`;
     return stFY && stFY < now - 1 ? `FY${stFY} is the newest year the state has posted. FY${now - 1} reports were due September 15, ${now - 1} and usually appear later in the fall; until then, use newer figures from the district’s own audit or ledger where you have them.` : ''; };
   /** certified enrollment for school year fy-1 to fy is the October 1 count that funds the year after */
-  const enrollLabel = (fy) => (fy ? `October 1, ${fy - 1} count (funds FY${fy + 1})` : '');
+  const enrollLabel = (fy) => (!fy ? '' : PACK().code === 'NE' ? `fall membership, ${fy - 1}/${String(fy).slice(2)}` : `October 1, ${fy - 1} count (funds FY${fy + 1})`);
   const LOGO_LIGHT = `<img src="highground-wordmark-light.png" alt="HighGround" class="logo-img" width="170" height="31">`;
   const LOGO_COLOR = `<img src="highground-wordmark.png" alt="HighGround" class="logo-img" width="170" height="31">`;
 
@@ -85,6 +87,52 @@
   // ------------------------------------------------------------------ state and routing
   const S = { loaded: false, user: null, profile: null, isStaff: false, memberships: [], districts: [], district: null, role: null };
   let flash = null; // one-time message for the next screen
+
+  /* ---- state packs (states.js, 11 Nov 2026): which state's funds, rules and words a district's screens use.
+     A district's own state is district.state. Willow Holler staff can preview any district in another state's view from the
+     Admin Portal (kept in this browser only; the district's data and its state don't change). Iowa screens are written in
+     Iowa's words and pass through untouched; another state's screens are put in its words as they're drawn, and the parts
+     that only exist in Iowa (SAVE, SF 2472, the state prefill) are taken out. ---- */
+  const STATE_VIEW_KEY = 'highground-state-view';
+  function stateView() { if (!S.isStaff) return ''; try { const v = localStorage.getItem(STATE_VIEW_KEY) || ''; return HGStates.has(v) ? v.toUpperCase() : ''; } catch (e) { return ''; } }
+  const stateOf = (d) => stateView() || ((d && d.state) || 'IA').toUpperCase();
+  const PACK = () => HGStates.current();
+  const F_ON = (k) => HGStates.on(k);
+  const STATE_OBS = { o: null };
+  const OBS_OPTS = { childList: true, subtree: true, characterData: true };
+  const NOLOC = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, NOSCRIPT: 1 };
+  /** put a node and everything in it into the state's words, and take out what the state doesn't have */
+  function localize(node, P) {
+    if (!node) return;
+    if (node.nodeType === 3) { const t = node.nodeValue, u = HGStates.say(t, P.code); if (u !== t) node.nodeValue = u; return; }
+    if (node.nodeType !== 1 || NOLOC[node.nodeName]) return;
+    (P.hide || []).forEach((sel) => {
+      const hits = [...node.querySelectorAll(sel)]; if (node.matches && node.matches(sel)) hits.push(node);
+      hits.forEach((el) => { const box = el.nodeName === 'OPTION' ? el : el.closest('label.field, label.row, label.chip, label.lever, [data-st-box]') || el; if (box.isConnected || box === node) box.remove(); });
+    });
+    const w = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentNode && NOLOC[t.parentNode.nodeName] ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+    for (let t = w.nextNode(); t; t = w.nextNode()) { const v = t.nodeValue, u = HGStates.say(v, P.code); if (u !== v) t.nodeValue = u; }
+    const attrs = ['title', 'aria-label', 'placeholder', 'alt'];
+    [node].concat([...node.querySelectorAll('[title],[aria-label],[placeholder],[alt]')]).forEach((el) => attrs.forEach((a) => {
+      if (!el.hasAttribute || !el.hasAttribute(a)) return; const v = el.getAttribute(a), u = HGStates.say(v, P.code); if (u !== v) el.setAttribute(a, u); }));
+  }
+  /** use a state's pack for the screens from now on */
+  function stateApply(code) {
+    const P = HGStates.use(code || 'IA');
+    try { document.documentElement.setAttribute('data-state', P.code); } catch (e) {}
+    if (STATE_OBS.o) { STATE_OBS.o.disconnect(); STATE_OBS.o = null; }
+    if (!P.say && !(P.hide && P.hide.length)) return P;
+    const run = (nodes) => { const o = STATE_OBS.o; if (o) o.disconnect(); try { nodes.forEach((n) => localize(n, P)); if (document.title) document.title = HGStates.say(document.title, P.code); } finally { if (o) o.observe(document.body, OBS_OPTS); } };
+    STATE_OBS.o = new MutationObserver((ms) => { const set = new Set(); ms.forEach((m) => { if (m.type === 'characterData') set.add(m.target); else m.addedNodes.forEach((x) => set.add(x)); }); run([...set]); });
+    STATE_OBS.o.observe(document.body, OBS_OPTS);
+    run([document.body]);
+    return P;
+  }
+  /** the internal preview notice: staff looking at a district in another state's view */
+  function stateViewBanner(d) {
+    const v = stateView(); if (!v || !d || v === (d.state || 'IA').toUpperCase()) return '';
+    return `<div class="notice warn" data-state-view-banner><b>Internal preview: ${esc(HGStates.pack(v).name)} view.</b> ${esc(d.short_name || d.name)} is shown with ${esc(HGStates.pack(v).name)}’s funds, rules and words. Its own state (${esc(d.state || 'IA')}) and its data haven’t changed, but its numbers follow ${esc(HGStates.pack(v).name)}’s rules: money in a fund ${esc(HGStates.pack(v).name)} doesn’t have counts as short. <a href="#/staff">Change the state view in the Admin Portal</a>.</div>`;
+  }
   function go(hash, message) {
     flash = message || null;
     if (location.hash === hash) route(); else location.hash = hash;
@@ -410,6 +458,7 @@
       return;
     }
     S.district = d; S.realRole = roleIn(d); if (S.preview && !canPreview()) S.preview = false; S.role = S.preview ? 'board' : S.realRole;
+    stateApply(stateOf(d));
     if (MOVED[`${sectionId}/${tabId}`]) return go(`#/d/${enc(slug)}/${MOVED[`${sectionId}/${tabId}`]}`);
     if (MOVED_SECTION[sectionId] && !tabId) return go(`#/d/${enc(slug)}/${MOVED_SECTION[sectionId]}`);
     try { localStorage.setItem('highground-last-district', d.slug); } catch (e) {}
@@ -435,7 +484,7 @@
         <div class="right">${viewSwitch}${tab.status !== 'live' ? badge(tab.status) : ''}${tab.status !== 'live' && tab.phase ? `<span class="small muted">${tab.status === 'wip' ? 'Planned for' : 'Rest in'} Phase ${tab.phase}</span>` : ''}</div></div>
       ${tabs}
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
-      ${setupBanner(section.id, tab.id)}
+      ${stateViewBanner(d)}${setupBanner(section.id, tab.id)}
       <div id="view" class="stack"><div class="empty">Loading…</div></div>` });
     flash = null;
     const view = document.getElementById('view');
@@ -569,6 +618,7 @@
     const d = S.districts.find((x) => x.slug === slug);
     if (!d) return go('#/');
     S.district = d; S.realRole = roleIn(d); S.role = S.realRole;
+    stateApply(stateOf(d));
     const c = ctx(), steps = WIZ_STEPS.filter((x) => x.who(c));
     if (steps.length < 2) return go(`#/d/${enc(slug)}/home/today`);
     const step = steps.find((x) => x.k === stepKey) || steps[0], i = steps.indexOf(step), next = steps[i + 1];
@@ -586,7 +636,17 @@
     const d = c.district;
     if (step.k === 'number') {
       let linked = null;
-      if (d.state_district_id) { try { linked = (await HG.db.select('ia_district', `select=name,aea&de_district=eq.${enc(d.state_district_id)}`))[0] || null; } catch (e) { linked = null; } }
+      const X = stDist();
+      if (X) linked = await stLinked(d);
+      else if (d.state_district_id) { try { linked = (await HG.db.select('ia_district', `select=name,aea&de_district=eq.${enc(d.state_district_id)}`))[0] || null; } catch (e) { linked = null; } }
+      if (X) return `<h1>Find ${esc(d.short_name || d.name)} in the state’s data</h1>
+        <p>HighGround uses the ${esc(PACK().agency)}’s county-district number to fill in your starting numbers and to compare you with districts your size.</p>
+        <form class="stack" data-form="wizNumber">
+          <div class="inline-form"><label class="field">District name<input data-ia-q value="${esc(d.short_name || '')}" autocomplete="off"></label><button type="button" class="btn" data-action="iaSearch">Find</button></div>
+          <div data-ia-results></div>
+          <label class="field">${esc(X.label)}<input name="state_district_id" maxlength="${X.max}" placeholder="${X.ph}" value="${esc(d.state_district_id || '')}" style="max-width:160px">
+            <span class="hint" data-ia-linked>${linked ? `${esc(linked.name)}${esc(linked.where)}.` : 'Use Find, or type the number if you know it.'}</span></label>
+          <div class="row"><button type="submit" class="btn primary">Save and continue</button><button type="button" class="btn" data-action="wizSkip">Skip for now</button></div></form>`;
       return `<h1>Find ${esc(d.short_name || d.name)} in the state’s data</h1>
         <p>HighGround uses the Iowa Department of Education’s 4-digit district number to fill in your starting numbers and to compare you with districts your size.</p>
         <form class="stack" data-form="wizNumber">
@@ -603,7 +663,7 @@
       // what's already saved wins; otherwise the state's figures
       const val = (mine, state) => (mine != null && mine !== '' ? mine : state);
       const m = (v) => (v == null || v === '' ? '' : moneyIn(Math.round(Number(v))));
-      const voted = lv && Number(lv.voted_ppel) > 0, SF = st ? stateFill(st, 5) : { values: {}, list: [], debts: [] }, sv = SF.values;
+      const voted = lv && Number(lv.voted_ppel) > 0, SF = st && st.ne ? { values: st.values, list: [], debts: [] } : st ? stateFill(st, 5) : { values: {}, list: [], debts: [] }, sv = SF.values;
       const pctOf = (v) => (v == null || v === '' ? null : pctIn(v));
       /* filled from the state's data without a field of their own here; all are on Settings → Starting numbers */
       const hiddenState = [['save_trend', pctOf(s0.save_trend)], ['ppel_growth', pctOf(s0.ppel_growth)], ['taxable_valuation', s0.taxable_valuation == null ? null : moneyIn(s0.taxable_valuation)],
@@ -621,17 +681,24 @@
         <form class="stack" data-form="wizStart" novalidate>
           <input type="hidden" name="plan_years" value="${esc(s0.plan_years || 10)}"><input type="checkbox" name="sf2472" ${s0.sf2472 === false ? '' : 'checked'} hidden>
           <h3>Balances</h3><div class="fgrid">
-            <label class="field">Balances as of<input name="as_of" type="date" value="${esc(val(asOf0, st ? `${st.fiscal_year}-06-30` : ''))}" data-stale-watch><span class="hint gaptext" data-stale-start>${esc(staleStart(val(asOf0, st ? `${st.fiscal_year}-06-30` : '')))}</span></label>
+            <label class="field">Balances as of<input name="as_of" type="date" value="${esc(val(asOf0, st ? HGStates.fyRange(st.fiscal_year).end : ''))}" data-stale-watch><span class="hint gaptext" data-stale-start>${esc(staleStart(val(asOf0, st ? HGStates.fyRange(st.fiscal_year).end : '')))}</span></label>
             ${f('bal_save', 'SAVE balance, $', m(val(B.save, B2.save)))}${f('bal_ppel', 'PPEL balance, $', B.ppel != null ? m(B.ppel) : sv.bal_ppel || '', voted ? 'The state reports PPEL and V-PPEL as one fund; this splits it by the two levy rates.' : '')}
             ${f('bal_vppel', 'V-PPEL balance, $', B.vppel != null ? m(B.vppel) : sv.bal_vppel || m(0))}${f('bal_grants', 'Grants and donations on hand, $', m(B.grants || 0))}</div>
           <h3>Receipts each year</h3><div class="fgrid">
             ${f('save_receipts', 'SAVE receipts, $', m(val(s0.save_receipts, R2.save)))}${f('save_receipts_fy', 'For fiscal year', val(s0.save_receipts_fy, st ? st.fiscal_year : ''))}
-            ${f('ppel_receipts', 'PPEL receipts, $', m(val(s0.ppel_receipts, sp.regular)))}${f('ppel_rate', 'PPEL rate, $ per $1,000', val(s0.ppel_rate, lv ? Number(lv.regular_ppel) : ''))}</div>
+            ${f('ppel_receipts', 'PPEL receipts, $', m(val(s0.ppel_receipts, sp.regular)))}${f('ppel_rate', 'PPEL rate, $ per $1,000', val(s0.ppel_rate, lv ? Number(lv.regular_ppel) : sv.ppel_rate != null ? sv.ppel_rate : ''))}</div>
           <h3>Voter-approved PPEL</h3><div class="fgrid">
             <label class="field">Status<select name="vppel_status">${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s0.vppel_status || (voted ? 'active' : 'none')) === k ? 'selected' : ''}>${v}</option>`).join('')}</select>${voted ? '<span class="hint">The state lists a voter-approved PPEL for this district.</span>' : ''}</label>
             ${f('vppel_annual', 'V-PPEL receipts, $', m(val(s0.vppel_annual, sp.voted)))}${f('vppel_first_fy', 'First fiscal year', s0.vppel_first_fy || sv.vppel_first_fy || '', sv.vppel_first_fy && !s0.vppel_first_fy ? 'The first year the state’s levy files show it' : '')}${f('vppel_last_fy', 'Last fiscal year', s0.vppel_last_fy || sv.vppel_last_fy || '', sv.vppel_last_fy && !s0.vppel_last_fy ? 'Assumed: 10 years, the most a vote allows. Check the ballot measure.' : 'From the ballot measure')}</div>
           <h3>Enrollment</h3><div class="fgrid">${f('enrollment', 'Certified enrollment', val(s0.enrollment, le.certified == null ? '' : Math.round(Number(le.certified))), le.fiscal_year ? `The state’s figure is the ${enrollLabel(le.fiscal_year)}.` : '')}${f('enrollment_year', 'Enrollment year', val(s0.enrollment_year, le.fiscal_year ? schoolYear(le.fiscal_year) : ''))}</div>
           ${hiddenState.map(([n, v]) => `<input type="hidden" name="${n}" value="${esc(v)}">`).join('')}
+          ${PACK().lid ? (() => { const L0 = (s0.state_inputs || {}).lid || {}, pick = (mine, st2) => (mine != null && mine !== '' ? mine : st2);   /* Nebraska's lid figures: saved ones win, else NDE's */
+            return [['lid_gf_rate', pick(L0.gfRate, sv.lid_gf_rate)], ['lid_other_rate', L0.otherRate], ['lid_authority', pick(L0.authority, sv.lid_authority)], ['lid_carry', pick(L0.carry, sv.lid_carry)],
+              ['lid_growth', pctOf(L0.growth)], ['lid_mem_hist', pick(Array.isArray(L0.memHist) ? L0.memHist.join(', ') : null, sv.lid_mem_hist)],
+              ['lid_mem_growth', pctOf(pick(L0.memGrowth, sv.lid_mem_growth))], ['lid_lep_pov', pctOf(pick(L0.lepPov, sv.lid_lep_pov))]].filter(([, v]) => v != null && v !== '').map(([n, v]) => `<input type="hidden" name="${n}" value="${esc(v)}">`).join('')
+              + ((L0.boardBump != null ? L0.boardBump : sv.lid_board_bump) ? '<input type="checkbox" name="lid_board_bump" checked hidden>' : '')
+              + ((OV) => (OV ? `<input type="hidden" name="lid_ov_cents" value="${esc(OV.cents)}"><input type="hidden" name="lid_ov_first" value="${esc(OV.first || '')}"><input type="hidden" name="lid_ov_last" value="${esc(OV.last || '')}">${OV.authorityVote ? '<input type="checkbox" name="lid_ov_authority" checked hidden>' : ''}` : ''))(
+                L0.override || (sv.lid_ov_cents ? { cents: sv.lid_ov_cents, first: sv.lid_ov_first, last: sv.lid_ov_last, authorityVote: !!sv.lid_ov_authority } : null)); })() : ''}
           ${SF.list.length ? `<div class="notice ok small"><b>Also filled in from the state’s data</b> ${def('sources')} (change them later in Settings → Starting numbers):<ul>${SF.list.filter(([l]) => !/payments|paid in/i.test(l)).map(([l, v]) => `<li>${esc(l)}: ${esc(v)}</li>`).join('')}</ul>${st && st.more && st.more.home_value ? `<span class="muted">${CENSUS_NOTICE}</span>` : ''}</div>` : ''}
           <h3>Existing debt paid from SAVE or PPEL</h3>
           <p class="small muted">Revenue bonds and leases already committed. You can add more later in Settings → Starting numbers.</p>
@@ -652,7 +719,7 @@
       <div class="row"><a class="btn primary" href="#/d/${enc(slug)}/settings/uploads">Upload initiatives</a><a class="btn" href="#/d/${enc(slug)}/home/today">Go to Home</a></div>`;
   }
   const wizDebtRow = (x) => `<tr data-debt-row data-id=""><td><input name="debt_name" aria-label="Obligation" placeholder="SAVE revenue bonds, Series 2021" value="${esc((x && x.name) || '')}"></td>
-    <td><select name="debt_fund" aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}" ${x && x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+    <td><select name="debt_fund" aria-label="Paid from">${HGStates.pairs(['save', 'ppel', 'debt_levy']).map(([k, v]) => `<option value="${k}" ${x && x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
     <td><input name="debt_annual" inputmode="decimal" aria-label="Payment per year" value="${esc(x ? moneyIn(x.annual) : '')}"></td><td><input name="debt_final" inputmode="numeric" aria-label="Final fiscal year" placeholder="2033"></td>
     <td><button type="button" class="btn small danger" data-action="removeDebtRow">Remove</button></td></tr>`;
   // ------------------------------------------------------------------ views: Overview
@@ -662,7 +729,8 @@
      The ask bar answers a fixed list of questions, each a calculation on the district's own numbers (no AI). */
   const HOME = {};
   const AREA_NAME = { plan: 'Plan', money: 'Money', track: 'Track', share: 'Share', set: 'Setup', home: 'Home' };
-  const HOME_LEVERS = ['pg', 'sg', 'infl'];
+  const HOME_LEVERS_ALL = ['pg', 'sg', 'infl'];
+  const HOME_LEVERS = { some: (fn) => HOME_LEVERS_ALL.filter((k) => k !== 'sg' || F_ON('save')).some(fn), map: (fn) => HOME_LEVERS_ALL.filter((k) => k !== 'sg' || F_ON('save')).map(fn) };   // no SAVE trend where there's no SAVE
   const LEVER_SAY = { pg: 'property valuations grow', sg: 'SAVE receipts change', infl: 'construction costs rise' };
   const LEVER_HELP = { pg: 'PPEL and V-PPEL receipts follow taxable valuation.', sg: 'SAVE is the statewide sales tax for school buildings, paid per student. Lower it to test an enrollment dip or a slower economy.',
     infl: 'How fast building and equipment prices rise each year. Each project is priced in the year it happens.' };
@@ -686,7 +754,8 @@
   }
   function homeAssume() {
     const chip = (k) => `<button type="button" class="hh-scrub" data-action="homeLever" data-k="${k}" aria-expanded="${HOME.open === k}" title="Click or drag sideways to change">${esc(leverOf(k).show(HOME.L[k]))}</button>`;
-    return `Assuming ${LEVER_SAY.pg} ${chip('pg')} a year, ${LEVER_SAY.sg} ${chip('sg')} a year, and ${LEVER_SAY.infl} ${chip('infl')} a year.`
+    return (F_ON('save') ? `Assuming ${LEVER_SAY.pg} ${chip('pg')} a year, ${LEVER_SAY.sg} ${chip('sg')} a year, and ${LEVER_SAY.infl} ${chip('infl')} a year.`
+      : `Assuming ${LEVER_SAY.pg} ${chip('pg')} a year and ${LEVER_SAY.infl} ${chip('infl')} a year.`)
       + (homeChanged() ? ` <button type="button" class="hh-reset" data-action="homeLeverReset">Back to the board version</button>` : '');
   }
   function homeFigs(x) {
@@ -816,7 +885,7 @@
     if (H.g) out.push({ q: 'When does the General Fund get tight?', kw: ['general', 'solvency', 'tight', 'cash', 'reserve', 'balance', 'unspent', 'run out', 'staff', 'salary'], a: () => {
       const ys = H.g.R.years, low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]), under = ys.find((y) => y.solvency < 0.05);
       return { h: under ? `It falls below 5% in FY${under.fy}, to ${pct1(under.solvency)}.` : `It is lowest in FY${low.fy}, at ${pct1(low.solvency)}.`,
-        p: `The solvency ratio is ${pct1(ys[0].solvency)} in FY${ys[0].fy} and ${pct1(ys[ys.length - 1].solvency)} by FY${ys[ys.length - 1].fy} (likely between ${pct1(ys[ys.length - 1].solvencyLow)} and ${pct1(ys[ys.length - 1].solvencyHigh)}).`,
+        p: `The solvency ratio is ${pct1(ys[0].solvency)} in FY${ys[0].fy} and ${pct1(ys[ys.length - 1].solvency)} by FY${ys[ys.length - 1].fy}${gfHasRange(ys[ys.length - 1]) ? ` (likely between ${pct1(ys[ys.length - 1].solvencyLow)} and ${pct1(ys[ys.length - 1].solvencyHigh)})` : ''}.`,
         x: `<div class="scroll"><table><thead><tr><th>Year</th>${ys.map((y) => `<th class="num">FY${y.fy}</th>`).join('')}</tr></thead><tbody><tr><td>Solvency ratio</td>${ys.map((y) => `<td class="num">${pct1(y.solvency)}</td>`).join('')}</tr></tbody></table></div>`,
         acts: lk('money/general', 'Open the General Fund forecast', true), src: ['General Fund forecast, board version', 'General Fund figures in Starting numbers'] }; } });
     if (H.D.measures.length) out.push({ q: 'Which measures are off track?', kw: ['measure', 'measures', 'off track', 'goal', 'goals', 'outcome', 'results', 'progress', 'behind'], a: () => {
@@ -829,10 +898,11 @@
       h: `${H.pending.length} initiative${H.pending.length === 1 ? ' is' : 's are'} not approved yet.`, p: '',
       x: `<ul class="ha-list">${H.pending.slice(0, 10).map((i) => `<li>${esc(i.name)} <span class="small muted">· ${esc(i.status || 'proposed')}</span></li>`).join('')}${H.pending.length > 10 ? `<li class="muted">and ${H.pending.length - 10} more</li>` : ''}</ul>`,
       acts: lk('plan/initiatives', 'Open Initiatives', true), src: ['Initiatives and their status'] }) });
-    if (H.bi && (H.sb || H.pb)) out.push({ q: 'How much is in SAVE and PPEL?', kw: ['save', 'ppel', 'vppel', 'balance', 'how much', 'left', 'cash', 'fund balance', 'low point'], a: () => {
+    if (!F_ON('save')) H.sb = null;   // a state without SAVE: the question is about its board levy alone
+    if (H.bi && (H.sb || H.pb)) out.push({ q: F_ON('save') ? 'How much is in SAVE and PPEL?' : `How much is in ${HGStates.label('ppel')}?`, kw: ['save', 'ppel', 'vppel', 'balance', 'how much', 'left', 'cash', 'fund balance', 'low point'], a: () => {
       const paths = HGCapital.fundPaths(H.x.cr, H.bi.cfg), lowOf = (b) => (paths[b] && paths[b].lowFY != null ? { end: paths[b].low, fy: paths[b].lowFY } : null);
       const row = (b, bal, name) => { const lo = lowOf(b); return bal ? `<tr><td>${name}</td><td class="num">${f(Number(bal.amount))}</td><td>${esc(day(bal.as_of))}</td><td class="num">${lo ? `${f(lo.end)} (FY${lo.fy})` : '—'}</td></tr>` : ''; };
-      return { h: `SAVE has ${H.sb ? f(Number(H.sb.amount)) : 'no balance entered'} and PPEL has ${H.pb ? f(Number(H.pb.amount)) : 'no balance entered'}.`, p: 'The low point is the smallest year-end balance in the board version of the plan.',
+      return { h: F_ON('save') ? `SAVE has ${H.sb ? f(Number(H.sb.amount)) : 'no balance entered'} and PPEL has ${H.pb ? f(Number(H.pb.amount)) : 'no balance entered'}.` : `${HGStates.label('ppel')} has ${H.pb ? f(Number(H.pb.amount)) : 'no balance entered'}.`, p: 'The low point is the smallest year-end balance in the board version of the plan.',
         x: `<div class="scroll"><table><thead><tr><th>Fund</th><th class="num">Balance</th><th>As of</th><th class="num">Low point</th></tr></thead><tbody>${row('save', H.sb, 'SAVE')}${row('ppel', H.pb, 'PPEL')}</tbody></table></div>`,
         acts: lk('money/summary', 'Open All funds', true), src: ['Fund balances in Starting numbers', `Capital plan: ${H.board.name}`] }; } });
     if (H.acts.length) out.push({ q: 'What changed recently?', kw: ['changed', 'change', 'recent', 'recently', 'new', 'happened', 'activity', 'who'], a: () => ({
@@ -953,7 +1023,7 @@
         + (c.finance ? ` Update them with this year’s figures (${link('settings/setup', 'starting numbers')}).` : ' The business office can update them.') : ''),
       AT('track', 'book', regOpen.length ? (c.finance ? `${regOpen.length} check-register question${regOpen.length === 1 ? ' is' : 's are'} waiting for your answer (${link('track/registers', 'check register')}).`
         : `${regOpen.length} check-register question${regOpen.length === 1 ? ' is' : 's are'} with the business office (${link('track/registers', 'see them')}).`) : ''),
-      AT('money', 'users', peers && HGPeers.overviewLine(peers.rows) ? `${esc(HGPeers.overviewLine(peers.rows))} (${link('money/summary', 'funds')}, ${link('money/general', 'General Fund')}).` : ''),
+      AT('money', 'users', peers && HGPeers.overviewLine(peers.rows) ? `${esc(HGPeers.overviewLine(peers.rows, PACK().adj))} (${link('money/summary', 'funds')}, ${link('money/general', 'General Fund')}).` : ''),
     ].filter(Boolean);
     const sb = lastBal('save'), pb = lastBal('ppel');
     const hour = new Date().getHours(), hi = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -1047,7 +1117,7 @@
     modal(`<div class="stack"><div class="row" style="justify-content:space-between"><h2 id="modal-title">${sec.tabs.length === 1 || sec.id === 'home' ? esc(tab.label) : `${esc(sec.label)}: ${esc(tab.label)}`}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
       <p>${esc(tab.lede)}</p>
       ${tips.length ? `<ul>${tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
-      ${['settings/setup', 'money/general', 'settings/district'].includes(`${sec.id}/${tab.id}`) ? sourcesHtml() : ''}
+      ${['settings/setup', 'money/general', 'settings/district'].includes(`${sec.id}/${tab.id}`) && HGStates.feature('dataSources') ? sourcesHtml() : ''}
       ${terms.filter((k) => k !== 'sources').length ? `<h3>Terms on this screen</h3><dl class="terms">${terms.filter((k) => k !== 'sources').map((k) => `<dt>${esc(TERMS[k][0])}</dt><dd>${esc(TERMS[k][1])}</dd>`).join('')}</dl>` : ''}
       <p class="small"><a href="#/d/${enc(S.district.slug)}/help/guide">The full guide</a> · Questions: <a href="mailto:support@willowholler.com">support@willowholler.com</a></p></div>`);
   }
@@ -1056,7 +1126,7 @@
   function setupSteps(c, o) {
     const d = c.district, rows = o.rows;
     return [
-      { k: 'district', who: c.admin, title: 'District details and Iowa number', path: 'settings/district', done: !!d.state_district_id, why: 'Links the district to the state’s data: peer comparisons and pre-filled starting numbers.' },
+      { k: 'district', who: c.admin, title: `District details and ${PACK().code === 'NE' ? 'NDE agency ID' : `${PACK().adj} number`}`, path: 'settings/district', done: !!d.state_district_id, why: 'Links the district to the state’s data: peer comparisons and pre-filled starting numbers.' },
       { k: 'start', who: c.finance, title: 'Starting numbers', path: 'settings/setup', done: !!rows.settings, why: 'SAVE, PPEL and V-PPEL receipts, balances and existing debt: what the capital plan starts from.' },
       { k: 'projects', who: c.plan, title: 'Initiatives', path: 'settings/uploads', done: rows.scenarios.length > 0, why: 'Upload the initiatives spreadsheet (there’s a template) to create the first scenario.' },
       { k: 'board', who: c.admin, title: 'Adopted plan', path: 'money/capital', done: rows.scenarios.some((x) => x.is_board_version), why: 'Mark the scenario the board adopted; reports, progress and the public page follow it.' },
@@ -1098,9 +1168,9 @@
     const T = {
       gap: () => tile('Gap to close ' + def('gap'), gap == null ? '—' : f(gap), board ? (cr && cr.need ? `${Math.round(((cr.need - gap) / cr.need) * 100)}% of the ${f(cr.need)} plan is paid for` : 'the adopted plan') : 'no adopted plan yet',
         { area: 'money', ic: 'money', cls: gap > 0.5 ? 'gap' : '', viz: cr && cr.need ? MINI.meter(cr.need - gap, cr.need, 'cov') : '' }),
-      save: () => tile('SAVE balance ' + def('save'), sb ? f(Number(sb.amount)) : '—', sb ? 'as of ' + esc(day(sb.as_of)) + (cr ? ' · by year' : '') : '', { area: 'money', ic: 'money', viz: MINI.spark(bal('save')) }),
+      save: () => !F_ON('save') ? '' : tile('SAVE balance ' + def('save'), sb ? f(Number(sb.amount)) : '—', sb ? 'as of ' + esc(day(sb.as_of)) + (cr ? ' · by year' : '') : '', { area: 'money', ic: 'money', viz: MINI.spark(bal('save')) }),
       ppel: () => tile('PPEL balance ' + def('ppel'), pb ? f(Number(pb.amount)) : '—', pb ? 'as of ' + esc(day(pb.as_of)) + (cr ? ' · by year' : '') : '', { area: 'money', ic: 'money', viz: MINI.spark(bal('ppel')) }),
-      solvency: () => { const g = board ? gfRun(rows, board.id) : null; if (!g) return ''; const ys = g.R.years; return tile('General Fund solvency ' + def('solvency'), pct1(ys[0].solvency), `${pct1(ys[ys.length - 1].solvency)} by FY${ys[ys.length - 1].fy} (likely ${pct1(ys[ys.length - 1].solvencyLow)}–${pct1(ys[ys.length - 1].solvencyHigh)}) ${link('money/general', 'forecast')}`, { area: 'money', ic: 'calc', viz: MINI.spark(ys.map((y) => y.solvency), ys[ys.length - 1].solvency < 0.05 ? 'bad' : '') }); },
+      solvency: () => { const g = board ? gfRun(rows, board.id) : null; if (!g) return ''; const ys = g.R.years; return tile('General Fund solvency ' + def('solvency'), pct1(ys[0].solvency), `${pct1(ys[ys.length - 1].solvency)} by FY${ys[ys.length - 1].fy}${gfHasRange(ys[ys.length - 1]) ? ` (likely ${pct1(ys[ys.length - 1].solvencyLow)}–${pct1(ys[ys.length - 1].solvencyHigh)})` : ''} ${link('money/general', 'forecast')}`, { area: 'money', ic: 'calc', viz: MINI.spark(ys.map((y) => y.solvency), ys[ys.length - 1].solvency < 0.05 ? 'bad' : '') }); },
       ledger: () => tile('Ledger', gl ? 'Through ' + esc(day(gl.period_end).replace(/, \d{4}$/, '')) : 'None yet', gl ? `monthly GL · ${glMonths} of 12 months` : (c.finance ? link('settings/uploads', 'upload the month-end general ledger export') : ''), { area: 'track', ic: 'book', viz: gl ? MINI.months(glMonths) : '' }),
       nextClose: () => { if (!gl) return ''; const d0 = new Date(gl.period_end + 'T12:00:00'), nx = new Date(d0.getFullYear(), d0.getMonth() + 2, 0); return tile('Next month-end', esc(nx.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })), link('settings/uploads', 'upload when it closes'), { area: 'track', ic: 'clock' }); },
       register: () => tile('Check register', regOpen.length ? `${regOpen.length} open` : 'All answered', link('track/registers', regOpen.length ? 'answer questions' : 'open'), { area: 'track', ic: 'book' }),
@@ -1766,7 +1836,18 @@
   };
   /** a template: the sheet HighGround reads, then “How to fill this in” */
   function saveTemplate(file, rows, sheet, helpKey) {
-    saveFile(file, HGUploads.toXlsx(rows, sheet, TEMPLATE_HELP[helpKey] ? [{ name: 'How to fill this in', rows: TEMPLATE_HELP[helpKey], widths: [30, 100], text: true }] : []), XLSX_TYPE);
+    let help = TEMPLATE_HELP[helpKey];
+    /* another state: the help sheet in its words, with its fund numbers and year-end (a download isn't on screen, so the
+       screens' word watcher can't reach it) */
+    if (help && PACK().code !== 'IA') {
+      const P = PACK(), BC = P.balanceCodes || {}, end = HGStates.fyRange(fyNow()).end.replace(/^\d{4}/, String(fyNow() - 1));
+      const fix = { fundCode: [`${P.adj} fund number`, `For reference (${['save', 'ppel', 'vppel'].filter((k) => HGStates.on(k) && BC[k]).map((k) => `${BC[k]} for ${HGStates.label(k)}`).join(', ')}). Optional.`],
+        'As-of date': ['As-of date', `The date of the balances, usually ${HGStates.closeDay()} or a month-end: ${end}. Use the same date on every row. Balances from before this fiscal year start the plan in a year that has already ended, and HighGround will say so.`] };
+      const key = (r) => (/fund code$/.test(r[0]) ? 'fundCode' : r[0]);   // the home state's fund-code row, and the date row
+      help = help.filter((r) => !(Array.isArray(r) && /\(36\)/.test(String(r[1] || '')))).map((r) => (Array.isArray(r) && fix[key(r)] ? fix[key(r)] : Array.isArray(r) ? r.map((x) => (typeof x === 'string' ? HGStates.say(x) : x)) : r));
+    }
+    if (PACK().code !== 'IA') rows = rows.map((r) => r.map((x) => (typeof x === 'string' ? HGStates.say(x) : x)));
+    saveFile(file, HGUploads.toXlsx(rows, sheet, help ? [{ name: 'How to fill this in', rows: help, widths: [30, 100], text: true }] : []), XLSX_TYPE);
   }
   async function dirUploadRead(input) {
     const kind = input.dataset.dirUpload, file = input.files[0]; if (!file) return;
@@ -2351,15 +2432,15 @@
         ${line('Gap to close', (m) => `<b class="${m.gap > 0.5 ? 'gaptext' : ''}">${fmtK(m.gap)}</b>${cols.length > 1 && m.gap === minGap ? '<br><span class="small muted">smallest</span>' : ''}`, { strong: true })}
         ${line('Busiest year', (m) => `FY${m.busiestFY} <span class="small muted">${fmtK(m.busiest)}</span>`)}
         ${line('Yearly costs (first year they start)', (m) => (m.yearlyCapital + m.yearlyOther > 0.5 ? `${fmtK(m.yearlyCapital + m.yearlyOther)} <span class="small muted">FY${m.yearlyFY}</span><br><span class="small muted">${fmtK(m.yearlyCapital)} capital · ${fmtK(m.yearlyOther)} other</span>` : '$0'))}
-        ${line('Lowest SAVE balance', (m) => lowest(m.saveLow, m.saveLowFY))}
+        ${F_ON('save') ? line('Lowest SAVE balance', (m) => lowest(m.saveLow, m.saveLowFY)) : ''}
         ${line('Lowest PPEL balance', (m) => lowest(m.ppelLow, m.ppelLowFY))}
-        ${line('SAVE bond room', (m) => fmtK(m.bondRoom))}
-        ${line('General-obligation debt room', (m) => (m.goRoom == null ? '<span class="small muted">needs valuation</span>' : fmtK(m.goRoom)))}
+        ${HGStates.feature('saveBond') ? line('SAVE bond room', (m) => fmtK(m.bondRoom)) : ''}
+        ${PACK().debt.limitShare ? line('General-obligation debt room', (m) => (m.goRoom == null ? '<span class="small muted">needs valuation</span>' : fmtK(m.goRoom))) : ''}
         ${line('Added tax, example home (highest year)', (m) => (!m.tax || !m.tax.taxed.length ? '$0' : !m.tax.hasValuation ? '<span class="small muted">needs valuation</span>'
           : `$${Math.round(m.tax.peak.home).toLocaleString('en-US')}/yr <span class="small muted">FY${m.tax.peak.fy}</span><br><span class="small muted">$${Math.round(m.tax.homeValue).toLocaleString('en-US')} home</span>`))}
         <tr><th scope="row">What it asks of the community</th>${cols.map((k) => `<td class="asks">${k.m.asks.length ? `<ul>${k.m.asks.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : '<span class="muted">Nothing beyond current levies and grants</span>'}</td>`).join('')}</tr>
       </tbody></table></div>
-      <p class="small muted" style="margin-top:8px">Bond room assumes 1.20 coverage, 20 years at 4.5%. A general-obligation bond needs a public vote; confirm requirements with bond counsel.</p></div>`;
+      <p class="small muted" style="margin-top:8px">${HGStates.feature('saveBond') ? 'Bond room assumes 1.20 coverage, 20 years at 4.5%. ' : ''}A general-obligation bond needs a public vote; confirm requirements with bond counsel.</p></div>`;
   }
   function whyHtml() {
     const rows = CMP.rows, all = rows.scenarios;
@@ -2383,7 +2464,8 @@
   }
 
   // ------------------------------------------------------------------ views: Resources
-  const FUND_NAMES = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants and donations' };
+  /* fund names from the district's state pack */
+  const FUND_NAMES = new Proxy({}, { get: (_, k) => (k === 'grants' ? 'Grants and donations' : typeof k === 'string' ? HGStates.label(k) : undefined) });
   /* the board version (or the first scenario) run through the engine; null if not set up */
   async function boardRun(d) {
     const rows = await loadCapitalRows(d);
@@ -2469,9 +2551,21 @@
   const PEERS = { key: null, data: null };
   async function loadPeers(d) {
     const de = d && d.state_district_id;
-    if (!de) return null;
+    if (!de || !HGStates.feature('peers')) return null;
     if (PEERS.key === de + '|' + d.id) return PEERS.data;
     let data = null;
+    if (PACK().prefill === 'NE') {   // Nebraska: NDE's Annual Financial Reports (part 35)
+      try {
+        const yr = await HG.db.select('ne_measure', `select=fiscal_year&agency_id=eq.${enc(de)}&measure_key=eq.${enc('exp|General|TOTAL')}&order=fiscal_year.desc&limit=1`);
+        if (yr[0]) {
+          const rows = await HG.db.rpc('ne_benchmark', { p_agency: de, p_fy: yr[0].fiscal_year, p_district: d.id });
+          data = { fy: yr[0].fiscal_year, rows: rows || [], peer_group: rows && rows[0] ? rows[0].peer_group : null,
+            source: 'the district’s Annual Financial Report to NDE', basis: 'NDE fall membership' };
+        }
+      } catch (e) { data = null; }
+      PEERS.key = de + '|' + d.id; PEERS.data = data;
+      return data;
+    }
     try {
       const [yr, nm] = await Promise.all([
         HG.db.select('ia_measure', `select=fiscal_year&de_district=eq.${enc(de)}&status=eq.Actual&measure_key=eq.${enc('exp|ALL|TOTAL')}&order=fiscal_year.desc&limit=1`),
@@ -2495,13 +2589,13 @@
     const { sc, inp, r, paths } = b, cfg = inp.cfg, fmt = fmtK;
     b.rows = b.rows || (await loadCapitalRows(c.district));
     const byY = HGCapital.recurByYear(inp.levers, cfg), recY = byY.find((y) => y.total > 0.5), rec = recY ? recY.total : 0;
-    const funds = HGCapital.CAP_FUNDS.filter((k) => k !== 'vppel' || cfg.vStatus !== 'none' || paths[k].open > 0);
+    const funds = HGCapital.CAP_FUNDS.filter(F_ON).filter((k) => k !== 'vppel' || cfg.vStatus !== 'none' || paths[k].open > 0);
     // the main fund closest to running out (grants are small and left out)
     const lowest = funds.filter((k) => k !== 'grants').map((k) => ({ k, p: paths[k] })).sort((x, y) => x.p.low - y.p.low)[0];
     const gfr = gfRun(b.rows, sc.id), gy = gfr ? gfr.R.years : null;
     setLead(`${r.gap > 0.5 ? `The plan is <b>${fmtK(r.gap)}</b> short` : 'The capital plan is fully paid for'} over FY${cfg.start}–FY${cfg.start + cfg.n - 1}.`
       + (lowest ? ` ${esc(FUND_NAMES[lowest.k])} is at its lowest, ${fmtK(lowest.p.low)}, in FY${lowest.p.lowFY}.` : '')
-      + (gy ? ` General Fund solvency goes from ${pct1(gy[0].solvency)} to ${pct1(gy[gy.length - 1].solvency)} over five years (likely range ${pct1(gy[gy.length - 1].solvencyLow)} to ${pct1(gy[gy.length - 1].solvencyHigh)}).` : ''));
+      + (gy ? ` General Fund solvency goes from ${pct1(gy[0].solvency)} to ${pct1(gy[gy.length - 1].solvency)} over five years${gfHasRange(gy[gy.length - 1]) ? ` (likely range ${pct1(gy[gy.length - 1].solvencyLow)} to ${pct1(gy[gy.length - 1].solvencyHigh)})` : ''}.` : ''));
     const detail = await vFunds(c);
     return `
       <p class="small muted">From <b>${esc(sc.name)}</b>${sc.is_board_version ? ', the board version' : ''}, FY${cfg.start}–FY${cfg.start + cfg.n - 1}. <a href="#/d/${enc(c.district.slug)}/money/capital">Open the capital plan</a></p>
@@ -2527,8 +2621,9 @@
       ${(() => { const g = gfRun(b.rows, sc.id); if (!g) return `<div class="card"><h3>General Fund</h3><p class="muted">Not set up yet. ${c.finance ? `<a href="#/d/${enc(c.district.slug)}/money/general">Enter the starting figures</a>.` : ''}</p></div>`;
         const ys = g.R.years, a1 = ys[0], z = ys[ys.length - 1], low = ys.reduce((m, y) => (y.solvency < m.solvency ? y : m), ys[0]);
         return `<div class="card"><h3>General Fund</h3><div class="grid tiles">
-          <div class="card tile-card"><div class="small muted">Solvency ratio</div><div class="stat">${pct1(a1.solvency)} → ${pct1(z.solvency)}</div><div class="small muted">lowest ${pct1(low.solvency)} in FY${low.fy}; FY${z.fy} likely ${pct1(z.solvencyLow)}–${pct1(z.solvencyHigh)}</div></div>
-          <div class="card tile-card"><div class="small muted">Unspent balance ratio</div><div class="stat">${pct1(a1.unspentRatio)} → ${pct1(z.unspentRatio)}</div></div>
+          <div class="card tile-card"><div class="small muted">Solvency ratio</div><div class="stat">${pct1(a1.solvency)} → ${pct1(z.solvency)}</div><div class="small muted">lowest ${pct1(low.solvency)} in FY${low.fy}${gfHasRange(z) ? `; FY${z.fy} likely ${pct1(z.solvencyLow)}–${pct1(z.solvencyHigh)}` : ''}</div></div>
+          ${a1.unspentRatio != null ? `<div class="card tile-card"><div class="small muted">Unspent balance ratio</div><div class="stat">${pct1(a1.unspentRatio)} → ${pct1(z.unspentRatio)}</div></div>`
+            : a1.budgetRoom != null ? `<div class="card tile-card"><div class="small muted">Room under the budget authority ${def('budget_authority')}</div><div class="stat">${fmtK(a1.budgetRoom)} → ${fmtK(z.budgetRoom)}</div></div>` : ''}
           <div class="card tile-card"><div class="small muted">Ending fund balance, FY${z.fy}</div><div class="stat">${fmtK(z.balance)}</div></div>
           <div class="card tile-card"><div class="small muted">Staff share of spending</div><div class="stat">${pct1(a1.staffShare)}</div></div></div>
           <p class="small muted" style="margin-top:8px">Five-year forecast, planning estimates. <a href="#/d/${enc(c.district.slug)}/money/general">Open the General Fund</a></p></div>`; })()}
@@ -2547,18 +2642,31 @@
     if (!gfi || !rows.settings) return null;
     const sc = rows.scenarios.find((x) => x.id === scId) || rows.scenarios.find((x) => x.is_board_version) || rows.scenarios[0] || null;
     const { a, set } = gfAssume(rows, sc, gfi), A = Object.assign({}, a, over || {});
-    let years = [], extra = {};
+    let years = [], extra = {}, ctx = null;
     if (sc) {
       const bi = HGCapital.buildInputs(rows, sc.id), L = Object.assign({}, bi.levers, { settle: A.settle });
       years = bi.cfg.years.slice(0, 5);
-      years.forEach((fy) => { extra[fy] = HGEngine.recurIn(bi.cfg, 'general', fy - bi.cfg.start, L); });
+      years.forEach((fy) => { extra[fy] = HGEngine.recurIn(bi.cfg, 'general', fy - bi.cfg.start, L) + gfTransferOut(bi.cfg, fy - bi.cfg.start, L); });
+      ctx = gfStateContext(bi, L, years); GF.lastCtx = ctx;
     } else { const s0 = rows.settings.plan_start_fy || 2027; years = [0, 1, 2, 3, 4].map((k) => s0 + k); }
     const g = Object.assign({}, gfi, over && over.turnover != null ? { turnover_savings: over.turnover } : {});
     // yearly General Fund costs that started by the first year for work already underway or done are probably in the staff groups or other spending already
     const INI = new Map(rows.initiatives.map((i) => [i.id, i]));
     const already = sc && years.length ? [...new Set((rows.recurring || []).filter((r) => r.scenario_id === sc.id && r.fund === 'general' && Number(r.first_fy) <= years[0]
       && ['underway', 'done'].includes((INI.get(r.initiative_id) || {}).status)).map((r) => (INI.get(r.initiative_id) || {}).name || 'An initiative'))] : [];
-    return { gfi: g, sc, set, a: A, base: a, R: HGGF.forecast(g, A, years, extra), extra, already };
+    return { gfi: g, sc, set, a: A, base: a, R: HGGF.forecastFor(PACK().gf, g, A, years, extra, ctx), extra, already };
+  }
+  /* Nebraska: the planned transfer to the Depreciation Fund is General Fund spending (NDE Rule 2); it sits in the save slot */
+  const gfTransferOut = (cfg, y, L) => (HGStates.fund('save').method === 'gf_transfer' ? HGEngine.receiptsIn(cfg, 'save', y, L) * (y === 0 ? cfg.f0 : 1) : 0);
+  /* what another state's forecast needs from the capital plan: Nebraska counts the Depreciation Fund's balance toward the
+     General Fund's allowable reserve (79-1027) and grows TEEOSA's local effort with valuation */
+  function gfStateContext(bi, L, years) {
+    if (PACK().gf === 'IA') return null;
+    let dep = {};
+    try { const r = HGEngine.compute(bi.projects, L, bi.cfg), P = HGCapital.fundPaths(r, bi.cfg); (P.save ? P.save.years : []).forEach((y) => { dep[y.fy] = y.end; }); } catch (e) { dep = {}; }
+    /* the request authority's growth, year by year (NDE's base growth formula, or the one figure typed in Starting numbers) */
+    const lid = bi.cfg.lid, ny = years ? years.length : 5, ag = lid && lid.authority != null ? (lid.growthPath ? lid.growthPath.slice(0, ny) : [...Array(ny).keys()].map((t) => (t ? lid.growth : 0))) : null;
+    return { otherReserve: dep, adm: bi.cfg.settings.district.enrollment, valuationGrowth: L.pg, reserveShare: HGStates.reserveShare(bi.cfg.settings.district.enrollment), authorityGrowth: ag };
   }
   /* for Rank & fund: the General Fund forecast with only the yearly General Fund costs of the initiatives in `keep` (a Set of ids).
      Null when the General Fund isn't set up, so the funding line tests the capital funds only. */
@@ -2568,15 +2676,18 @@
     const { a } = gfAssume(rows, sc, gfi), bi = HGCapital.buildInputs(rows, sid), L = Object.assign({}, bi.levers, { settle: a.settle }), years = bi.cfg.years.slice(0, 5);
     return (keep) => {
       const Lk = Object.assign({}, L, { recur: (L.recur || []).filter((r) => keep.has(String(r.initiative_id))) }), extra = {};
-      years.forEach((fy) => { extra[fy] = HGEngine.recurIn(bi.cfg, 'general', fy - bi.cfg.start, Lk); });
-      return HGGF.forecast(gfi, a, years, extra).years;
+      years.forEach((fy) => { extra[fy] = HGEngine.recurIn(bi.cfg, 'general', fy - bi.cfg.start, Lk) + gfTransferOut(bi.cfg, fy - bi.cfg.start, Lk); });
+      return HGGF.forecastFor(PACK().gf, gfi, a, years, extra, gfStateContext(bi, Lk, years)).years;
     };
   }
   const pct1 = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
+  /* the forecast's likely range for a year, or '' when the state's forecast has none (Nebraska shows one line) */
+  const gfHasRange = (y) => !!y && y.solvencyLow != null && y.solvencyHigh != null && Math.abs(y.solvencyHigh - y.solvencyLow) > 1e-9;
   /** why the General Fund can't carry an initiative's yearly cost (ranking's gfFail) */
   const gfWhy = (g) => (g.why === 'authority' ? `spending would go over spending authority in FY${g.fy}`
     : `solvency would fall to ${pct1(g.solvency)} in FY${g.fy}${g.floor < 0.05 - 1e-9 ? `, below the ${pct1(g.floor)} it’s already headed for` : ', under 5%'}`);
   function gfChart(R) {
+    if (R.state && R.state !== 'IA') return gfChartPlain(R);
     const ph = narrow(), fs = ph ? 13 : 11, ys = R.years, W = ph ? 400 : 1000, pad = ph ? 36 : 40, n = ys.length;
     const vals = ys.flatMap((y) => [y.solvency, y.unspentRatio, y.solvencyLow, y.solvencyHigh]).filter((v) => v != null);
     const lo = Math.min(0, ...vals), hi = Math.max(0.2, ...vals), H = (ph ? 230 : 240) + (hi - lo > 0.3 ? 100 : 0), X = (i) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2), Y = (v) => H - 24 - ((v - lo) / (hi - lo)) * (H - 40);
@@ -2595,7 +2706,66 @@
       ${ys.map((y, i) => (ph && n > 5 && i % 2 && i !== n - 1 ? '' : `<text x="${X(i).toFixed(1)}" y="${H - 6}" font-size="${fs}" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>`)).join('')}</svg></div>
       <p class="small"><span style="color:#1E3A2F">●</span> Solvency ratio &nbsp; <span style="display:inline-block;width:12px;height:9px;background:rgba(30,58,47,.12);vertical-align:-1px"></span> its likely range ${def('likely_range')} &nbsp; <span style="color:#C9A24A">●</span> Unspent balance ratio &nbsp; <span class="muted"><span style="display:inline-block;width:12px;height:9px;background:#E6F0EA;border:1px solid #CFE0D5;vertical-align:-1px"></span> the 5–10% solvency target many districts aim for (solvency line only)</span></p>`;
   }
+  /** another state's General Fund chart: the fund balance ratio alone, with the 5–10% marks (no spending authority) */
+  function gfChartPlain(R) {
+    const ph = narrow(), fs = ph ? 13 : 11, ys = R.years, W = ph ? 400 : 1000, pad = ph ? 36 : 40, n = ys.length, H = ph ? 230 : 240;
+    const vals = ys.map((y) => y.solvency).filter((v) => v != null), lo = Math.min(0, ...vals), hi = Math.max(0.2, ...vals);
+    const X = (i) => pad + (i / Math.max(1, n - 1)) * (W - pad * 2), Y = (v) => H - 24 - ((v - lo) / (hi - lo)) * (H - 40), step = 0.05, ticks = [];
+    for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) ticks.push(Math.round(v * 100) / 100);
+    return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Fund balance ratio by year">
+      <rect x="${pad}" width="${W - pad * 2}" y="${Y(0.10).toFixed(1)}" height="${(Y(0.05) - Y(0.10)).toFixed(1)}" fill="#E6F0EA"></rect>
+      ${ticks.map((v) => `<line x1="${pad}" x2="${W - pad}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="#E4E0D6"/><text x="${pad - 6}" y="${(Y(v) + 4).toFixed(1)}" font-size="${fs}" text-anchor="end" fill="#5A6660">${(v * 100).toFixed(0)}%</text>`).join('')}
+      ${lo < 0 ? `<line x1="${pad}" x2="${W - pad}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#B42318"/>` : ''}
+      <polyline fill="none" stroke="#1E3A2F" stroke-width="2.5" points="${ys.map((y, i) => `${X(i).toFixed(1)},${Y(y.solvency || 0).toFixed(1)}`).join(' ')}"/>
+      ${ys.map((y, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(y.solvency || 0).toFixed(1)}" r="3.5" fill="#1E3A2F"><title>FY${y.fy}: ${pct1(y.solvency)}</title></circle>`).join('')}
+      ${ys.map((y, i) => (ph && n > 5 && i % 2 && i !== n - 1 ? '' : `<text x="${X(i).toFixed(1)}" y="${H - 6}" font-size="${fs}" text-anchor="middle" fill="#5A6660">FY${y.fy}</text>`)).join('')}</svg></div>
+      <p class="small"><span style="color:#1E3A2F">●</span> Fund balance ratio ${def('solvency')} &nbsp; <span style="display:inline-block;width:12px;height:9px;background:#E6F0EA;vertical-align:-1px"></span> 5–10% marks</p>`;
+  }
+  /** another state's General Fund results (Nebraska): revenue from property tax, state aid and other income; no spending authority */
+  function gfResultsPlain(run) {
+    const R = run.R, ys = R.years, first = ys[0], last = ys[ys.length - 1], f = HGReport.fmt, FL = R.flags, P = PACK();
+    const low = ys.reduce((m, y) => (y.solvency != null && (m == null || y.solvency < m.solvency) ? y : m), null), y2 = ys[1];
+    const flags = [
+      FL.lowSolvency.length ? `<li class="gaptext">The fund balance ratio falls below 5% in FY${FL.lowSolvency.join(', FY')}.</li>` : '',
+      FL.deficit.length ? `<li>Spending exceeds revenue in ${FL.deficit.length === ys.length ? 'every year' : 'FY' + FL.deficit.join(', FY')}.</li>` : '',
+      (FL.budgetOver || []).length ? `<li class="gaptext">General Fund spending (leaving out special education and exclusions) passes the budget authority in FY${FL.budgetOver.join(', FY')}, even with the unused authority it can use. Going above it takes a vote of the people (79-1029).</li>` : '',
+      (FL.contOver || []).length ? `<li class="gaptext">The Contingency Fund pays out more than 5% of General Fund spending in FY${FL.contOver.join(', FY')}; Neb. Rev. Stat. 79-1072 caps it there.</li>` : '',
+      (FL.contShort || []).length ? `<li>The Contingency Fund doesn’t have enough for the expected losses in FY${FL.contShort.join(', FY')}.</li>` : '',
+      (FL.ebShort || []).length ? `<li>The Employee Benefit Fund runs short of the benefits it’s set to pay in FY${FL.ebShort.join(', FY')}; the rest falls back on the General Fund.</li>` : '',
+      (FL.reserveOver || []).length ? `<li class="gaptext">The General Fund${R.funds ? ', Depreciation and Employee Benefit' : ' and Depreciation Fund'} balances together pass the allowable reserve (${pct1(R.reserveShare)} of the General Fund budget${R.reserveFromNDE ? ', NDE’s certified percentage' : ' for a district this size'}, Neb. Rev. Stat. 79-1027) in FY${FL.reserveOver.join(', FY')}.</li>` : '',
+      (run.already || []).length ? `<li>${run.already.map(esc).join(', ')}: ${run.already.length === 1 ? 'its' : 'their'} yearly General Fund cost started by FY${ys[0].fy} and the work is underway or done, so it may already be in the staff groups or other spending.</li>` : '',
+    ].filter(Boolean);
+    const extraYears = ys.filter((y) => y.extra > 0.5);
+    return `<p class="lead">The fund balance ratio ${last.solvency < first.solvency ? 'slides' : 'rises'} from <b>${pct1(first.solvency)}</b> to <b>${pct1(last.solvency)}</b> over five years${FL.deficit.length === ys.length ? ', with spending above revenue every year' : ''}.${y2 && y2.affordableSettlement != null ? ` Next year’s new money covers about a ${(y2.affordableSettlement * 100).toFixed(1)}% total package increase.` : ''}</p>
+      <div class="grid tiles">
+        <div class="card tile-card"><div class="small muted">Fund balance ratio ${def('solvency')}</div><div class="stat">${pct1(first.solvency)} → ${pct1(last.solvency)}</div><div class="small muted">FY${first.fy} to FY${last.fy}; lowest ${pct1(low.solvency)} in FY${low.fy}</div></div>
+        <div class="card tile-card"><div class="small muted">Ending fund balance, FY${last.fy}</div><div class="stat">${f(last.balance)}</div><div class="small muted">General Fund</div></div>
+        <div class="card tile-card"><div class="small muted">Revenue vs. spending, FY${last.fy}</div><div class="stat">${f(last.net)}</div><div class="small muted">${last.net < 0 ? 'spending more than revenue' : 'revenue covers spending'}</div></div>
+        <div class="card tile-card"><div class="small muted">Property tax, FY${last.fy}</div><div class="stat">${f(last.propertyTax)}</div><div class="small muted">${run.gfi.ptax_growth == null && GF.lastCtx && GF.lastCtx.authorityGrowth ? `grows with the request authority${GF.lastCtx.authorityGrowth.some((g, i) => i && Math.abs(g - GF.lastCtx.authorityGrowth[1]) > 1e-9) ? ', NDE’s base growth each year' : `, ${pct1(GF.lastCtx.authorityGrowth[1] || 0)} a year`} ${def('base_growth')}` : `grows ${pct1(run.gfi.ptax_growth == null ? HGGF.NE_RULES.authorityGrowth : run.gfi.ptax_growth)} a year with the request authority ${def('authority')}`}</div></div>
+      </div>
+      ${flags.length ? `<div class="card"><h3>Watch</h3><ul>${flags.join('')}</ul></div>` : ''}
+      <div class="card"><h3>Fund balance ratio</h3>${gfChart(R)}</div>
+      <details class="fold" ${GF.ctx && (GF.ctx.plan || GF.ctx.finance) ? 'open' : ''}><summary>Year by year</summary><div class="card"><div class="scroll"><table class="data gftable"><thead><tr><th></th>${ys.map((y) => `<th class="num">FY${y.fy}</th>`).join('')}</tr></thead><tbody>
+        ${[['Enrollment', (y) => Math.round(y.enrollment).toLocaleString('en-US')], ['Property tax', (y) => f(y.propertyTax)],
+          ...(R.teeosa ? [['TEEOSA: formula need', (y) => f(y.teeosa.need)], ['TEEOSA: resources', (y) => f(y.teeosa.resources)], ['TEEOSA: equalization aid', (y) => f(y.teeosa.eq)], ['TEEOSA: foundation aid', (y) => f(y.teeosa.foundation)]] : []),
+          ['State aid (TEEOSA)', (y) => f(y.stateAid)], ['Other state aid', (y) => f(y.otherStateAid)], ['Other income', (y) => f(y.misc)], ['<b>Revenue</b>', (y) => `<b>${f(y.revenue)}</b>`],
+          ['Staff (salaries, benefits, health)', (y) => f(y.staff)], ['Other spending', (y) => f(y.nonstaff)], ...(extraYears.length ? [['The plan’s yearly costs', (y) => (y.extra ? f(y.extra) : '')]] : []), ['<b>Spending</b>', (y) => `<b>${f(y.spending)}</b>`],
+          ['Revenue less spending', (y) => `<span class="${y.net < 0 ? 'gaptext' : ''}">${f(y.net)}</span>`], ['Ending fund balance', (y) => f(y.balance)], ['Fund balance ratio', (y) => pct1(y.solvency)],
+          ...(R.years.some((y) => y.sga > 0.5) ? [['Student growth adjustment (in need and the budget authority)', (y) => (y.sga ? f(y.sga) : '')]] : []),
+          ...(R.years.some((y) => Math.abs(y.sgaCorr || 0) > 0.5) ? [['Student growth correction, two years on (in need)', (y) => (y.sgaCorr ? f(y.sgaCorr) : '')]] : []),
+          ...(R.years.some((y) => Math.abs(y.priorCorrection || 0) > 0.5) ? [['Correction for last year’s aid (in state aid)', (y) => (y.priorCorrection ? f(y.priorCorrection) : '')]] : []),
+          ...(R.budget ? [['Budget authority (79-1023)', (y) => f(y.budgetAuthority) + (y.budgetMethod && y.budgetMethod !== 'B' ? ` <span class="small muted">${esc(y.budgetMethod)}</span>` : '')], ['Spending under the limit', (y) => f(y.budgetRestricted)],
+            ['Room, with unused authority', (y) => `<span class="${y.budgetOver ? 'gaptext' : ''}">${f(y.budgetRoom)}</span>`], ['Unused budget authority', (y) => f(y.budgetUnused)]] : []),
+          ...(R.funds ? [['Transfers to the Employee Benefit and Contingency funds', (y) => f(y.ebTransfer + y.contTransfer)], ['Benefits paid from the Employee Benefit Fund', (y) => (y.ebUse ? '−' + f(y.ebUse) : '')],
+            ['Employee Benefit balance', (y) => f(y.ebBalance)], ['Contingency balance', (y) => f(y.contBalance)], ['Contingency payouts (≤5% of spending)', (y) => `<span class="${y.contUse > y.contCap + 0.5 ? 'gaptext' : ''}">${f(y.contUse)}</span>`]] : []),
+          ...(R.reserveShare ? [[R.funds ? 'General + Depreciation + Employee Benefit balances' : 'General + Depreciation balances', (y) => f(y.reserve)], ['Allowable reserve (79-1027)', (y) => `<span class="${y.reserve > y.reserveAllowed ? 'gaptext' : ''}">${f(y.reserveAllowed)}</span>`]] : []),
+          ['Staff share of spending', (y) => pct1(y.staffShare)],
+        ].map(([l, fn]) => `<tr><td>${l}</td>${ys.map((y) => `<td class="num">${fn(y)}</td>`).join('')}</tr>`).join('')}
+      </tbody></table></div></div></details>
+      <p class="small muted" style="margin-top:6px">Planning estimates. ${R.teeosa ? 'State aid follows TEEOSA from the certified figures: formula need grows with the need-growth setting and formula students, local effort with valuation; foundation aid is $1,500 a formula student.' : 'State aid is the certified amount, growing with the assumption above; enter the TEEOSA figures to have HighGround work it out.'} Property tax grows with the request authority. Transfers to the Depreciation Fund count as General Fund spending.</p>`;
+  }
   function gfResultsHtml(run) {
+    if (run.R.state && run.R.state !== 'IA') return gfResultsPlain(run);
     const R = run.R, ys = R.years, first = ys[0], last = ys[ys.length - 1], f = HGReport.fmt, FL = R.flags;
     const lowest = (k) => ys.reduce((m, y) => (y[k] != null && (m == null || y[k] < m[k]) ? y : m), null);
     const ls = lowest('solvency'), lu = lowest('unspentRatio');
@@ -2647,7 +2817,7 @@
       : '<p class="small muted">A five-year planning estimate from the district’s own figures, not the state’s official calculation.</p>';
     if (!rows.settings) return caution + notReady(c, { rows }) + peers;
     const gfi = rows.settings.gf_inputs;
-    if (!gfi) return `${caution}${peers}<div class="card"><h3>Set up the General Fund</h3><p>The forecast needs a few starting figures: enrollment, cost per pupil, other revenue, staff by group, other spending, and the fund balance and unspent balance from the last audit.</p>
+    if (!gfi) return `${caution}${peers}<div class="card"><h3>Set up the General Fund</h3><p>${PACK().gf !== 'IA' ? 'The forecast needs a few starting figures: enrollment, property tax, state aid, other income, staff by group, other spending and the fund balance.</p><p hidden>' : ''}The forecast needs a few starting figures: enrollment, cost per pupil, other revenue, staff by group, other spending, and the fund balance and unspent balance from the last audit.</p>
       ${c.finance ? '<button type="button" class="btn primary" data-action="gfEdit">Enter starting figures</button>' : '<p class="muted">The business office enters these.</p>'}</div>${gfAuto(c)}`;
     const run = gfRun(rows, GF.sid, GF.over); GF.run = run;
     /* label on one line; the % sits beside the box instead of in the label */
@@ -2658,7 +2828,7 @@
         <span class="small muted">Assumptions: ${run.set ? esc(run.set.name) : 'the General Fund defaults'}${Object.keys(GF.over).length ? ', with what-if changes' : ''}.</span>
         ${c.finance ? '<button type="button" class="btn" data-action="gfEdit">Starting figures</button>' : ''}</div>
       ${fold(c, 'What-if: state aid, enrollment, total package increase, health insurance', `<div class="card"><div class="gflevers">
-        ${lv('ssa', 'State aid growth', run.a.ssa, 'after FY2027’s 2%')}${lv('enroll', 'Enrollment change', run.a.enroll, 'a year')}${lv('settle', 'Total package increase', run.a.settle, 'salary increase a year')}
+        ${lv('ssa', 'State aid growth', run.a.ssa, PACK().gf === 'IA' ? 'after FY2027’s 2%' : 'a year')}${lv('enroll', 'Enrollment change', run.a.enroll, 'a year')}${lv('settle', 'Total package increase', run.a.settle, 'salary increase a year')}
         ${lv('health', 'Health insurance growth', run.a.health, 'a year')}${lv('inflation', 'Other spending growth', run.a.inflation, 'a year')}${lv('turnover', 'Turnover savings', run.gfi.turnover_savings || 0, 'newer staff on lower pay')}
       </div><div class="row"><button type="button" class="btn small" data-action="gfReset">Reset to the scenario’s assumptions</button></div></div>`)}
       <div id="gf-results">${gfResultsHtml(run)}</div>
@@ -2671,6 +2841,7 @@
     return '';
   }
   function openGfEditor(opts) {
+    if (PACK().gf !== 'IA') return openGfEditorPlain(opts);
     const wiz = !!(opts && opts.wizard), st = GF.rows.settings, g = st.gf_inputs || { enrollment: st.enrollment || null, dcpp: HGGF.RULES.scpp[2027], misc_growth: 0.01, turnover_savings: 0.01,
       staff: [{ name: 'Teachers', benefits: 0.1709 }, { name: 'Support staff', benefits: 0.1709 }, { name: 'Administrators', benefits: 0.1709 }], assume: Object.assign({}, HGGF.DEFAULTS) };
     const money2 = (v) => (v == null || v === '' ? '' : Number(v).toLocaleString('en-US'));
@@ -2710,9 +2881,92 @@
     modal(html);
     return gfHint();
   }
-  /** the state's latest year-end figures for this district (part 16), or null */
+  /** another state's General Fund starting figures (Nebraska): property tax, state aid and other income instead of Iowa's formula */
+  function openGfEditorPlain(opts) {
+    const wiz = !!(opts && opts.wizard), st = GF.rows.settings, P = PACK();
+    const g = st.gf_inputs || { enrollment: st.enrollment || null, misc_growth: 0.01, turnover_savings: 0.01, ptax_growth: null,
+      staff: [{ name: 'Teachers', benefits: 0.1709 }, { name: 'Support staff', benefits: 0.1709 }, { name: 'Administrators', benefits: 0.1709 }], assume: Object.assign({}, HGGF.DEFAULTS, { ssa: 0 }) };
+    const money2 = (v) => (v == null || v === '' ? '' : Number(v).toLocaleString('en-US')), pc = (v) => (v == null ? '' : +(Number(v) * 100).toFixed(2));
+    const f = (n, l, v, h) => `<label class="field">${l}<input name="${n}" inputmode="decimal" value="${esc(v)}">${h ? `<span class="hint">${h}</span>` : ''}</label>`;
+    const staffRow = (x) => `<tr data-gf-staff><td><input name="s_name" value="${esc(x.name || '')}" style="width:140px"></td><td><input name="s_fte" inputmode="decimal" value="${x.fte == null ? '' : x.fte}" style="width:70px"></td>
+      <td><input name="s_salary" inputmode="decimal" value="${money2(x.salary)}" style="width:100px"></td><td><input name="s_benefits" inputmode="decimal" value="${pc(x.benefits)}" style="width:70px"></td>
+      <td><input name="s_health" inputmode="decimal" value="${money2(x.health)}" style="width:90px"></td><td><button type="button" class="btn small" data-action="gfStaffRemove" aria-label="Remove">×</button></td></tr>`;
+    const A = Object.assign({}, HGGF.DEFAULTS, g.assume || {});
+    GF.staffRow = staffRow;
+    const html = `<form class="stack" data-form="${wiz ? 'wizGf' : 'saveGf'}" data-gf-state="${esc(P.code)}" novalidate>
+      ${wiz ? '' : '<div class="row" style="justify-content:space-between"><h2 id="modal-title">General Fund starting figures</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>'}
+      <p class="small muted">For the first year of the plan, from the adopted budget and the Annual Financial Report.</p>
+      <div data-gf-hint></div>
+      <h3>Revenue</h3><div class="fgrid">
+        ${f('enrollment', 'Enrollment (formula students)', g.enrollment == null ? '' : g.enrollment)}
+        ${f('property_tax', 'General Fund property tax, $', money2(g.property_tax), 'The General Fund’s property tax request this year')}
+        ${f('ptax_growth', 'Property tax growth, % a year', g.ptax_growth == null ? '' : pc(g.ptax_growth), 'Leave blank to follow the property tax request authority (NDE’s base growth each year, from Starting numbers; 3% without it). Type a figure to use it every year.')}
+        ${f('state_aid', 'TEEOSA state aid, $', money2(g.state_aid), 'Used when the TEEOSA figures below are blank: the aid NDE will pay this year (calculated aid plus last year’s correction)')}
+        ${f('other_state', 'Other state aid, $', money2(g.other_state), 'Special education reimbursement and other state money (not TEEOSA)')}
+        ${f('misc_income', 'Other income, $', money2(g.misc_income), 'Local, county, federal and other income')}
+        ${f('misc_growth', 'Other income growth, % a year', pc(g.misc_growth))}</div>
+      <h3>TEEOSA ${def('teeosa')}</h3><p class="small muted">From NDE’s state aid certification (“State Aid Calculated by System” and “Formula Students”). With these, HighGround works out state aid each year: equalization aid (need less resources) plus foundation aid ($1,500 a formula student), allocated income tax and option funding.</p>
+      <div class="fgrid">${(() => { const t = g.teeosa || {}; return [
+        f('t_need', 'Formula need, $', money2(t.need)), f('t_local', 'Local effort, $', money2(t.local), '$1.00 per $100 of adjusted valuation'),
+        f('t_option', 'Net option funding, $', money2(t.option)), f('t_itr', 'Allocated income tax, $', money2(t.itr)),
+        f('t_other', 'Other actual receipts, $', money2(t.other)), f('t_students', 'Formula students', t.students == null ? '' : t.students),
+        f('t_need_growth', 'Formula need growth, % a year', pc(t.need_growth == null ? HGGF.NE_RULES.teeosa.needGrowth : t.need_growth), 'Need follows what similar districts spend; 2.5% is a planning default'),
+        f('t_pyc', 'Correction for last year’s aid, $ (first year only)', t.pyc == null ? '' : money2(t.pyc), 'NDE’s “Calculation of Prior Year Correction”: paid with (or, if negative, taken from) this year’s aid (79-1065)'),
+        f('t_sga0', 'This year’s student growth adjustment, $', money2(t.sga0), 'In NDE’s Formula Needs Components. NDE corrects it two years later for the growth that actually came (79-1007.20)')].join(''); })()}</div>
+      <h3>Spending</h3><p class="small muted">One row per group that settles or is paid differently.</p>
+      <div class="scroll"><table class="data"><thead><tr><th>Group</th><th>FTE</th><th>Average salary, $</th><th>Benefits, % of salary ${def('benefits')}</th><th>Health per FTE, $</th><th></th></tr></thead>
+        <tbody data-gf-staff-body>${(g.staff || []).map(staffRow).join('')}</tbody></table></div>
+      <template data-gf-staff-template>${staffRow({ benefits: 0.1709 })}</template>
+      <div class="row"><button type="button" class="btn small" data-action="gfStaffAdd">Add a staff group</button>
+        <label class="row small"><input type="checkbox" name="fte_follow_enrollment" ${g.fte_follow_enrollment ? 'checked' : ''}> Staff numbers follow enrollment</label></div>
+      <div class="fgrid">${f('nonstaff', 'Other spending, $ a year', money2(g.nonstaff), 'Supplies, services, utilities, transportation and the rest')}${f('turnover_savings', 'Turnover savings, % a year', pc(g.turnover_savings))}</div>
+      <h3>Balance</h3><div class="fgrid">${f('fund_balance', 'General Fund balance, $', money2(g.fund_balance), 'At the start of the plan')}</div>
+      <h3>Budget authority ${def('budget_authority')}</h3><p class="small muted">The most the General Fund may budget, from NDE’s certification of budget authority (“budget factors”). HighGround grows it each year by the largest of three methods (79-1023): last year’s budget plus 2.5%, plus a student growth adjustment if the district expects one, or 110% of TEEOSA need less special education (F). Unused authority carries forward. Leave blank to skip the check.</p>
+      <div class="fgrid">${(() => { const b = g.budget || {}; return [
+        f('b_authority', 'Certified budget authority, first year, $', money2(b.authority), 'Leaves out special education, special grants and lid exclusions'),
+        f('b_unused', 'Unused budget authority carried forward, $', money2(b.unused)),
+        f('b_prior', 'Last year’s adjusted General Fund budget, $', money2(b.prior_adjusted), 'NDE’s “adjusted expenditures”: up to 2% of it can come from the unused authority'),
+        f('b_sped', 'Special education budget, $ a year', money2(b.sped), 'Outside the limit; grows with other spending'),
+        f('b_excluded', 'Special grants and lid exclusions, $ a year', money2(b.excluded), 'Outside the limit'),
+        f('b_reserve', 'Allowable reserve, % (NDE)', b.reserve_pct == null ? '' : b.reserve_pct, 'Leave blank to use the share for the district’s size'),
+        `<label class="field">The board budgets<select name="b_mode"><option value="authority" ${b.mode !== 'spending' ? 'selected' : ''}>its whole authority (most districts; keeps the base growing)</option><option value="spending" ${b.mode === 'spending' ? 'selected' : ''}>what it plans to spend (the rest carries forward as unused authority)</option></select><span class="hint">NDE’s LC-2 shows which this district did last</span></label>`,
+        f('b_sga_students', 'Student growth adjustment: approved growth, students a year', (b.sga || {}).students || '', 'Only if the district applies to NDE each fall (79-1007.20); more than the greater of 25 students or 1% of membership'),
+        f('b_bfps', 'Basic funding per formula student, $', money2((b.sga || {}).bfps), 'NDE’s Formula Needs Components ÷ formula students'),
+        f('b_fm', 'Fall membership', (b.sga || {}).fm == null ? '' : (b.sga || {}).fm)].join(''); })()}</div>
+      <h3>Employee Benefit and Contingency funds ${def('employee_benefit')} ${def('contingency')}</h3><p class="small muted">Leave blank if the district doesn’t keep them. Transfers in count as General Fund spending; benefits the Employee Benefit Fund pays come off the General Fund’s.</p>
+      <div class="fgrid">${(() => { const F = g.funds || {}, eb = F.eb || {}, cf = F.cont || {}; return [
+        f('eb_balance', 'Employee Benefit balance, $', money2(eb.balance)), f('eb_transfer', 'Transfer in from the General Fund, $ a year', money2(eb.transfer)),
+        f('eb_use', 'Benefits it pays, $ a year', money2(eb.use), 'Early-retirement, insurance or other benefit costs paid from it'),
+        f('cont_balance', 'Contingency balance, $', money2(cf.balance)), f('cont_transfer', 'Transfer in from the General Fund, $ a year', money2(cf.transfer)),
+        f('cont_use', 'Expected losses it pays, $ a year', money2(cf.use), 'At most 5% of budgeted General Fund spending a year (79-1072)')].join(''); })()}</div>
+      <h3>Default assumptions</h3><p class="small muted">Used when a scenario’s assumption set leaves them blank.</p><div class="fgrid">
+        ${f('a_ssa', 'State aid growth', pc(A.ssa))}${f('a_enroll', 'Enrollment change', pc(A.enroll))}${f('a_settle', 'Total package increase', pc(A.settle))}${f('a_health', 'Health insurance growth', pc(A.health))}${f('a_inflation', 'Other spending growth', pc(A.inflation))}</div>
+      <div class="notice error" data-form-errors hidden></div>
+      <div class="row">${wiz ? '<button type="submit" class="btn primary">Save and finish</button><button type="button" class="btn" data-action="wizSkip">Skip for now</button>' : '<button type="submit" class="btn primary">Save</button><button type="button" class="btn" data-action="closeModal">Cancel</button>'}</div></form>`;
+    if (wiz) return html;
+    modal(html);
+    return gfHint();
+  }
+  /** a state whose public data has its own tables (Nebraska: part 35): how its districts are numbered and looked up; null = Iowa's */
+  function stDist() {
+    if (PACK().prefill !== 'NE') return null;
+    return { table: 'ne_district', col: 'agency_id', rpc: 'ne_district_search', label: PACK().districtNumberLabel, max: 11, ph: '00-0000-000',
+      norm: (t) => HGNeData.agencyId(t), bad: 'The NDE agency ID has the county, district and 000, like 01-0003-000.',
+      about: `The ${PACK().agency}’s county-district number. Used to compare with similar districts and to fill starting numbers from NDE’s reports.`,
+      none: 'No Nebraska district found by that name. Try part of the name, without “Public Schools”.',
+      where: (h) => (h && h.county ? `, ${h.county} County` : '') };
+  }
+  async function stLinked(d) {
+    const X = stDist(); if (!X || !d.state_district_id) return null;
+    try { const h = (await HG.db.select(X.table, `select=${X.col},name,county&${X.col}=eq.${enc(d.state_district_id)}`))[0]; return h ? { name: h.name, aea: null, where: X.where(h) } : null; } catch (e) { return null; }
+  }
+  /** the state's latest year-end figures for this district (part 16; Nebraska part 35), or null */
   async function statePrefill(d) {
-    if (!d || !d.state_district_id) return null;
+    if (!d || !d.state_district_id || !HGStates.feature('prefill')) return null;
+    if (PACK().prefill === 'NE') {
+      const raw = await HG.db.rpc('ne_prefill', { p_agency: d.state_district_id }).catch(() => null);   // missing until part 35 is installed
+      return HGNeData.adapt(raw);
+    }
     const [p, lv, more] = await Promise.all([HG.db.rpc('ia_prefill', { p_de: d.state_district_id }).catch(() => null), HG.db.rpc('ia_levy', { p_de: d.state_district_id }).catch(() => null),
       HG.db.rpc('ia_prefill_more', { p_de: d.state_district_id }).catch(() => null)]);   // part 19; missing until it's installed
     const hasMore = more && Object.keys(more).some((k) => k !== 'de_district');
@@ -2770,14 +3024,14 @@
   /** "That's 16% of SAVE receipts; districts typically spend 10–25% …" for the hint under an ongoing field */
   function ongoingHint(fund, ongoing, receipts) {
     const T = ONGOING_TYPICAL[fund]; if (!T) return '';
-    const typ = `Typical: ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}% of ${T.label} receipts (${T.uses}).`;
+    const typ = PACK().code !== 'IA' ? '' : `Typical: ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}% of ${T.label} receipts (${T.uses}).`;   // the ranges come from the home state's districts
     if (!(receipts > 0) || ongoing == null || isNaN(ongoing)) return typ;
     return `That’s ${pctWhole(ongoing / receipts)} of ${T.label} receipts. ${typ}`;
   }
   /** "10% of receipts is $125,600 a year now, and follows receipts …" for an ongoing field set as a share */
   function ongoingPctHint(fund, pct, receipts) {
     const T = ONGOING_TYPICAL[fund]; if (!T) return '';
-    const typ = `Typical: ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}% (${T.uses}).`;
+    const typ = PACK().code !== 'IA' ? '' : `Typical: ${Math.round(T.lo * 100)}–${Math.round(T.hi * 100)}% (${T.uses}).`;
     if (pct == null || isNaN(pct)) return typ;
     return `${receipts > 0 ? `That’s $${Math.round(pct / 100 * receipts).toLocaleString('en-US')} a year at today’s receipts, and it rises or falls with them. ` : 'It rises or falls with receipts. '}${typ}`;
   }
@@ -2919,7 +3173,12 @@
     const d = S.district, box = document.querySelector('[data-gf-hint]'); if (!box) return;
     GF.prefill = null;
     const st = await statePrefill(d), gfi0 = GF.rows && GF.rows.settings && GF.rows.settings.gf_inputs;
-    if (st && document.querySelector('[data-gf-hint]') === box) {
+    if (st && st.ne && document.querySelector('[data-gf-hint]') === box) {   // Nebraska: NDE's Annual Financial Report and state aid certification
+      GF.prefill = Object.assign({ ne: true, teeosa: st.teeosa }, st.gf);
+      const items = HGNeData.gfItems(st, HGReport.fmt);
+      if (items.length) box.insertAdjacentHTML('afterbegin', `<div class="notice ok small" data-gf-state>From NDE’s reports ${def('sources')}: ${esc(items.join('; '))}.
+        <button type="button" class="btn small" data-action="gfPrefill" style="margin-left:6px">Fill these in</button><br><span class="muted">Nothing is saved until you click Save. Use the adopted budget’s figures if you have newer ones.</span></div>`);
+    } else if (st && document.querySelector('[data-gf-hint]') === box) {
       GF.prefill = gfStateFill(st);
       const P = GF.prefill, fm = HGReport.fmt;
       const items = [P.enrollment != null ? `${P.al ? `budget enrollment ${Number(P.enrollment).toLocaleString('en-US')} for FY${esc(P.al.fiscal_year)}` : `certified enrollment ${Number(P.enrollment).toLocaleString('en-US')}`}` : '',
@@ -2964,6 +3223,38 @@
     const box = form.querySelector('[data-form-errors]'), errs = [], n = (v) => { const x = toNum(v); return x === null ? null : x; }, p = (v) => { const x = toNum(v); return x === null ? null : x / 100; };
     const staff = [...form.querySelectorAll('[data-gf-staff]')].map((tr) => { const v = (k) => tr.querySelector(`[name=${k}]`).value; return { name: v('s_name').trim() || 'Staff', fte: n(v('s_fte')), salary: n(v('s_salary')), benefits: p(v('s_benefits')), health: n(v('s_health')) }; })
       .filter((x) => x.fte || x.salary);
+    if (form.dataset.gfState && form.dataset.gfState !== 'IA') {   // another state's figures (openGfEditorPlain)
+      const tz = { need: n(f.t_need), local: n(f.t_local), option: n(f.t_option), itr: n(f.t_itr), other: n(f.t_other), students: n(f.t_students), need_growth: p(f.t_need_growth),
+        ...(n(f.t_pyc) != null ? { pyc: n(f.t_pyc) } : {}), ...(n(f.t_sga0) > 0 ? { sga0: n(f.t_sga0) } : {}) };
+      const g2 = { enrollment: n(f.enrollment), property_tax: n(f.property_tax), ptax_growth: p(f.ptax_growth), state_aid: n(f.state_aid), other_state: n(f.other_state), misc_income: n(f.misc_income), misc_growth: p(f.misc_growth),
+        ...(tz.need > 0 ? { teeosa: tz } : {}),
+        nonstaff: n(f.nonstaff), turnover_savings: p(f.turnover_savings), fund_balance: n(f.fund_balance), fte_follow_enrollment: !!f.fte_follow_enrollment, staff,
+        assume: { ssa: p(f.a_ssa), enroll: p(f.a_enroll), settle: p(f.a_settle), health: p(f.a_health), inflation: p(f.a_inflation) } };
+      const fund = (k) => { const o = { balance: n(f[k + '_balance']), transfer: n(f[k + '_transfer']), use: n(f[k + '_use']) }; Object.keys(o).forEach((x) => { if (o[x] == null) delete o[x]; }); return Object.keys(o).length ? o : null; };
+      const eb = fund('eb'), cont = fund('cont');
+      if ([eb, cont].some((o) => o && Object.values(o).some((v) => v < 0))) errs.push('The Employee Benefit and Contingency figures are dollars, 0 or more.');
+      if (eb || cont) g2.funds = Object.assign({}, eb ? { eb } : {}, cont ? { cont } : {});
+      const bA = n(f.b_authority);
+      if (bA != null) {
+        const rp = n(f.b_reserve);
+        if (rp != null && (rp < 0 || rp > 100)) errs.push('The allowable reserve is a percentage, 0 to 100.');
+        const sgS = n(f.b_sga_students), sgB = n(f.b_bfps), sgF = n(f.b_fm);
+        if ([sgS, sgB, sgF].some((x) => x != null && x < 0)) errs.push('The student growth adjustment figures are 0 or more.');
+        g2.budget = Object.fromEntries(Object.entries({ authority: bA, unused: n(f.b_unused) || 0, prior_adjusted: n(f.b_prior), sped: n(f.b_sped), excluded: n(f.b_excluded), reserve_pct: rp,
+          mode: f.b_mode === 'spending' ? 'spending' : 'authority', sga: sgS || sgB || sgF ? { students: sgS || 0, bfps: sgB, fm: sgF } : null,
+          method: ((GF.rows.settings.gf_inputs || {}).budget || {}).method || null, fiscal_year: ((GF.rows.settings.gf_inputs || {}).budget || {}).fiscal_year || null }).filter(([, v]) => v != null));
+      }
+      if (!(g2.enrollment > 0)) errs.push('Enter enrollment.');
+      if (g2.property_tax == null && g2.state_aid == null && !g2.teeosa) errs.push('Enter the General Fund property tax, or state aid (or the TEEOSA figures).');
+      if (g2.teeosa && !(g2.teeosa.students > 0)) errs.push('TEEOSA needs the formula students too.');
+      if (!staff.length) errs.push('Add at least one staff group with FTE and average salary.');
+      Object.entries(g2).forEach(([k, v]) => { if (typeof v === 'number' && isNaN(v)) errs.push(`${k.replace(/_/g, ' ')} must be a number.`); });
+      Object.keys(g2.assume).forEach((k) => { if (g2.assume[k] == null) delete g2.assume[k]; });
+      if (errs.length) { box.hidden = false; box.innerHTML = errs.map(esc).join('<br>'); return false; }
+      await HG.db.update('district_settings', `district_id=eq.${S.district.id}`, { gf_inputs: g2 });
+      if (form.dataset.form === 'wizGf') return true;
+      closeModal(); toast('Saved', 'General Fund starting figures.'); here(); return true;
+    }
     const g = { enrollment: n(f.enrollment), dcpp: n(f.dcpp), other_formula: n(f.other_formula), misc_income: n(f.misc_income), misc_growth: p(f.misc_growth), aea_flowthrough: n(f.aea_flowthrough),
       nonstaff: n(f.nonstaff), turnover_savings: p(f.turnover_savings), fund_balance: n(f.fund_balance), unspent: n(f.unspent), fte_follow_enrollment: !!f.fte_follow_enrollment, staff,
       certified_budget: f.certified_budget == null ? null : n(f.certified_budget), guarantee_optin: f.guarantee_optin !== 'no', jan_change: f.jan_change == null ? 0 : (p(f.jan_change) || 0),
@@ -2982,7 +3273,16 @@
     closeModal(); toast('Saved', 'General Fund starting figures.'); here(); return true;
   }
 
-  const FUND_RULES = {
+  /* what each fund may pay for, in another state's words (Iowa's are FUND_RULES_IA below) */
+  const FUND_RULES_STATE = {
+    NE: {
+      ppel: 'New buildings, buying sites and existing buildings, furnishings and equipment for them, and site improvements. Board-set, up to 14¢ per $100, inside the $1.05 levy lid and the property tax request authority it shares with the General Fund. Building projects can’t be paid from the General Fund (NDE).',
+      vppel: 'Only accessibility barriers, life-safety code work, environmental hazards such as asbestos and mold, and new safety and security infrastructure. The board can levy it (up to 3¢, or 5.2¢ in some cases, per $100) and issue bonds against it without a vote, outside the $1.05 lid.',
+      grants: 'Whatever each grant or gift is restricted to by the funder or donor.',
+    },
+  };
+  const FUND_RULES = new Proxy({}, { get: (_, k) => { const o = FUND_RULES_STATE[PACK().code]; return o && o[k] != null ? o[k] : FUND_RULES_IA[k]; } });
+  const FUND_RULES_IA = {
     save: 'School infrastructure: building, remodeling, repairing and equipping school buildings and sites, technology, and safety, plus SAVE revenue bonds and property-tax relief, as the district’s revenue purpose statement allows (Iowa Code chapter 423F).',
     ppel: 'Buying, building and improving buildings and grounds; equipment such as buses and technology; and lease-purchase payments (Iowa Code section 298.3). Board-approved.',
     vppel: 'The same uses as PPEL, at a higher rate approved by the district’s voters for up to 10 years.',
@@ -3022,7 +3322,7 @@
     if (b.none) return top + history + notReady(c, b);
     const { sc, inp, r, paths } = b, cfg = inp.cfg;
     const cap = HGEngine.saveBondCapacity(cfg, inp.levers, 0.045, 20, 1.2), go = HGEngine.goDebtRoom(cfg, inp.levers);
-    const funds = HGCapital.CAP_FUNDS.filter((k) => k !== 'vppel' || cfg.vStatus !== 'none' || paths[k].open > 0);
+    const funds = HGCapital.CAP_FUNDS.filter(F_ON).filter((k) => k !== 'vppel' || cfg.vStatus !== 'none' || paths[k].open > 0);
     const fundCard = (k) => { const P = paths[k]; return `<div class="card fundcard"><h3>${FUND_NAMES[k]}</h3>
       <p class="small">${esc(FUND_RULES[k])}</p>
       ${table([
@@ -3038,8 +3338,8 @@
       <p class="small muted">Year by year from <b>${esc(sc.name)}</b>${sc.is_board_version ? ', the board version' : ''}. <a href="#/d/${enc(c.district.slug)}/money/capital">Change it on the capital plan</a></p>
       ${funds.map(fundCard).join('')}
       <div class="card"><h3>Borrowing room</h3>
-        <p>SAVE revenue bonds: about <b>${fmtK(cap.pv)}</b>, based on the lowest year (FY${cap.fy}): SAVE after what’s held back each year, covering all SAVE debt payments 1.20 times, 20 years at 4.5%. Coverage is set by the bond market, not by law; ask the district’s financial advisor.</p>
-        <p>${go != null ? `General-obligation bonds: about <b>${fmtK(go)}</b> left under the debt limit (5% of actual valuation, less GO debt outstanding). A GO bond also needs 60% of voters.` : 'General-obligation limit: add the district’s actual (100%) valuation in Starting numbers to see it.'}</p></div>
+        ${HGStates.feature('saveBond') ? `<p>SAVE revenue bonds: about <b>${fmtK(cap.pv)}</b>, based on the lowest year (FY${cap.fy}): SAVE after what’s held back each year, covering all SAVE debt payments 1.20 times, 20 years at 4.5%. Coverage is set by the bond market, not by law; ask the district’s financial advisor.</p>` : ''}
+        <p>${PACK().debt.limitShare == null ? `General-obligation bonds: HighGround doesn’t check a debt limit for ${esc(PACK().name)} yet; ask the district’s bond counsel or financial advisor. A bond needs ${PACK().debt.vote === 0.5 ? 'a majority' : Math.round(PACK().debt.vote * 100) + '%'} of voters.` : go != null ? `General-obligation bonds: about <b>${fmtK(go)}</b> left under the debt limit (5% of actual valuation, less GO debt outstanding). A GO bond also needs 60% of voters.` : 'General-obligation limit: add the district’s actual (100%) valuation in Starting numbers to see it.'}</p></div>
       <p class="small muted">Fund rules are a plain-language guide, not legal advice. Confirm a specific use with the district’s attorney or the Iowa Department of Education.</p>`;
   }
   // ---------------------------------------------------------------- capital plan (live engine)
@@ -3067,7 +3367,8 @@
   // money: rounded ($3.02M, $420k) on summaries, tiles and sentences; exact dollars in accounting tables (ledger, budget, spending)
   const fmtK = (v) => HGReport.fmt(v);
   const pct = (v, dp) => (v * 100).toFixed(dp) + '%';
-  const FUND_LABEL = { save: 'SAVE', ppel: 'PPEL', vppel: 'V-PPEL', grants: 'Grants', boost: 'Boosters', camp: 'Campaign/bond' };
+  const FUND_LABEL_OTHER = { grants: 'Grants', boost: 'Boosters', camp: 'Campaign/bond' };
+  const FUND_LABEL = new Proxy({}, { get: (_, k) => (typeof k !== 'string' ? undefined : FUND_LABEL_OTHER[k] || HGStates.label(k)) });   // the state's names
   const LEVERS = [
     { k: 'pg', label: 'PPEL valuation growth', min: 0, max: 0.08, step: 0.005, show: (v) => pct(v, 1) },
     { k: 'gy', label: 'Grant yield to capital', min: 0, max: 1, step: 0.05, show: (v) => pct(v, 0) },
@@ -3079,7 +3380,7 @@
     const [settings, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenarioInitiatives, assumptionSets] = await Promise.all([
       q('district_settings'), q('fund_balance'), q('debt_obligation'), q('scenario', '&order=name'),
       q('initiative', '&order=name'), q('phase'), q('phase_funding'), q('financing'), q('recurring_cost'), q('priority', '&order=position'), q('scenario_initiative'), q('assumption_set', '&order=name')]);
-    return { district: d, settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenario_initiative: scenarioInitiatives, assumption_sets: assumptionSets };
+    return { district: Object.assign({}, d, { state: stateOf(d) }), settings: settings[0] || null, balances, debts, scenarios, initiatives, phases, funding, financing, recurring, priorities, scenario_initiative: scenarioInitiatives, assumption_sets: assumptionSets };
   }
   const capIn = () => (CAP.out && CAP.out.size ? CAP.inputs.projects.filter((p) => !CAP.out.has(String(p.id))) : CAP.inputs.projects);
   function capCompute() { return HGEngine.compute(capIn(), CAP.levers, CAP.inputs.cfg); }
@@ -3223,8 +3524,8 @@
           <div class="stack">
           ${LEVERS.map((l) => `<label class="lever"><span>${esc(l.label)} <b data-lever-val="${l.k}">${esc(l.show(CAP.levers[l.k]))}</b></span>
              <input type="range" data-lever="${l.k}" min="${l.min}" max="${l.max}" step="${l.step}" value="${CAP.levers[l.k]}"></label>`).join('')}
-          <label class="row"><input type="checkbox" data-lever="sf" ${CAP.levers.sf ? 'checked' : ''}> SF 2472 SAVE cut</label>
-          ${cfg.vStatus !== 'none' ? `<label class="row"><input type="checkbox" data-lever="vppel" ${CAP.levers.vppel ? 'checked' : ''}> V-PPEL through FY${cfg.vLast}${cfg.vStatus === 'proposed' ? ' (proposed; needs a vote)' : ''}</label>` : ''}
+          ${HGStates.feature('sf2472') ? `<label class="row"><input type="checkbox" data-lever="sf" ${CAP.levers.sf ? 'checked' : ''}> SF 2472 SAVE cut</label>` : ''}
+          ${cfg.vStatus !== 'none' ? `<label class="row"><input type="checkbox" data-lever="vppel" ${CAP.levers.vppel ? 'checked' : ''}> V-PPEL through FY${cfg.vLast}${cfg.vStatus === 'proposed' ? (HGStates.fund('vppel').voter === false ? ' (proposed; the board hasn’t adopted it)' : ' (proposed; needs a vote)') : ''}</label>` : ''}
           <div class="row"><button type="button" class="btn small" data-action="capReset">Reset</button>
           ${CAP.editable ? '<button type="button" class="btn small primary" data-action="saveLevers">Save these to the scenario</button>' : ''}</div></div>`;
   }
@@ -3239,8 +3540,8 @@
           .map((x) => ({ id: x.id, f: { name: x.name, kind: x.kind, fy: x.issue_fy, amount: Number(x.amount), rate: Number(x.rate), years: x.years, repay: x.repay_from } }));
         return list.length ? `<div class="stack">${list.map(({ id, f }) => `<div>${CAP.editable && id ? `<a href="#" data-action="editFinancing" data-id="${esc(id)}" title="Edit"><b>${esc(f.name)}</b></a>` : `<b>${esc(f.name)}</b>`}: ${esc(KIND[f.kind] || f.kind)}, ${fmtK(f.amount)} in FY${f.fy}${f.years ? `, ${f.years} years at ${pct(f.rate, 2)}` : ''}, repaid from ${esc(REPAY[f.repay] || f.repay)}.</div>`).join('')}</div>` : '<p class="muted">None in this scenario.</p>';
       })()}
-      <p class="small">SAVE revenue-bond room is about <b>${fmtK(cap.pv)}</b> (lowest year FY${cap.fy}, 1.20 coverage, 20 years at 4.5%).
-      ${go != null ? ` The general-obligation debt limit (5% of actual valuation) leaves about <b>${fmtK(go)}</b>.` : ' Add the district’s actual (100%) valuation to see the general-obligation limit.'}</p>
+      <p class="small">${HGStates.feature('saveBond') ? `SAVE revenue-bond room is about <b>${fmtK(cap.pv)}</b> (lowest year FY${cap.fy}, 1.20 coverage, 20 years at 4.5%).` : ''}
+      ${PACK().debt.limitShare == null ? '' : go != null ? ` The general-obligation debt limit (5% of actual valuation) leaves about <b>${fmtK(go)}</b>.` : ' Add the district’s actual (100%) valuation to see the general-obligation limit.'}</p>
       ${CAP.editable ? '<div><button type="button" class="btn small" data-action="editFinancing" data-id="">Add a bond, lease or campaign</button></div>' : ''}`;
   }
   /* every phase, with what the filters and the table need */
@@ -3348,9 +3649,10 @@
     if (!imp.taxed.length) return head + `<p>This scenario adds <b>no property tax</b>: it has no general-obligation bond, and no new V-PPEL.</p>
       <p class="small muted">SAVE revenue bonds, leases paid from PPEL, and campaigns or gifts don’t add a levy.</p>`;
     const first = imp.taxed[0].fy, last = imp.taxed[imp.taxed.length - 1].fy;
-    const sources = [imp.hasGO ? 'the debt service levy for a general-obligation bond' : '', imp.newVppel ? 'a new V-PPEL' : ''].filter(Boolean).join(' and ');
+    const sources = [imp.hasGO ? 'the debt service levy for a general-obligation bond' : '', imp.newVppel ? 'a new V-PPEL' : '', imp.hasOverride ? `a levy override for ${HGStates.label('ppel')}` : ''].filter(Boolean).join(' and ');
     if (!imp.hasValuation) return head + `<p>Adds about <b>${fmtK(imp.taxed[0].added)} a year</b> in property tax from FY${first} (${sources}).</p>
       <p class="small muted">Enter the district’s taxable valuation in Settings, Starting numbers to see the levy rate and what it costs a homeowner and a farmer.</p>`;
+    if (imp.per) return head + capTaxPlainHtml(imp, sources, dollars, homeTxt, first, last);   // a state with flat assessment shares (Nebraska)
     const pk = imp.peak, farmCol = 'Farmland, per $100,000 assessed';
     return head + `<p>Adds ${sources}, FY${first}–FY${last}. At its highest (FY${pk.fy}), about <b>${dollars(pk.home)} a year</b> (${dollars(pk.home / 12)} a month) for a ${homeTxt}, and <b>${dollars(pk.farm100k)}</b> per $100,000 of assessed farmland.</p>
       <div class="scroll"><table class="data"><thead><tr><th>Year</th><th class="num">Added levy</th><th class="num">Rate per $1,000</th><th class="num">${esc(homeTxt)}</th><th class="num">Same home, owner 65+</th><th class="num">${farmCol}</th></tr></thead><tbody>
@@ -3361,6 +3663,21 @@
       <p class="small muted" style="margin-top:8px">The added cost only, not anyone’s whole tax bill. Rate = added levy ÷ the district’s taxable valuation per $1,000, with valuation growing at the PPEL growth lever.
         Homes: value × the residential rollback, less the homestead credit (the tax on $${R.homesteadCreditValue.toLocaleString()} of value, through FY${R.homesteadCreditLastFY}) or, from FY${R.homesteadCreditLastFY + 1}, the 10% homestead exemption ($${R.homesteadMin.toLocaleString()} to $${R.homesteadMax.toLocaleString()}); owners 65 and older get $${R.seniorExemption.toLocaleString()} more.
         * Rollbacks after FY2027 aren’t set yet; these use FY2027’s (44.5345% residential, 59.4401% farmland). ${imp.hasGO ? 'A general-obligation bond needs a public vote.' : ''} Rules checked ${day(R.checked)}.</p>`;
+  }
+  /** taxpayers in another state (tax.js STATE_TAX): rate per $100, homes at full value, farmland at the state's shares */
+  function capTaxPlainHtml(imp, sources, dollars, homeTxt, first, last) {
+    const pk = imp.peak, T = HGTax.STATE_TAX[imp.state] || {}, cfg = CAP.inputs.cfg;
+    const endFY = Math.max(0, ...(CAP.levers.fin || []).filter((f) => f.repay === 'levy').map((f) => f.fy + f.years)), planEnd = cfg.start + cfg.n - 1;
+    const C = imp.credit, cr = C && imp.taxed.some((x) => x.home - (x.homeNet == null ? x.home : x.homeNet) > 0.005);
+    return `<p>Adds ${sources}, FY${first}–FY${last}. At its highest (FY${pk.fy}), about <b>${dollars(pk.home)} a year</b> (${dollars(pk.home / 12)} a month) for a ${homeTxt}, and <b>${dollars(pk.farm100k)}</b> per $100,000 of farmland’s market value${cr ? `. After the state’s ${esc(C.name)} ${def('tax_credit')}, about <b>${dollars(pk.homeNet)}</b> and <b>${dollars(pk.farm100kNet)}</b>` : ''}.</p>
+      <div class="scroll"><table class="data" data-tax-table><thead><tr><th>Year</th><th class="num">Added levy</th><th class="num">Rate ${esc(PACK().rate.label)}</th><th class="num">${esc(homeTxt)}</th>${cr ? '<th class="num">Same home, after the credit</th>' : ''}<th class="num">Farmland, per $100,000 of market value</th>${cr ? '<th class="num">Farmland, after the credit</th>' : ''}</tr></thead><tbody>
+        ${imp.taxed.map((x) => `<tr><td>FY${x.fy}</td><td class="num">${fmtK(x.added)}</td><td class="num">$${x.rate.toFixed(4)}</td><td class="num">${dollars(x.home)}</td>${cr ? `<td class="num">${dollars(x.homeNet)}</td>` : ''}<td class="num">${dollars(x.farm100k)}</td>${cr ? `<td class="num">${dollars(x.farm100kNet)}</td>` : ''}</tr>`).join('')}
+      </tbody></table></div>
+      ${endFY > planEnd ? `<p class="small" style="margin-top:8px">The bond’s levy continues past the plan’s last year, through FY${endFY}.</p>` : ''}
+      <p class="small muted" style="margin-top:8px">The added cost only, not anyone’s whole tax bill. Rate = added levy ÷ the district’s taxable valuation ${esc(PACK().rate.label)}, with valuation growing at the valuation growth lever.
+        Homes are taxed at their assessed value. Farmland is taxed at ${Math.round((T.agShare || 0) * 100)}% of market value${T.agBondShare != null ? `, or ${Math.round(T.agBondShare * 100)}% for school bond levies` : ''}.
+        ${C ? `The ${esc(C.name)} (${esc(C.cite)}) pays about ${pctIn(C.share)}% of school taxes other than bond levies${C.own ? ' (the district’s figure)' : ` (${esc(C.basis)}; the county’s share can differ: enter it in Starting numbers)`}, so ${imp.hasGO && !imp.newVppel ? 'it doesn’t lower the bond levy' : imp.hasGO ? 'it lowers the QCPUF levy’s cost but not the bond’s' : 'the after-credit columns show what taxpayers pay'}${imp.hasOverride ? '; a levy override gets none of it' : ''}. The statewide total is fixed, so a higher levy also takes a slightly bigger slice of it from other taxpayers.` : ''}
+        ${imp.hasGO ? `A general-obligation bond needs ${PACK().debt.vote === 0.5 ? 'a majority' : Math.round(PACK().debt.vote * 100) + '%'} of voters.` : ''} Rules checked ${day(T.checked)}.</p>`;
   }
   function capYearlyHtml() {
     const list = (CAP.levers.recur || []), cfg = CAP.inputs.cfg;
@@ -3843,7 +4160,7 @@
   function phaseRowHtml(ph, cfg) {
     const yr = (v) => cfg.years.map((fy) => `<option value="${fy}" ${fy === v ? 'selected' : ''}>FY${fy}</option>`).join('');
     const either = Array.isArray(ph.options) && ph.options.length > 1;
-    const funds = (either ? ph.options.map((b) => ({ b, p: null })) : ph.funding && ph.funding.length ? ph.funding : [{ b: 'save', p: 100 }]).slice(0, 3);
+    const funds = (either ? ph.options.map((b) => ({ b, p: null })) : ph.funding && ph.funding.length ? ph.funding : [{ b: HGStates.defaultFund(), p: 100 }]).slice(0, 3);
     return `<tr data-phase-row>
       <td><input name="label" maxlength="80" value="${esc(ph.label || '')}" placeholder="Name (optional)" aria-label="Phase name"></td>
       <td><select name="fy" aria-label="Fiscal year">${yr(ph.fy || cfg.start)}</select></td>
@@ -4146,7 +4463,7 @@
         <label class="field">Amount, $<input name="amount" inputmode="decimal" value="${f.amount == null ? '' : Number(f.amount).toLocaleString('en-US')}"></label>
         <label class="field">Interest rate, %<input name="rate" inputmode="decimal" value="${+(Number(f.rate || 0) * 100).toFixed(3)}"><span class="hint">Leave 0 for a gift</span></label>
         <label class="field">Years to repay<input name="years" inputmode="numeric" value="${f.years || 0}"></label>
-        <label class="field">A lease is repaid from<select name="repay"><option value="ppel" ${f.repay_from !== 'save' ? 'selected' : ''}>PPEL</option><option value="save" ${f.repay_from === 'save' ? 'selected' : ''}>SAVE</option></select><span class="hint">Only used for a lease-purchase</span></label>
+        <label class="field">A lease is repaid from<select name="repay"><option value="ppel" ${!['save', 'vppel'].includes(f.repay_from) ? 'selected' : ''}>PPEL</option>${F_ON('save') ? `<option value="save" ${f.repay_from === 'save' ? 'selected' : ''}>SAVE</option>` : ''}${HGStates.fund('vppel').voter === false ? `<option value="vppel" ${f.repay_from === 'vppel' ? 'selected' : ''}>${esc(HGStates.label('vppel'))} (its bonds aren’t a general obligation)</option>` : ''}</select><span class="hint">Only used for a lease-purchase${HGStates.fund('vppel').voter === false ? ` or a ${esc(HGStates.label('vppel'))} bond` : ''}</span></label>
       </div>
       <p class="small muted">Payments start the year after the money arrives. Campaign/bond phases draw on this money first.</p>
       <div class="notice error" data-form-errors hidden></div>
@@ -4593,7 +4910,11 @@
   }
   /* rows (headings first) → an Excel file the browser downloads */
   const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  function saveXlsx(name, rows, sheet) { saveFile(name, HGUploads.toXlsx(rows, sheet), XLSX_TYPE); }
+  /* a download isn't on screen, so the screens' word watcher can't reach it: another state's words go in here */
+  function saveXlsx(name, rows, sheet) {
+    if (PACK().code !== 'IA') rows = rows.map((r) => r.map((x) => (typeof x === 'string' ? HGStates.say(x) : x)));
+    saveFile(name, HGUploads.toXlsx(rows, sheet), XLSX_TYPE);
+  }
   function saveText(name, text) {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
     const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -4713,7 +5034,7 @@
     }
     let start = rows.settings && rows.settings.plan_start_fy ? Number(rows.settings.plan_start_fy) : null;
     if (!start && board && rows.settings) start = HGCapital.buildInputs(rows, board.id).cfg.start;
-    if (!start) start = new Date().getMonth() >= 6 ? new Date().getFullYear() + 1 : new Date().getFullYear();
+    if (!start) start = fyNow();
     const plan = HGPlan.build(rows, D, { view: PL.view, items: PL.items, years: PL.years, start, boardId: board && board.id });
     const extra = { planName: planName(rows.settings), boardName: board ? board.name : '', funding: planFunding(rows, board, start, start + PL.years - 1) };
     PL.last = { plan, extra };
@@ -4833,7 +5154,7 @@
         ${P.lows.length ? `<table class="data"><thead><tr><th>Fund it draws on</th><th class="num">Lowest balance with it</th><th class="num">Without it</th></tr></thead><tbody>
           ${P.lows.map((l) => `<tr><td>${esc(FN[l.fund] || l.fund)}</td><td class="num">${f(l.with)} <span class="small muted">FY${l.withFY}</span></td><td class="num">${f(l.without)} <span class="small muted">FY${l.withoutFY}</span></td></tr>`).join('')}
         </tbody></table>` : '<p class="muted">It doesn’t draw on SAVE, PPEL, V-PPEL or grants.</p>'}
-        <p class="small" style="margin-top:8px">${P.tax.hasValuation ? (Math.abs(P.tax.with - P.tax.without) < 0.5 ? 'It doesn’t change the added property tax.' : `Added property tax at its highest: $${Math.round(P.tax.with).toLocaleString('en-US')} a year for a $${Math.round(P.tax.homeValue).toLocaleString('en-US')} home with it, $${Math.round(P.tax.without).toLocaleString('en-US')} without.`) : ''}</p>
+        <p class="small" style="margin-top:8px">${P.tax.hasValuation ? (Math.abs(P.tax.with - P.tax.without) < 0.5 ? 'It doesn’t change the added property tax.' : `Added property tax at its highest: $${Math.round(P.tax.with).toLocaleString('en-US')} a year for a $${Math.round(P.tax.homeValue).toLocaleString('en-US')} home with it, $${Math.round(P.tax.without).toLocaleString('en-US')} without${P.tax.withNet != null && P.tax.with - P.tax.withNet > 0.5 ? ` ($${Math.round(P.tax.withNet).toLocaleString('en-US')} and $${Math.round(P.tax.withoutNet || 0).toLocaleString('en-US')} after the state’s ${esc(P.tax.credit || 'school tax credit')})` : ''}.`) : ''}</p>
         ${P.flags.length ? `<p class="small"><b>Funding-line flags:</b> ${P.flags.map(esc).join(' ')}</p>` : ''}</div>
       ${P.others.length ? `<div class="card"><h3>In other scenarios</h3><ul>${P.others.map((o) => `<li>${esc(o.name)}${o.board ? ' (board version)' : ''}: ${f(o.cost)} one-time${o.years.length ? ' in FY' + o.years.join(', ') : ''}${o.yearly ? `, ${f(o.yearly)} a year` : ''} <span class="small muted">(today’s dollars)</span></li>`).join('')}</ul></div>` : ''}
       <p class="small muted">Made by HighGround on ${esc(day(snap.created_at))} from the district’s own data. Figures are as they stood that day.</p>
@@ -4860,8 +5181,8 @@
       <div class="card"><h3>What changed${ch.first ? '' : ` since ${esc(day(ch.since))}`}</h3><ul>${ch.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
       <div class="card"><h3>The capital plan</h3>
         <p>${esc(P.scenario.name)}, FY${P.plan.start}–FY${P.plan.start + P.plan.years - 1}: <b>${f(P.plan.need)}</b> of capital need; levies and grants pay <b>${f(P.plan.levyFunded)}</b>${P.plan.financed > 0.5 ? `, borrowing or gifts <b>${f(P.plan.financed)}</b>` : ''}; <b class="${P.plan.gap > 0.5 ? 'gaptext' : ''}">${f(P.plan.gap)}</b> left to close.</p>
-        ${P.gf ? `<p class="small"><b>General Fund:</b> solvency ${(P.gf.solvency * 100).toFixed(1)}% this year, lowest ${(P.gf.lowest * 100).toFixed(1)}% in FY${P.gf.lowestFY} on the five-year forecast${P.gf.lowestLow != null ? ` (likely range ${(P.gf.lowestLow * 100).toFixed(1)}% to ${(P.gf.lowestHigh * 100).toFixed(1)}%)` : ''}; unspent balance ratio ${(P.gf.unspentRatio * 100).toFixed(1)}%.${P.gf.flags && P.gf.flags.negativeUnspent.length ? ` <span class="gaptext">Spending passes spending authority in FY${P.gf.flags.negativeUnspent.join(', FY')}.</span>` : ''}</p>` : ''}
-        ${P.tax ? `<p class="small">Added property tax at its highest (FY${P.tax.fy}): about <b>$${Math.round(P.tax.home).toLocaleString('en-US')} a year</b> for a $${Math.round(P.tax.homeValue).toLocaleString('en-US')} home.</p>` : ''}</div>
+        ${P.gf ? `<p class="small"><b>General Fund:</b> solvency ${(P.gf.solvency * 100).toFixed(1)}% this year, lowest ${(P.gf.lowest * 100).toFixed(1)}% in FY${P.gf.lowestFY} on the five-year forecast${P.gf.lowestLow != null && P.gf.lowestHigh != null && Math.abs(P.gf.lowestHigh - P.gf.lowestLow) > 1e-9 ? ` (likely range ${(P.gf.lowestLow * 100).toFixed(1)}% to ${(P.gf.lowestHigh * 100).toFixed(1)}%)` : ''}${P.gf.unspentRatio != null ? `; unspent balance ratio ${(P.gf.unspentRatio * 100).toFixed(1)}%` : ''}.${P.gf.flags && P.gf.flags.negativeUnspent.length ? ` <span class="gaptext">Spending passes ${P.gf.flags.budgetOver ? 'the budget authority' : 'spending authority'} in FY${P.gf.flags.negativeUnspent.join(', FY')}.</span>` : ''}</p>` : ''}
+        ${P.tax ? `<p class="small">Added property tax at its highest (FY${P.tax.fy}): about <b>$${Math.round(P.tax.home).toLocaleString('en-US')} a year</b> for a $${Math.round(P.tax.homeValue).toLocaleString('en-US')} home${P.tax.homeNet != null && P.tax.home - P.tax.homeNet > 0.5 ? `, or about $${Math.round(P.tax.homeNet).toLocaleString('en-US')} after the state’s ${esc(P.tax.credit || 'school tax credit')}` : ''}.</p>` : ''}</div>
       ${(P.budget || []).length ? `<div class="card"><h3>Funds</h3><div class="scroll"><table class="data"><thead><tr><th>Fund</th><th class="num">Balance</th><th class="num">Revenue budget</th><th class="num">Received</th><th class="num">Spending budget</th><th class="num">Spent</th><th class="num">On order ${def('encumbered')}</th><th class="num">Spending forecast</th></tr></thead><tbody>
         ${P.budget.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${P.balances[x.key] ? f(P.balances[x.key].amount) : ''}</td><td class="num">${f(x.revenue.budget)}</td><td class="num">${f(x.revenue.actual)}</td><td class="num">${f(x.spending.budget)}</td><td class="num">${f(x.spending.actual)}</td><td class="num">${f(x.spending.encumbered)}</td><td class="num">${f(x.spending.forecast)}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}
@@ -5012,7 +5333,7 @@
     const F = {}; rows.funding.forEach((f) => { (F[f.phase_id] = F[f.phase_id] || {})[f.fund] = Number(f.pct); });
     const funds = ['save', 'ppel', 'vppel', 'grants', 'boost', 'camp', 'general'];
     const out = [['Scenario', 'Board version', 'Locked', 'Project', 'Priority', 'Focus area', 'FY', 'Cost (today’s $)', 'Status', 'Actual cost',
-      ...funds.map((k) => (HGEngine.BUCKET_NAMES[k] || 'General fund') + ' $')]];
+      ...funds.map((k) => (HGEngine.bucketNames(PACK().code)[k] || 'General fund') + ' $')]];
     rows.phases.slice().sort((a, b) => (SC.get(a.scenario_id).name.localeCompare(SC.get(b.scenario_id).name)) || a.fy - b.fy).forEach((ph) => {
       const sc = SC.get(ph.scenario_id), i = INIT.get(ph.initiative_id) || {}, f = F[ph.id] || {};
       out.push([sc.name, sc.is_board_version ? 'Yes' : '', sc.is_locked ? 'Yes' : '', i.name, HGUploads.TIER_WORD[HGRanking.tierOf(i).tier] || '', i.focus_area || '', ph.fy, Number(ph.cost),
@@ -5214,7 +5535,9 @@
     try { const r = (await HG.db.select('district', `select=require_two_step&id=eq.${d.id}`))[0]; req2 = r ? r.require_two_step : null; } catch (e) { req2 = null; }
     const dis = c.admin ? '' : 'disabled';
     let linked = null;
-    if (d.state_district_id) { try { linked = (await HG.db.select('ia_district', `select=de_district,name,aea&de_district=eq.${enc(d.state_district_id)}`))[0] || null; } catch (e) { linked = null; } }
+    const SX = stDist();
+    if (SX) linked = await stLinked(d);
+    else if (d.state_district_id) { try { linked = (await HG.db.select('ia_district', `select=de_district,name,aea&de_district=eq.${enc(d.state_district_id)}`))[0] || null; } catch (e) { linked = null; } }
     return `
       <div class="card"><h3>District</h3>
         <form class="stack" data-form="saveDistrict">
@@ -5227,9 +5550,10 @@
           ${dom ? `<label class="field">Automatic access for these email domains<input name="allowed_domains" value="${esc((dom.allowed_domains || []).join(', '))}" placeholder="ironwoodvalley.k12.ia.us" ${dis}>
             <span class="hint">Anyone who confirms an address at one of these domains gets access without an invitation. Use only the district’s own domains; public services like Gmail are refused. Separate several with commas.</span></label>
           <label class="field">They get<select name="domain_role" ${dis}><option value="viewer" ${dom.domain_role !== 'board' ? 'selected' : ''}>Viewer access</option><option value="board" ${dom.domain_role === 'board' ? 'selected' : ''}>Board-member access</option></select></label>` : ''}
-          <label class="field">Iowa district number<input name="state_district_id" inputmode="numeric" maxlength="4" value="${esc(d.state_district_id || '')}" placeholder="0000" style="max-width:120px" ${dis}>
-            <span class="hint" data-ia-linked>${linked && !d.is_demo ? `${esc(linked.name)}${linked.aea ? `, AEA ${esc(linked.aea)}` : ''}. ` : d.state_district_id && !linked ? 'Not found in the state data yet. ' : ''}The Iowa Department of Education’s 4-digit number. Used to compare with similar districts and to fill starting numbers from the state’s annual report.</span></label>
-          ${d.is_demo && d.state_district_id ? `<div class="notice warn">This is a made-up demo district, but it’s linked to a real Iowa district’s state number, so its peer comparisons and filled-in figures are that district’s real numbers. Clear the number and save to unlink it.</div>` : ''}
+          ${SX ? `<label class="field">${esc(SX.label)}<input name="state_district_id" maxlength="${SX.max}" value="${esc(d.state_district_id || '')}" placeholder="${SX.ph}" style="max-width:160px" ${dis}>
+            <span class="hint" data-ia-linked>${linked && !d.is_demo ? `${esc(linked.name)}${esc(linked.where)}. ` : d.state_district_id && !linked ? 'Not found in the state data yet. ' : ''}${esc(SX.about)}</span></label>` : `          <label class="field">Iowa district number<input name="state_district_id" inputmode="numeric" maxlength="4" value="${esc(d.state_district_id || '')}" placeholder="0000" style="max-width:120px" ${dis}>
+            <span class="hint" data-ia-linked>${linked && !d.is_demo ? `${esc(linked.name)}${linked.aea ? `, AEA ${esc(linked.aea)}` : ''}. ` : d.state_district_id && !linked ? 'Not found in the state data yet. ' : ''}The Iowa Department of Education’s 4-digit number. Used to compare with similar districts and to fill starting numbers from the state’s annual report.</span></label>`}
+          ${d.is_demo && d.state_district_id ? `<div class="notice warn">This is a made-up demo district, but it’s linked to a real district’s state number, so its peer comparisons and filled-in figures are that district’s real numbers. Clear the number and save to unlink it.</div>` : ''}
           ${c.admin ? `<div class="inline-form"><label class="field">Find the number by name<input data-ia-q placeholder="for example, Ames" autocomplete="off"></label><button type="button" class="btn" data-action="iaSearch">Find</button></div><div data-ia-results></div>` : ''}
           <p class="small muted">Link id: <b>${esc(d.slug)}</b> (set when the district is created)</p>
           ${req2 === null ? '' : `<p class="small muted">Two-step sign-in: <b>${req2 ? 'required for everyone in this district' : 'optional here'}</b>. ${c.staff ? 'Change it in the Admin Portal.' : 'Willow Holler sets this; email support@willowholler.com to change it.'}</p>`}
@@ -5344,7 +5668,48 @@
       })()}</div>`;
   }
   /* ---- plain-English definitions, used by the Guide and by the little “?” buttons beside terms ---- */
-  const TERMS = {
+  /* a state's own definitions, used before Iowa's (TERMS_IA) for a district in that state */
+  const TERMS_STATE = {
+    NE: {
+      ppel: ['Special Building Fund', 'A property tax for acquiring sites, buying existing buildings, and building, remodeling, equipping and furnishing school buildings and additions (Neb. Rev. Stat. 79-10,120). The board sets it, up to 14¢ per $100 of taxable value, and it counts toward the $1.05 levy lid it shares with the General Fund.'],
+      vppel: ['QCPUF levy', 'Qualified Capital Purpose Undertaking Fund: a levy to abate environmental hazards, accessibility barriers, life-safety code violations and hazards, mold, and school safety infrastructure concerns in existing buildings and grounds; not new buildings or additions. The board adopts it without a vote, up to 3¢ per $100 for up to 10 years, and can issue bonds against it that aren’t a general obligation (Neb. Rev. Stat. 79-10,110.02). It sits outside the $1.05 lid.'],
+      save: ['Depreciation Fund', 'A reserve the board builds with transfers from the General Fund, to buy costly capital items (buses, equipment, technology, building work) over time instead of in one year’s taxes. The board designates its uses (NDE Rule 2). Its balance counts toward the General Fund’s allowable reserve.'],
+      teeosa: ['TEEOSA', 'The Tax Equity and Educational Opportunities Support Act: Nebraska’s school aid formula. Each district’s formula need (based on what similar districts spend, plus allowances) is compared with its resources (a $1.00 local effort rate on valuation, allocated income tax, option funding, other receipts and 60% of foundation aid). Equalization aid fills the difference. Every district also gets foundation aid, $1,500 per formula student. NDE certifies it each year by March 1.'],
+      reserve: ['Allowable reserve', 'Nebraska caps how much a district can hold: the General Fund cash reserve plus the Depreciation and Employee Benefit funds may not exceed 45% of the General Fund budget (471 students or fewer), 35% (to 3,044), 25% (to 10,000) or 20% (Neb. Rev. Stat. 79-1027).'],
+      lid: ['The $1.05 lid', 'Nebraska caps a school district’s General Fund and Special Building levies together at $1.05 per $100 of taxable value. Going above it takes a vote. Bond Fund and QCPUF levies are outside the lid.'],
+      authority: ['Property tax request authority', 'A dollar cap on what the General Fund and Special Building Fund can ask from property taxes: last year’s amount grown 3%, plus allowances for enrollment, English learners and poverty, plus 4–7% more with a 70% board vote (79-3402, 79-3405). Unused authority carries forward. More takes 60% of voters.'],
+      base_growth: ['Base growth percentage', 'How much the property tax request authority grows each year (Neb. Rev. Stat. 79-3402(3)): 3%, plus the rise in K-12 fall membership × 0.4 (× 0.7 if membership has grown an average of 3% a year over the preceding three years, × 1 if that is also at least 150 students), plus the rise in English learners and in students in poverty, each divided by membership × 0.15. A fall in membership counts as 0. A 70% board vote adds 4–7% more; going further takes 60% of voters (79-3405).'],
+      sb_voter: ['Levy override', 'A board can set the Special Building levy up to 14¢ per $100 (79-10,120). Going higher takes a levy override: a majority of voters approve a levy above the $1.05 lid for building construction, remodeling or site acquisition, for up to five years (77-3444). NDE’s budget instructions put the Special Building levy at up to 17.5¢ with that vote. An override approved after January 1, 2024 doesn’t raise the property tax request authority unless 60% of voters also approve exceeding it (79-3405). Override levies get no School District Property Tax Relief Credit.'],
+      tax_credit: ['School District Property Tax Relief Credit', 'Since 2024 (LB 34, Neb. Rev. Stat. 77-7305) the state pays part of every parcel’s school taxes: a fixed statewide amount ($808 million for 2026, then 3–4% more a year), shared by each parcel’s school taxes. It covers General Fund, Special Building and QCPUF levies, not bond levies or voter-approved overrides. In 2025 it covered about 26% of non-bond school taxes statewide; the share in a county depends on its school taxes the year before. The separate Property Tax Credit is set per $ of value, so a school levy doesn’t change it.'],
+      budget_authority: ['General Fund budget authority', 'The most a Nebraska district may budget from its General Fund, leaving out special education, special grants and lid exclusions (Neb. Rev. Stat. 79-1023). NDE certifies it each February: the greatest of last year’s adjusted budget × 1.025 (the 2.5% basic allowable growth rate, 79-1025), last year’s adjusted budget plus the student growth adjustment, and 110% of TEEOSA formula need less special education × 1.025. Authority a district doesn’t use carries forward; it can use up to 2% of last year’s adjusted budget of it in a year (79-1030). More takes a vote of the people (79-1029). It is separate from the property tax request authority.'],
+      holdback_recurring: ['Recurring costs', 'What the fund pays every year for the same kinds of things: for Special Building, regular building repairs and replacing building equipment; for QCPUF, the work its resolution names. In dollars a year.'],
+      employee_benefit: ['Employee Benefit Fund', 'A fund some Nebraska districts keep to set General Fund money aside for employee benefits (such as early-retirement or insurance costs). It is filled by transfers from the General Fund, and its balance counts with the General Fund toward the allowable reserve (79-1027).'],
+      contingency: ['Contingency Fund', 'A fund for uninsured losses and legal defense, filled by transfers from the General Fund (Neb. Rev. Stat. 79-1072). What it pays out in a year can’t be more than 5% of budgeted General Fund spending, and money can go back to the General Fund with the board’s approval. It doesn’t count toward the allowable reserve.'],
+      solvency: ['Fund balance ratio', 'The General Fund’s cushion: the ending fund balance divided by General Fund revenue. HighGround marks 5% and 10%; Nebraska districts set their own target within the state’s cash reserve limits.'],
+      fund_rules: ['Fund rules', 'Nebraska limits what each fund can pay for. The Special Building Fund is for sites, buildings and additions, and equipping and furnishing them (79-10,120), not salaries or supplies; building projects can’t be paid from the General Fund. QCPUF pays only to abate hazards, accessibility barriers, life-safety problems and school safety infrastructure concerns in existing buildings (79-10,110.02). The Depreciation Fund pays for the capital purposes the board designates (NDE Rule 2). Confirm a specific use with the district’s attorney or NDE.'],
+      go_bond: ['General obligation bond', 'Borrowing approved by a majority of the voters at an election (Neb. Rev. Stat. 10-702), repaid by the Bond Fund levy, which is outside the $1.05 lid (77-3442). Nebraska sets no limit on a school district’s bonded debt (10-701 to 10-719): the vote and what taxpayers will carry are the limits. A defeated question can’t go back to voters for six months.'],
+      rollback: ['Taxable value', 'Nebraska taxes homes at their assessed value and agricultural land at 75% of its actual value, or 50% for school bond levies approved by voters on or after January 1, 2022 (Neb. Rev. Stat. 77-201).'],
+      fiscal_year: ['Fiscal year', 'Nebraska school districts’ fiscal year runs September 1 to August 31 (Neb. Rev. Stat. 79-1091). HighGround names it for the year it ends: FY2027 runs from September 2026 to August 2027.'],
+      csip: ['Improvement goal', 'Nebraska accreditation (Rule 10) asks each district for a continuous improvement process with goals, reviewed in a five-year external visit. Tag the priorities that are those goals.'],
+      likely_range: ['Likely range', 'HighGround hasn’t yet tested its forecast against Nebraska districts’ results, so the Nebraska forecast shows a single line, not a range.'],
+      ssa: ['State aid growth', 'How much state aid (TEEOSA equalization, foundation aid and other state formula money) grows each year. Set by the Legislature; 0% is a cautious default for a district that doesn’t receive equalization aid.'],
+      package: ['Total package increase', 'The yearly raise agreed with staff in negotiations, as a percent. HighGround grows salaries by it, and the benefits that follow pay (FICA, retirement).'],
+      benefits: ['Benefits and health insurance', 'Each staff group costs FTE × (average salary × (1 + benefits %) + health insurance per FTE). The benefits % is the district’s FICA (7.65%), its School Employees Retirement System contribution and any other benefits paid as a share of salary.'],
+      holdback: ['Held back each year', 'Money taken off the top of each year’s Special Building or QCPUF receipts before anything goes to projects. It covers the fund’s recurring costs (building repairs, equipment and furnishings for Special Building; the named hazard, accessibility and safety work for QCPUF) and a cushion for things nobody has listed as an initiative yet. Buses and devices belong in the Depreciation Fund. Projects can only use what’s left. Set it as dollars a year or as a share of receipts; a share moves with receipts.'],
+      fund_choice: ['Split or whichever has room', 'With two or three funds, a phase can split its cost between them (60% Special Building, 40% grants), or be paid in full from whichever has room that year, in the order listed (QCPUF, then Special Building). The capital plan picks the fund each year, working down the list of initiatives, and shows which one it used: a ↺ means the first choice was full. Check with the business manager that the project fits each fund’s rules.'],
+      sources: ['Where these figures come from', 'Public reports only: the district’s Annual Financial Report (NDE), NDE’s levy and valuation statistics and fall membership, the TEEOSA state aid certification, and the property tax request authority certification. They’re refreshed monthly and are starting points.'],
+    },
+  };
+  /* terms a state doesn't use, left out of its screens and glossary */
+  const TERMS_OMIT = { NE: ['rev_bond', 'unspent', 'guarantee', 'dcpp'] };
+  const omitted = (k) => (TERMS_OMIT[PACK().code] || []).includes(k);
+  const TERMS = new Proxy({}, {
+    get: (_, k) => { if (omitted(k)) return undefined; const o = TERMS_STATE[PACK().code]; return (o && o[k]) || TERMS_IA[k]; },
+    has: (_, k) => !omitted(k) && (k in TERMS_IA || !!(TERMS_STATE[PACK().code] || {})[k]),
+    ownKeys: () => [...new Set(Reflect.ownKeys(TERMS_IA).concat(Reflect.ownKeys(TERMS_STATE[PACK().code] || {})))].filter((k) => !omitted(k)),
+    getOwnPropertyDescriptor: (_, k) => ({ enumerable: true, configurable: true, value: (TERMS_STATE[PACK().code] || {})[k] || TERMS_IA[k] }),
+  });
+  const TERMS_IA = {
     save: ['SAVE', 'Secure an Advanced Vision for Education: Iowa’s statewide one-cent sales tax for school buildings, equipment and technology. It’s shared by student count, can pay for projects directly, and can back revenue bonds.'],
     ppel: ['PPEL', 'Physical Plant and Equipment Levy: a property tax for buildings, equipment, buses and technology. A school board can levy up to 33 cents per $1,000 of taxable value without a vote.'],
     vppel: ['V-PPEL', 'Voter-approved PPEL: the same uses as PPEL, up to $1.34 per $1,000 of taxable value, for up to 10 years after a public vote.'],
@@ -5401,10 +5766,15 @@
     ['U.S. Census Bureau', 'American Community Survey 5-year estimates: the median value of owner-occupied homes in the district, for the tax example.'],
     ['U.S. Bureau of Labor Statistics', 'Producer Price Index for new school building construction: the default for construction inflation.'],
   ];
+  /* another state's public sources (Nebraska: NDE's reports) */
+  const SOURCES_STATE = { NE: [
+    ['Nebraska Department of Education', 'The district’s Annual Financial Report (every fund’s receipts, spending and cash: General, Depreciation, Employee Benefit, Contingency, Bond, Special Building, QCPUF); Statistical Information (valuation, levies, fall membership); the TEEOSA state aid certification; the property tax request authority certification; the certified budget authority and allowable reserve.'],
+    ['Nebraska Department of Revenue', 'The School District Property Tax Relief Credit (77-7305): the statewide fund and non-bond school taxes, for the taxpayer figures after the credit.'],
+    ['U.S. Bureau of Labor Statistics', 'Producer Price Index for new school building construction: the default for construction inflation.']] };
   const sourcesHtml = () => `<h3>Where the starting figures come from</h3><p class="small">Every figure HighGround fills in comes from a public report the district already files or a public agency publishes. They’re refreshed monthly and are starting points: change any of them, and nothing is used until you save.</p>
-    <dl class="terms">${SOURCES.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl>
-    <p class="small muted">Planning assumptions with no public source (health insurance growth, negotiated raises, turnover) start from typical recent Iowa figures and are yours to set.</p>
-    <p class="small"><b>${CENSUS_NOTICE}</b></p>`;
+    <dl class="terms">${(SOURCES_STATE[PACK().code] || SOURCES).map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl>
+    <p class="small muted">Planning assumptions with no public source (health insurance growth, negotiated raises, turnover) start from ${PACK().code === 'IA' ? `typical recent ${PACK().adj} figures` : `HighGround’s planning defaults (from ${HGStates.pack('IA').adj} districts so far)`} and are yours to set.</p>
+    ${SOURCES_STATE[PACK().code] ? '' : `<p class="small"><b>${CENSUS_NOTICE}</b></p>`}`;
   const CENSUS_NOTICE = 'This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau.';
   /** a small “?” beside a term; tapping it shows the definition */
   /* a definition opens right beside its “?”: below it, or above when there's no room, kept on screen; it stays until closed */
@@ -5448,7 +5818,7 @@
       ['See where the money runs out', 'Plan → Initiatives, Ranked'], ['Compare two versions of the plan', 'Plan → Scenarios'],
       ['Test a different future (inflation, negotiated raises, enrollment)', 'the what-if levers on the capital plan and the General Fund'], ['See what a bond would cost a homeowner', 'the capital plan’s “What it means for taxpayers”'],
       ['Record a measure’s result', 'Track → Measures'], ['Share the plan with the public', 'Share → Community page'],
-      ...(SWITCH.register ? [['Check the month’s bills for anything unusual', 'Settings → Uploads (Check register), then Track → Check register']] : []), ['Compare with similar Iowa districts', 'add the Iowa district number in Settings → District; unusual numbers then show under Money'], ['Find anything', 'Search, at the top of every page'],
+      ...(SWITCH.register ? [['Check the month’s bills for anything unusual', 'Settings → Uploads (Check register), then Track → Check register']] : []), [`Compare with similar ${PACK().adj} districts`, (PACK().code === 'NE' ? 'add the NDE agency ID in Settings → District;' : 'add the Iowa district number in Settings → District;') + ' unusual numbers then show under Money'], ['Find anything', 'Search, at the top of every page'],
       ['Set how much each fund holds back each year', 'Settings → Starting numbers, “Held back each year” (one share of receipts, or split into recurring costs and a cushion)'],
       ['Track a construction contract’s pay applications', 'Track → Initiative progress: open the initiative, add the contract, then each month’s pay app'],
       ['See how much of the yearly holdback is used', 'Track → Budget vs. actual, “Held back each year”'],
@@ -5459,8 +5829,8 @@
         ${c.admin || c.plan || c.finance ? '<p class="small"><a href="#" data-action="setupShow">Show the “Getting set up” steps on Home</a></p>' : ''}</div>
       <div class="card"><h3>How do I…</h3><table class="data"><tbody>${tasks.map(([q, a]) => `<tr><td>${esc(q)}</td><td class="small">${esc(a)}</td></tr>`).join('')}</tbody></table></div>
       <div class="card"><h3>What the terms mean</h3><dl class="glossary">${Object.values(TERMS).sort((x, y) => x[0].localeCompare(y[0])).map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl>
-        <p class="small muted">Iowa figures were checked on ${esc(day(HGGF.RULES.checked))}. HighGround is a planning tool; confirm decisions with the district’s auditor, attorney or financial advisor.</p></div>
-      <div class="card">${sourcesHtml()}</div>
+        <p class="small muted">${esc(PACK().adj)} figures were checked on ${esc(day(PACK().code === 'IA' ? HGGF.RULES.checked : HGGF.NE_RULES.checked))}. HighGround is a planning tool; confirm decisions with the district’s auditor, attorney or financial advisor.</p></div>
+      ${HGStates.feature('dataSources') ? `<div class="card">${sourcesHtml()}</div>` : ''}
       <div class="card"><h3>Questions</h3><p>Email <a href="mailto:support@willowholler.com">support@willowholler.com</a>.</p></div>`;
   }
   // ------------------------------------------------------------------ Willow Holler staff
@@ -5516,8 +5886,19 @@
     closeModal(); await loadContext(true);
     flash = `${d.name} was deleted.`; renderStaff();
   }
+  /** Admin Portal: preview any district in another state's view (this browser only) */
+  function stateViewCard() {
+    const v = stateView(), packs = HGStates.list();
+    return `<div class="card" data-state-view-card><h3>State view</h3>
+      <p class="small muted">See every district with another state’s funds, rules and words, to check how a state works before a district there signs on. Only in this browser and only for Willow Holler staff. No district’s data or state changes, and each screen says when the preview is on.</p>
+      <div class="inline-form"><label class="field">Show districts as<select data-state-view>
+        <option value="" ${v ? '' : 'selected'}>Each district’s own state</option>
+        ${packs.map((x) => `<option value="${x.code}" ${v === x.code ? 'selected' : ''}>${esc(x.name)}${x.status === 'preview' ? ' (preview)' : ''}</option>`).join('')}</select></label>
+        <button type="button" class="btn primary" data-action="setStateView">Apply</button></div>
+      <p class="small" data-state-view-now>${v ? `Now: every district shows as <b>${esc(HGStates.pack(v).name)}</b>.` : 'Now: each district shows in its own state.'} States HighGround knows: ${packs.map((x) => `${esc(x.name)}${x.status === 'preview' ? ' (preview)' : ''}`).join(', ')}.</p></div>`;
+  }
   async function renderStaff() {
-    S.district = null; S.role = null;
+    S.district = null; S.role = null; stateApply('IA');
     const SCOLS = 'id,slug,name,state,is_demo,public_link_enabled,logo_path,created_at';
     const [rows, health] = await Promise.all([HG.db.select('district', `select=${SCOLS},require_two_step&order=name`).catch(() => HG.db.select('district', `select=${SCOLS}&order=name`)),
       HG.db.select('hg_health_run', 'select=ran_at,status,n_ok,n_warn,n_fail,checks,emailed&order=ran_at.desc&limit=14').catch(() => null)]);
@@ -5526,9 +5907,11 @@
       <div class="page-head"><div><h1>Admin Portal</h1><div class="lede">Every district, and new ones. Willow Holler staff only.</div></div></div>
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
       ${healthCard(health)}
+      ${stateViewCard()}
       <div class="card"><h3>Districts</h3>${table([
         { label: 'District', html: (r) => `<a href="#/d/${enc(r.slug)}/home/today">${esc(r.name)}</a>` },
-        { label: 'Link id', get: (r) => r.slug }, { label: 'State', get: (r) => r.state },
+        { label: 'Link id', get: (r) => r.slug },
+        { label: 'State', html: (r) => `<span class="row nowrap" data-district-state-box><select data-district-state="${esc(r.id)}" aria-label="${esc(r.name)}: state">${HGStates.list().map((x) => `<option value="${x.code}" ${(r.state || 'IA') === x.code ? 'selected' : ''}>${esc(x.code)}</option>`).join('')}${HGStates.has(r.state || 'IA') ? '' : `<option value="${esc(r.state)}" selected>${esc(r.state)}</option>`}</select><button type="button" class="btn small" data-action="setDistrictState" data-id="${esc(r.id)}">Set</button></span>` },
         { label: 'Demo', get: (r) => (r.is_demo ? 'Demo' : '') }, { label: 'Created', get: (r) => day(r.created_at) },
         { label: 'Two-step sign-in', html: (r) => (r.require_two_step === undefined ? '' : `<button type="button" class="btn small" data-action="toggleTwoStep" data-id="${esc(r.id)}" data-on="${r.require_two_step ? 1 : 0}" title="${r.require_two_step ? 'Everyone in this district must use it. Click to make it optional.' : 'Optional here. Click to require it.'}">${r.require_two_step ? 'Required' : 'Optional'}</button>`) },
         { label: '', html: (r) => `<button type="button" class="btn small danger" data-action="deleteDistrictAsk" data-id="${esc(r.id)}">Delete…</button>` },
@@ -5540,6 +5923,7 @@
           <label class="field">Short name<input name="short_name" maxlength="40" placeholder="Ironwood Valley"></label>
           <label class="field">Link id<input name="slug" required pattern="[a-z0-9\\-]{2,40}" placeholder="ironwood-valley"><span class="hint">Lowercase letters, numbers and hyphens. It appears in the district’s link and can’t be changed later.</span></label>
           <label class="row"><input type="checkbox" name="is_demo"> Demo district (fictional figures)</label>
+          <label class="field">State<select name="state">${HGStates.list().map((x) => `<option value="${x.code}">${esc(x.name)}${x.status === 'preview' ? ' (preview)' : ''}</option>`).join('')}</select><span class="hint">Which state’s funds, rules and words its screens use.</span></label>
           <label class="field">First admin’s email<input name="admin_email" type="email" placeholder="optional"><span class="hint">Gets an invitation as the district’s admin.</span></label>
           <div><button class="btn primary" type="submit">Add district</button></div>
         </form></div>` });
@@ -5570,6 +5954,7 @@
     const val = (n) => { const el = form.querySelector(`[name="${n}"]`); return el ? el.value.trim() : ''; };
     const warn = [], tip = [];
     const pr = num('ppel_receipts'), rate = num('ppel_rate'), tv = num('taxable_valuation'), av = num('actual_valuation');
+    if (PACK().code !== 'IA') return stateSetupChecks(form, { num, val, warn, tip, pr, rate, tv });
     if (pr > 0 && tv > 0 && rate > 0) {
       const exp = rate * tv / 1000;
       if (Math.abs(pr - exp) / exp > 0.15) warn.push(`PPEL receipts ($${Math.round(pr).toLocaleString()}) don’t match the PPEL rate × taxable valuation (about $${Math.round(exp).toLocaleString()}). Check the valuation and rate against the certified budget; receipts that include an income surtax will be higher.`);
@@ -5605,6 +5990,27 @@
     if (!av) tip.push('Add the actual (100%) valuation and general-obligation debt outstanding to see the 5% debt limit.');
     return { warn, tip };
   }
+  /** another state's checks on its starting numbers (Nebraska: the Special Building rate and the $1.05 lid) */
+  function stateSetupChecks(form, o) {
+    const P = PACK(), { num, warn, tip, pr, rate, tv } = o, per = P.rate.per, L = P.lid || {};
+    if (pr > 0 && tv > 0 && rate > 0) {
+      const exp = rate * tv / per;
+      if (Math.abs(pr - exp) / exp > 0.15) warn.push(`${HGStates.label('ppel')} receipts ($${Math.round(pr).toLocaleString()}) don’t match the levy rate × taxable valuation (about $${Math.round(exp).toLocaleString()}). Check the valuation, the rate, and whether the receipts are a full year.`);
+    }
+    const voter = (num('lid_ov_cents') || 0) > 0, sbCap = voter && L.sbVoterMax ? L.sbVoterMax : L.sbMax;
+    if (rate > 0 && sbCap && rate > sbCap + 1e-9) warn.push(voter ? `A ${HGStates.label('ppel')} levy of $${rate} ${P.rate.label} is above the ${+(sbCap * 100).toFixed(1)}¢ voters can approve. Check the rate.`
+      : `A ${HGStates.label('ppel')} levy of $${rate} ${P.rate.label} is above the ${Math.round(L.sbMax * 100)}¢ a board can set; up to ${+((L.sbVoterMax || L.sbMax) * 100).toFixed(1)}¢ needs a levy override approved by voters. Check the rate, or enter the override.`);
+    if (voter) tip.push(`With the levy override, ${HGStates.label('ppel')} can go to ${+(L.sbVoterMax * 100).toFixed(1)}¢ and the $${L.levy.toFixed(2)} lid rises by the override in its years. ${(form.querySelector('[name="lid_ov_authority"]') || {}).checked ? '' : `The request authority doesn’t rise with it unless ${Math.round(L.overrideAuthorityVote * 100)}% of voters approved that too (79-3405), so the authority may still hold ${HGStates.label('ppel')} back.`}`);
+    /* the second levy's own limits (states.js funds.vppel: Nebraska's QCPUF ≤3¢ and ≤10 years, 79-10,110.02) */
+    const VF = HGStates.fund('vppel'), vst = (form.querySelector('[name="vppel_status"]') || {}).value, va = num('vppel_annual'), v1 = num('vppel_first_fy'), v2 = num('vppel_last_fy');
+    if (vst && vst !== 'none' && VF.maxRate && va > 0 && tv > 0 && va > VF.maxRate * tv / per * 1.02) warn.push(`${HGStates.label('vppel')} receipts of $${Math.round(va).toLocaleString()} a year are more than a ${+(VF.maxRate * 100).toFixed(1)}¢ levy raises on this valuation (about $${Math.round(VF.maxRate * tv / per).toLocaleString()}). That’s the most it can be (${esc(P.legal.cite.vppel || '')}).`);
+    if (vst && vst !== 'none' && VF.maxYears && v1 && v2 && v2 - v1 + 1 > VF.maxYears) warn.push(`${HGStates.label('vppel')} runs FY${v1}–FY${v2}, ${v2 - v1 + 1} years; it can run at most ${VF.maxYears} years for one set of projects.`);
+    const gfr = num('lid_gf_rate'), oth = num('lid_other_rate') || 0;
+    if (gfr != null && L.levy && gfr + (rate || 0) + oth > L.levy + 1e-9) warn.push(`The General Fund, ${HGStates.label('ppel')} and other levies under the lid add to $${(gfr + (rate || 0) + oth).toFixed(4)} ${P.rate.label}, above the $${L.levy.toFixed(2)} lid. That needs a voter-approved override.`);
+    if (gfr == null) tip.push(`Add the General Fund levy rate and the property tax request authority, so HighGround can hold ${HGStates.label('ppel')} to what the $1.05 lid and the authority leave.`);
+    if (!form.querySelectorAll('[data-debt-body] [data-debt-row]').length) tip.push(`No existing debt entered. If the district has bonds or lease-purchases paid from ${HGStates.label('ppel')}, add them.`);
+    return { warn, tip };
+  }
   function renderSetupChecks(form) {
     updateOngoingHints(form);
     const box = form.querySelector('[data-setup-checks]'); if (!box) return;
@@ -5618,6 +6024,20 @@
   const SETUP_PREFILL = { data: null };
   function setupPrefill() {
     const st = SETUP_PREFILL.data, form = document.querySelector('form[data-form=saveSetup]'); if (!st || !form) return;
+    if (st.ne) {   // Nebraska: NDE's figures straight into their fields
+      const done = [];
+      Object.entries(st.values).forEach(([n, v]) => { const el = form.querySelector(`[name="${n}"]`); if (!el || v == null || v === '') return;
+        if (n === 'vppel_status') { if (el.value === 'none') el.value = v; return; }
+        if (el.type === 'checkbox') { el.checked = !!v; done.push(n); return; }
+        el.classList.remove('prefilled');
+        el.value = /growth|lep_pov/.test(n) ? pctIn(v) : /rate$/.test(n) ? String(+Number(v).toFixed(4)) : /_(first|last)$|_fy$/.test(n) ? String(v) : typeof v === 'number' && Math.abs(v) >= 1000 ? moneyIn(v) : String(v); done.push(n); });
+      /* NDE's membership means NDE's growth formula: a growth typed earlier would override it, so it's cleared */
+      const g1 = form.querySelector('[name="lid_growth"]'); let cleared = false;
+      if (st.values.lid_mem_hist && g1 && g1.value !== '') { g1.value = ''; cleared = true; }
+      renderSetupChecks(form);
+      toast('Filled in', `${done.length} figures from NDE’s reports.${cleared ? ' The single growth figure was cleared, so the authority grows by NDE’s formula.' : ''} Check them, then click Save starting numbers.`);
+      return;
+    }
     const gy = document.querySelector('[data-grant-years]'), F = stateFill(st, gy ? Number(gy.value) : 5);
     Object.entries(F.values).forEach(([n, v]) => { const el = form.querySelector(`[name=${n}]`); if (!el || v == null || v === '') return;
       if (n === 'vppel_status') { if (el.value === 'none') el.value = v; return; }
@@ -5703,7 +6123,7 @@
     };
     const debtRow = (x) => `<tr data-debt-row data-id="${esc(x.id || '')}">
       <td><input name="debt_name" value="${esc(x.name || '')}" ${dis} aria-label="Obligation"></td>
-      <td><select name="debt_fund" ${dis} aria-label="Paid from">${[['save', 'SAVE'], ['ppel', 'PPEL'], ['debt_levy', 'Debt service levy']].map(([k, v]) => `<option value="${k}" ${x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+      <td><select name="debt_fund" ${dis} aria-label="Paid from">${HGStates.pairs(['save', 'ppel', 'debt_levy']).map(([k, v]) => `<option value="${k}" ${x.fund === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
       <td><input name="debt_annual" inputmode="decimal" value="${esc(moneyIn(x.annual_payment))}" ${dis} aria-label="Payment per year"></td>
       <td><input name="debt_final" inputmode="numeric" value="${esc(x.final_fy || '')}" ${dis} aria-label="Final fiscal year" placeholder="2033"></td>
       <td><select name="debt_timing" ${dis} aria-label="This year’s payment">${[['spread', 'Spread over the year'], ['after', 'Still to pay'], ['before', 'Already paid']].map(([k, v]) => `<option value="${k}" ${(x.first_year_timing || 'spread') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
@@ -5712,7 +6132,7 @@
     return `
       ${c.finance ? '' : '<div class="notice">Only a business manager or admin can change these numbers.</div>'}
       ${(() => { setTimeout(() => { const sf = document.querySelector('form[data-form=saveSetup]'); if (sf) renderSetupChecks(sf); }, 0); return ''; })()}
-      ${st ? (() => { const B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {}, setUp = !!s.district_id, sp = ppelSplit(st), lv = st.levy;
+      ${st && st.ne ? neStateCard(c, st, s, B) : st ? (() => { const B2 = st.balances || {}, R2 = st.receipts || {}, le = st.latest_enrollment || {}, setUp = !!s.district_id, sp = ppelSplit(st), lv = st.levy;
         const G2 = st.general || {}, gfb = G2.unassigned != null || G2.assigned != null ? Number(G2.unassigned || 0) + Number(G2.assigned || 0) : null, gi = s.gf_inputs || {};
         /* [label, the state's figure, yours (once set up), formatter] */
         const rowsS = [[`Certified enrollment${le.fiscal_year ? `, ${enrollLabel(le.fiscal_year)}` : ''}`, le.certified, s.enrollment, (v) => Number(v).toLocaleString('en-US')],
@@ -5744,7 +6164,7 @@
             What each fund held back is an estimate: the average of the last three years of SAVE or PPEL spending, leaving out construction, debt payments and transfers. It’s filled in as a share of receipts.</p>
           ${M.home_value ? `<p class="small"><b>${CENSUS_NOTICE}</b></p>` : ''}</div>`;
         return setUp ? fold(c, `Compare with the state’s annual report${nDiff ? ` · ${nDiff} figure${nDiff === 1 ? '' : 's'} differ` : ''}`, body, false) : body; })()
-      : c.finance && !c.district.state_district_id ? `<p class="small muted">${c.admin ? `Add the district’s Iowa district number in <a href="#/d/${enc(c.district.slug)}/settings/district">Settings → District</a> to fill these from the state’s annual report.` : 'Once an admin adds the district’s Iowa district number, these can be filled from the state’s annual report.'}</p>` : ''}
+      : c.finance && !c.district.state_district_id && HGStates.feature('prefill') ? `<p class="small muted">${c.admin ? `Add the district’s Iowa district number in <a href="#/d/${enc(c.district.slug)}/settings/district">Settings → District</a> to fill these from the state’s annual report.` : 'Once an admin adds the district’s Iowa district number, these can be filled from the state’s annual report.'}</p>` : ''}
       <form class="stack setup" data-form="saveSetup" novalidate>
         <div class="card checks" data-setup-checks hidden></div>
         <div class="card"><h3>Plan</h3><div class="fgrid">
@@ -5754,37 +6174,42 @@
           ${f('construction_inflation', 'Construction inflation, % a year', pctIn(s.construction_inflation || 0), 'Applied to future phases')}</div></div>
 
         <div class="card"><h3>Fund balances</h3><div class="fgrid">
-          <label class="field">Balances as of<input name="as_of" type="date" value="${esc(asOf)}" ${dis}><span class="hint">Use 30 June for a year-end close. The plan starts in the fiscal year this date belongs to.</span></label>
-          ${f('bal_save', 'SAVE balance, $', moneyIn(B.save), 'From the general ledger, or the audited 30 June balance')}${f('bal_ppel', 'PPEL balance, $', moneyIn(B.ppel))}
+          <label class="field">Balances as of<input name="as_of" type="date" value="${esc(asOf)}" ${dis}><span class="hint">${PACK().code === 'IA' ? 'Use 30 June' : `Use ${esc(HGStates.closeDay())}`} for a year-end close. The plan starts in the fiscal year this date belongs to.</span></label>
+          ${f('bal_save', 'SAVE balance, $', moneyIn(B.save), `From the general ledger, or the audited ${PACK().code === 'IA' ? '30 June' : HGStates.closeDay()} balance`)}${f('bal_ppel', 'PPEL balance, $', moneyIn(B.ppel))}
           ${f('bal_vppel', 'V-PPEL balance, $', moneyIn(B.vppel))}${f('bal_grants', 'Grants and donations on hand, $', moneyIn(B.grants))}</div>
           <p class="small muted">Saving with a new date adds a new set of balances and keeps the earlier ones.</p></div>
 
-        <div class="card"><h3>SAVE (Secure an Advanced Vision for Education)</h3><div class="fgrid">
+        ${PACK().code !== 'IA' && F_ON('save') ? deprCard(s, dis) : ''}
+        ${PACK().code === 'IA' ? `<div class="card"><h3>SAVE (Secure an Advanced Vision for Education)</h3><div class="fgrid">
           ${f('save_receipts', 'SAVE receipts per year, $', moneyIn(s.save_receipts), 'A full year’s receipts, from the general ledger or the audit')}
           ${f('save_receipts_fy', 'Those receipts are for fiscal year', s.save_receipts_fy || '', 'For example 2026', 'int')}
           ${fOng('save', 'Held back each year from SAVE', s.save_ongoing, s.save_ongoing_pct, s.save_holdback_split, s.save_receipts, 'Comes off the top of each year’s SAVE before projects: technology, equipment, regular maintenance and a cushion for things not listed as initiatives.')}
           ${f('save_trend', 'SAVE receipts trend, % a year', pctIn(s.save_trend || 0), 'Negative if receipts are falling')}
-          <label class="row"><input type="checkbox" name="sf2472" ${s.sf2472 === false ? '' : 'checked'} ${dis}> Apply the SF 2472 SAVE reduction</label></div></div>
+          <label class="row"><input type="checkbox" name="sf2472" ${s.sf2472 === false ? '' : 'checked'} ${dis}> Apply the SF 2472 SAVE reduction</label></div></div>` : ''}
 
-        <div class="card"><h3>PPEL (Physical Plant and Equipment Levy)</h3><div class="fgrid">
+        <div class="card"><h3>${PACK().code === 'IA' ? 'PPEL (Physical Plant and Equipment Levy)' : esc(HGStates.longLabel('ppel'))}</h3><div class="fgrid">
           ${f('ppel_receipts', 'PPEL receipts per year, $', moneyIn(s.ppel_receipts), 'From the certified budget or the general ledger')}
-          ${fOng('ppel', 'Held back each year from PPEL', s.ppel_ongoing, s.ppel_ongoing_pct, s.ppel_holdback_split, s.ppel_receipts, 'Comes off the top of each year’s PPEL before projects: buses, devices, repairs and a cushion for things not listed as initiatives.')}
+          ${fOng('ppel', 'Held back each year from PPEL', s.ppel_ongoing, s.ppel_ongoing_pct, s.ppel_holdback_split, s.ppel_receipts, PACK().code === 'IA' ? 'Comes off the top of each year’s PPEL before projects: buses, devices, repairs and a cushion for things not listed as initiatives.' : `Comes off the top of each year’s ${HGStates.label('ppel')} receipts before projects: building repairs, equipment and furnishings for buildings, and a cushion for things not listed as initiatives.`)}
           ${f('ppel_growth', 'Taxable valuation growth, % a year', pctIn(s.ppel_growth == null ? 0.03 : s.ppel_growth))}
-          ${f('ppel_rate', 'PPEL rate, $ per $1,000', s.ppel_rate == null ? '' : s.ppel_rate, 'From the certified budget (Iowa Department of Management); used to check receipts')}
-          ${f('taxable_valuation', 'Taxable valuation, $', moneyIn(s.taxable_valuation), 'For tax estimates: the valuation the county auditor certifies for the debt service levy')}
+          ${PACK().code === 'IA' ? f('ppel_rate', 'PPEL rate, $ per $1,000', s.ppel_rate == null ? '' : s.ppel_rate, 'From the certified budget (Iowa Department of Management); used to check receipts')
+            : f('ppel_rate', `${HGStates.label('ppel')} levy, $ ${PACK().rate.label}`, s.ppel_rate == null ? '' : s.ppel_rate, `From the adopted budget, like 0.10 for 10¢${PACK().lid ? `; at most ${PACK().lid.sbMax}` : ''}`)}
+          ${f('taxable_valuation', 'Taxable valuation, $', moneyIn(s.taxable_valuation), PACK().code === 'IA' ? 'For tax estimates: the valuation the county auditor certifies for the debt service levy' : 'For tax estimates and the levy limits: the taxable valuation the county assessor certifies (NDE’s Statistical Information has it)')}
           ${f('actual_valuation', 'Actual (100%) valuation, $', moneyIn(s.actual_valuation), 'From the county auditor; used for the 5% debt limit')}
-          ${f('go_outstanding', 'General-obligation debt outstanding, $', moneyIn(s.go_outstanding), 'Optional')}</div></div>
+          ${f('go_outstanding', 'General-obligation debt outstanding, $', moneyIn(s.go_outstanding), 'Optional')}</div>
+          ${PACK().lid ? lidFields(s, dis) : ''}</div>
 
         <div class="card"><h3>Tax estimates</h3>
-          <p class="small muted">Used for “what it means for taxpayers.” Farmland is shown per $100,000 of assessed value (the county assessor’s productivity value, which is much lower than the market price).</p><div class="fgrid">
-          ${f('tax_home_value', 'Example home value, $', moneyIn(s.tax_home_value == null ? 150000 : s.tax_home_value), 'Assessed value of a typical home in the district')}</div></div>
+          <p class="small muted">Used for “what it means for taxpayers.” ${PACK().code === 'IA' ? 'Farmland is shown per $100,000 of assessed value (the county assessor’s productivity value, which is much lower than the market price).' : 'Farmland is shown per $100,000 of market value: Nebraska taxes it at 75%, or 50% for school bond levies approved since 2022 (Neb. Rev. Stat. 77-201).'}</p><div class="fgrid">
+          ${f('tax_home_value', 'Example home value, $', moneyIn(s.tax_home_value == null ? 150000 : s.tax_home_value), 'Assessed value of a typical home in the district')}
+          ${HGTax.STATE_TAX[PACK().code] && HGTax.STATE_TAX[PACK().code].credit ? (() => { const C = HGTax.STATE_TAX[PACK().code].credit, mine = ((s.state_inputs || {}).taxCredit || {}).share;
+            return f('tax_credit_share', `${C.name}, % of school taxes`, mine == null ? '' : pctIn(mine), `Leave blank for the statewide ${pctIn(C.share)}%. The county treasurer’s figure: the county’s credit ÷ its school taxes other than bonds`); })() : ''}</div></div>
 
-        <div class="card"><h3>V-PPEL (voter-approved PPEL)</h3><div class="fgrid">
-          <label class="field">Status<select name="vppel_status" ${dis}>${[['none', 'None'], ['proposed', 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s.vppel_status || 'none') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <div class="card"><h3>${PACK().code === 'IA' ? 'V-PPEL (voter-approved PPEL)' : esc(HGStates.longLabel('vppel'))}</h3><div class="fgrid">
+          <label class="field">Status<select name="vppel_status" ${dis}>${[['none', 'None'], ['proposed', HGStates.fund('vppel').voter === false ? 'Proposed (the board hasn’t adopted it)' : 'Proposed (needs a vote)'], ['active', 'Active']].map(([k, v]) => `<option value="${k}" ${(s.vppel_status || 'none') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           ${f('vppel_annual', 'V-PPEL receipts per year, $', moneyIn(s.vppel_annual))}
           ${fOng('vppel', 'Held back each year from V-PPEL', s.vppel_ongoing, s.vppel_ongoing_pct, s.vppel_holdback_split, s.vppel_annual, 'Comes off the top of V-PPEL, only in the years it’s collected: the purchases the vote names and a cushion.')}
           ${f('vppel_first_fy', 'First fiscal year', s.vppel_first_fy || '', '', 'int')}
-          ${f('vppel_last_fy', 'Last fiscal year', s.vppel_last_fy || '', 'Up to 10 years after the first', 'int')}</div></div>
+          ${f('vppel_last_fy', 'Last fiscal year', s.vppel_last_fy || '', PACK().code === 'IA' ? 'Up to 10 years after the first' : 'The last year the board’s resolution covers', 'int')}</div></div>
 
         <div class="card"><h3>Grants and donations</h3><div class="fgrid">
           ${f('grants_avg', 'Average received per year, $', moneyIn(s.grants_avg || 0))}
@@ -5800,6 +6225,59 @@
         <div class="notice error" data-setup-errors hidden></div>
         ${c.finance ? '<div class="row"><button class="btn primary" type="submit">Save starting numbers</button><span class="small muted">The capital plan updates as soon as these are saved.</span></div>' : ''}
       </form>`;
+  }
+  /** Nebraska: NDE's figures for this district (part 35), against the saved ones; fills the form on request */
+  function neStateCard(c, st, s, B) {
+    const setUp = !!s.district_id, L = (s.state_inputs || {}).lid || {};
+    const yours = { enrollment: s.enrollment, bal_save: B.save, bal_ppel: B.ppel, bal_vppel: B.vppel, save_receipts: s.save_receipts, ppel_receipts: s.ppel_receipts,
+      vppel_annual: s.vppel_annual, taxable_valuation: s.taxable_valuation, ppel_rate: s.ppel_rate, lid_gf_rate: L.gfRate,
+      lid_authority: L.authority == null ? null : Number(L.authority) + Number(L.carry || 0), lid_carry: L.carry, lid_mem_growth: L.memGrowth };
+    const fmtv = (kind, v) => (v == null || v === '' ? '' : typeof v === 'string' ? esc(v) : kind === 'count' ? Number(v).toLocaleString('en-US')
+      : kind === 'rate' ? `$${Number(v).toFixed(4)}` : kind === 'pct' ? `${pctIn(v)}%` : esc(money(v)));
+    const differs = (r) => { const y = yours[r[2]]; return typeof r[1] === 'number' && y != null && y !== '' && Math.abs(Number(y) - r[1]) > 0.1 * Math.max(Math.abs(r[1]), r[3] === 'rate' || r[3] === 'pct' ? 0.001 : 1); };
+    const rows = st.rows, nDiff = setUp ? rows.filter(differs).length : 0;
+    if (!rows.length) return '';
+    const body = `<div class="card" data-setup-state data-ne-state><h3>From NDE’s reports ${def('sources')}</h3>
+      ${stateAge(st.fiscal_year) ? `<p class="small muted" data-state-age>${esc(stateAge(st.fiscal_year))}</p>` : ''}
+      ${setUp ? `<div class="scroll"><table class="data"><thead><tr><th></th><th class="num">NDE</th><th class="num">Yours</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r[0])}</td><td class="num">${fmtv(r[3], r[1])}</td><td class="num ${differs(r) ? 'gaptext' : ''}">${r[2] ? fmtv(r[3], yours[r[2]]) : ''}</td></tr>`).join('')}</tbody></table></div>
+        <p class="small muted">Highlighted: more than 10% from NDE’s figure. The Annual Financial Report is a year behind, so some difference is normal.</p>`
+        : `<ul>${rows.map((r) => `<li>${esc(r[0])}: <b>${fmtv(r[3], r[1])}</b></li>`).join('')}</ul>`}
+      <div class="row">${c.finance ? `<button type="button" class="btn" data-action="setupPrefill">${setUp ? 'Replace the form’s figures with NDE’s' : 'Fill in the form with these'}</button>` : ''}${c.finance && setUp && Object.keys(st.gf || {}).length ? '<button type="button" class="btn" data-action="gfFromState">Use in the General Fund setup</button>' : ''}<span class="small muted">Nothing is saved until you click Save.</span></div>
+      <p class="small muted">${esc(st.source)}. The property tax request authority NDE certifies includes the prior years’ unused authority; HighGround keeps the two apart and adds what goes unused each year.</p></div>`;
+    return setUp ? fold(c, `Compare with NDE’s reports${nDiff ? ` · ${nDiff} figure${nDiff === 1 ? '' : 's'} differ` : ''}`, body, false) : body;
+  }
+  /** Nebraska: the figures behind the $1.05 lid and the property tax request authority (district_settings.state_inputs.lid) */
+  /** Nebraska: the Depreciation Fund (the save slot): planned yearly transfers from the General Fund */
+  function deprCard(s, dis) {
+    const f2 = (n, l, v, h) => `<label class="field">${esc(l)}<input name="${n}" inputmode="decimal" value="${esc(v == null ? '' : v)}" ${dis}>${h ? `<span class="hint">${esc(h)}</span>` : ''}</label>`;
+    return `<div class="card"><h3>${esc(HGStates.longLabel('save'))} ${def('save')}</h3>
+      <p class="small muted">A reserve filled by transfers from the General Fund, for costly capital items over time. The transfers count as General Fund spending in the forecast, and the balance counts toward the allowable reserve ${def('reserve')}.</p><div class="fgrid">
+      ${f2('save_receipts', 'Planned transfer from the General Fund each year, $', moneyIn(s.save_receipts), 'Leave blank or 0 if the board doesn’t plan regular transfers')}
+      ${f2('save_trend', 'Transfer change, % a year', pctIn(s.save_trend || 0), '0 keeps the transfer the same each year')}</div></div>`;
+  }
+  function lidFields(s, dis) {
+    const P = PACK(), L = ((s.state_inputs || {}).lid) || {}, f2 = (n, l, v, h) => `<label class="field">${esc(l)}<input name="${n}" inputmode="decimal" value="${esc(v == null ? '' : v)}" ${dis}>${h ? `<span class="hint">${esc(h)}</span>` : ''}</label>`;
+    return `<h4 style="margin-top:12px">The $${P.lid.levy.toFixed(2)} lid and property tax request authority ${def('lid')} ${def('authority')}</h4>
+      <p class="small muted">${esc(HGStates.label('ppel'))} can raise no more than the least of three limits: its own rate, what the $${P.lid.levy.toFixed(2)} lid leaves after the General Fund levy, and what the property tax request authority leaves after the General Fund’s property tax. Leave these blank to grow the receipts with valuation instead.</p>
+      <div class="fgrid">
+        ${f2('lid_gf_rate', `General Fund levy, $ ${P.rate.label}`, L.gfRate, 'From the adopted budget, like 0.89')}
+        ${f2('lid_other_rate', `Other levies under the lid, $ ${P.rate.label}`, L.otherRate, 'Usually 0')}
+        ${f2('lid_authority', 'Property tax request authority, General + Special Building, $', L.authority == null ? '' : moneyIn(L.authority), 'For the first year of the plan, from NDE’s property tax authority worksheet')}
+        ${f2('lid_carry', 'Prior years’ unused authority, $', L.carry == null ? '' : moneyIn(L.carry), 'From NDE’s certification; what isn’t requested later carries forward too')}</div>
+      <h4 style="margin-top:12px">How the authority grows ${def('base_growth')}</h4>
+      <p class="small muted">NDE’s formula (${esc(P.lid.growthRule.cite)}): 3% a year, plus the rise in fall membership × 0.4 (× 0.7 when membership has grown an average of 3% a year for three years, × 1 when that’s also 150 students or more), plus the rise in English learners and in students in poverty, each ÷ membership × 0.15. HighGround works it out each year from the membership below; type a growth only to use one figure every year instead.</p>
+      <div class="fgrid">
+        ${f2('lid_mem_hist', 'K-12 fall membership, oldest first', Array.isArray(L.memHist) ? L.memHist.join(', ') : '', 'From NDE’s Statistical Information, the newest being last fall’s, like 246, 238, 260')}
+        ${f2('lid_mem_growth', 'Membership change ahead, % a year', L.memGrowth == null ? '' : pctIn(L.memGrowth), 'Negative if it’s falling; a fall adds nothing to the authority')}
+        ${f2('lid_lep_pov', 'English learner and poverty part, % a year', L.lepPov == null ? '' : pctIn(L.lepPov), 'Filled from the average of NDE’s last three certifications (the student counts behind it aren’t published by district)')}
+        ${f2('lid_growth', 'Or one growth for every year, %', L.growth == null ? '' : pctIn(L.growth), 'Leave blank to use NDE’s formula')}</div>
+      <h4 style="margin-top:12px">A levy override for buildings ${def('sb_voter')}</h4>
+      <p class="small muted">Voters can approve a levy above the $${P.lid.levy.toFixed(2)} lid for building construction, remodeling or site acquisition, for up to ${P.lid.overrideMaxYears} years (${esc(P.lid.overrideCite)}). In those years ${esc(HGStates.label('ppel'))} can go to ${+(P.lid.sbVoterMax * 100).toFixed(1)}¢ (NDE). Leave the levy blank if there is none.</p>
+      <div class="fgrid">${(() => { const O = L.override || (L.sbVoter ? { cents: +((P.lid.sbVoterMax - P.lid.sbMax) * 100).toFixed(1) } : {}); return [
+        f2('lid_ov_cents', 'Override levy, ¢ per $100', O.cents == null ? '' : O.cents, `Like ${+((P.lid.sbVoterMax - P.lid.sbMax) * 100).toFixed(1)} for ${+(P.lid.sbVoterMax * 100).toFixed(1)}¢ of ${HGStates.label('ppel')}`),
+        f2('lid_ov_first', 'First fiscal year', O.first || ''), f2('lid_ov_last', 'Last fiscal year', O.last || '', `At most ${P.lid.overrideMaxYears} years`)].join(''); })()}</div>
+      <label class="row" style="margin-top:8px"><input type="checkbox" name="lid_ov_authority" ${L.override && L.override.authorityVote ? 'checked' : ''} ${dis}> ${Math.round(P.lid.overrideAuthorityVote * 100)}% of voters also approved exceeding the property tax request authority (79-3405), or the override passed before January 1, 2024</label>
+      <label class="row" style="margin-top:8px"><input type="checkbox" name="lid_board_bump" ${L.boardBump ? 'checked' : ''} ${dis}> The board approves the extra growth with a 70% vote: ${Math.round(HGStates.boardBump(s.enrollment, P.code) * 100)}% more a year for a district of ${s.enrollment == null ? 'its' : Number(s.enrollment).toLocaleString('en-US') + ' students’'} size</label>`;
   }
   function readSetup(form) {
     const errs = [];
@@ -5834,15 +6312,15 @@
       enrollment: (() => { const x = toNum(v('enrollment')); if (x === null) return null; if (isNaN(x) || x < 0 || x > 100000) { errs.push('Enrollment must be a number from 0 to 100,000.'); return null; } return Math.round(x); })(),   /* the state certifies tenths (1188.4); store whole pupils */
       enrollment_year: v('enrollment_year').trim() || null,
       construction_inflation: pctv('construction_inflation', 'Construction inflation', 0, 25) || 0,
-      save_receipts: money('save_receipts', 'SAVE receipts', true),
+      save_receipts: money('save_receipts', 'SAVE receipts', PACK().code === 'IA'),
       save_receipts_fy: intv('save_receipts_fy', 'The SAVE receipts year', 2000, 2100),
       ...ongoingRead('save', 'SAVE held back each year'),
       save_trend: pctv('save_trend', 'SAVE trend', -25, 25) || 0,
-      sf2472: !!form.querySelector('[name="sf2472"]').checked,
+      sf2472: form.querySelector('[name="sf2472"]') ? !!form.querySelector('[name="sf2472"]').checked : true,
       ppel_receipts: money('ppel_receipts', 'PPEL receipts', true),
       ...ongoingRead('ppel', 'PPEL held back each year'),
       ppel_growth: pctv('ppel_growth', 'Valuation growth', -25, 25),
-      ppel_rate: (() => { const x = toNum(v('ppel_rate')); if (x === null) return null; if (isNaN(x) || x < 0 || x > 5) { errs.push('PPEL rate must be dollars per $1,000, like 0.33.'); return null; } return x; })(),
+      ppel_rate: (() => { const x = toNum(v('ppel_rate')); if (x === null) return null; if (isNaN(x) || x < 0 || x > 5) { errs.push(PACK().code === 'IA' ? 'PPEL rate must be dollars per $1,000, like 0.33.' : `The ${HGStates.label('ppel')} levy must be dollars ${PACK().rate.label}, like 0.10.`); return null; } return x; })(),
       taxable_valuation: money('taxable_valuation', 'Taxable valuation'),
       tax_home_value: money('tax_home_value', 'Example home value') || 150000,
       actual_valuation: money('actual_valuation', 'Actual valuation'),
@@ -5856,6 +6334,31 @@
       grants_yield: pctv('grants_yield', 'Share of grants to capital', 0, 100),
     };
     if (settings.ppel_growth == null) settings.ppel_growth = 0.03;
+    /* Nebraska's lid figures (part 34), only when the form has them */
+    if (form.querySelector('[name="lid_gf_rate"]')) {
+      const rate = (n, label) => { const x = toNum(v(n)); if (x === null) return null; if (isNaN(x) || x < 0 || x > 5) { errs.push(`${label} must be dollars ${PACK().rate.label}, like 0.89.`); return null; } return x; };
+      const hist = String(v('lid_mem_hist') || '').split(/[\s,;]+/).map((x) => toNum(x)).filter((x) => x != null);
+      if (hist.some((x) => isNaN(x) || x <= 0)) errs.push('K-12 fall membership: whole numbers separated by commas, oldest first.');
+      const lid = { gfRate: rate('lid_gf_rate', 'The General Fund levy'), otherRate: rate('lid_other_rate', 'Other levies under the lid'),
+        authority: money('lid_authority', 'Property tax request authority'), growth: pctv('lid_growth', 'Authority growth', -10, 25), carry: money('lid_carry', 'Prior years’ unused authority'),
+        memHist: hist.length && !hist.some((x) => isNaN(x) || x <= 0) ? hist.map(Math.round) : null, memGrowth: pctv('lid_mem_growth', 'Membership change ahead', -20, 20),
+        lepPov: pctv('lid_lep_pov', 'English learner and poverty part', 0, 10),
+        boardBump: !!(form.querySelector('[name="lid_board_bump"]') || {}).checked };
+      const ovc = toNum(v('lid_ov_cents'));
+      if (ovc != null) {
+        const o1 = toNum(v('lid_ov_first')), o2 = toNum(v('lid_ov_last'));
+        if (isNaN(ovc) || ovc <= 0 || ovc > 50) errs.push('The levy override is cents per $100, like 3.5.');
+        else if ((o1 != null && (isNaN(o1) || !Number.isInteger(o1))) || (o2 != null && (isNaN(o2) || !Number.isInteger(o2)))) errs.push('The levy override’s years are fiscal years, like 2028.');
+        else if (o1 && o2 && (o2 < o1 || o2 - o1 + 1 > (PACK().lid.overrideMaxYears || 5))) errs.push(`A levy override runs at most ${PACK().lid.overrideMaxYears || 5} years.`);
+        else lid.override = Object.assign({ cents: ovc }, o1 ? { first: o1 } : {}, o2 ? { last: o2 } : {}, (form.querySelector('[name="lid_ov_authority"]') || {}).checked ? { authorityVote: true } : {});
+      }
+      Object.keys(lid).forEach((k) => { if (lid[k] == null || lid[k] === false) delete lid[k]; });
+      settings.state_inputs = { lid };
+    }
+    if (form.querySelector('[name="tax_credit_share"]')) {   // Nebraska's school tax credit share (tax.js), or the statewide one when blank
+      const cs = pctv('tax_credit_share', 'The school tax credit', 0, 90);
+      settings.state_inputs = Object.assign(settings.state_inputs || {}, cs == null ? {} : { taxCredit: { share: cs } });
+    }
     if (settings.grants_yield == null) settings.grants_yield = 0.75;
     if (settings.vppel_status !== 'none') {
       if (!settings.vppel_annual) errs.push('Enter V-PPEL receipts per year, or set the status to None.');
@@ -5864,7 +6367,7 @@
     }
     const startFY = HGEngine.fyOfDate(asOf);
     if (startFY) settings.plan_start_fy = startFY;
-    const balances = ['save', 'ppel', 'vppel', 'grants'].map((fund) => ({ fund, amount: money('bal_' + fund, { save: 'SAVE balance', ppel: 'PPEL balance', vppel: 'V-PPEL balance', grants: 'Grants on hand' }[fund], fund === 'save' || fund === 'ppel') }));
+    const balances = ['save', 'ppel', 'vppel', 'grants'].filter(F_ON).map((fund) => ({ fund, amount: money('bal_' + fund, { save: 'SAVE balance', ppel: 'PPEL balance', vppel: 'V-PPEL balance', grants: 'Grants on hand' }[fund], (fund === 'save' && PACK().code === 'IA') || fund === 'ppel') }));
     const debts = [...form.querySelectorAll('[data-debt-body] [data-debt-row]')].map((tr, i) => {
       const g = (n) => tr.querySelector(`[name="${n}"]`).value;
       const name = g('debt_name').trim(), annual = toNum(g('debt_annual')), fy = toNum(g('debt_final'));
@@ -5996,7 +6499,7 @@
       <p class="small muted">Fictional figures for demonstrations. <b>Load</b> fills an empty demo district. <b>Reset</b> erases a demo district’s plan and loads the data set again, then republishes its board version so the public demo link works straight away. People and access are never touched, and only districts marked as demos can be reset.</p>
       <div class="inline-form">
         <label class="field">Demo district<select data-demo-district>${demos.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></label>
-        <label class="field">Data set<select data-demo-set>${Object.entries(window.HG_DEMOS).map(([k, v]) => `<option value="${esc(k)}">${esc(v.name)} (${v.enrollment.toLocaleString()} students)</option>`).join('')}</select></label>
+        <label class="field">Data set<select data-demo-set>${Object.entries(window.HG_DEMOS).map(([k, v]) => `<option value="${esc(k)}">${esc(v.name)} (${v.enrollment.toLocaleString()} students${v.state && v.state !== 'IA' ? `, ${esc(HGStates.pack(v.state).name)}` : ''})</option>`).join('')}</select></label>
         <button type="button" class="btn primary" data-action="loadDemo">Load into an empty district</button>
         <button type="button" class="btn danger" data-action="resetDemo">Reset to this demo</button></div></div>`;
   }
@@ -6017,6 +6520,9 @@
   }
   async function writeDemo(d, set) {
     const did = d.id, R = HGCapital.demoRows(window.HG_DEMOS[set], did, () => crypto.randomUUID());
+    /* a demo set belongs to a state: loading it moves the demo district to that state (Iowa when the set doesn't say) */
+    const ds = (window.HG_DEMOS[set].state || 'IA').toUpperCase();
+    if (d.is_demo && ds !== (d.state || 'IA')) { await HG.db.update('district', `id=eq.${enc(did)}`, { state: ds }); d.state = ds; try { await loadContext(true); } catch (e) { /* the list refreshes on the next visit */ } }
     const order = ['district_settings', 'fund_balance', 'debt_obligation', 'priority', 'outcome', 'measure', 'measure_value', 'initiative', 'scenario', 'scenario_initiative', 'phase', 'phase_funding', 'recurring_cost', 'financing', 'survey', 'survey_result'];
     try {
       for (const t of order) if (R[t].length) await HG.db.insert(t, R[t]);
@@ -6066,7 +6572,7 @@
   }
 
   function renderNoDistrict() {
-    S.district = null;
+    S.district = null; stateApply('IA');
     frame({ slug: null, body: `
       <div class="page-head"><div><h1>Welcome to HighGround</h1><div class="lede">You’re signed in as ${esc(S.user.email)}.</div></div></div>
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
@@ -6153,6 +6659,7 @@
   async function renderPublic(slug) {
     const p = await HG.db.rpc('public_publication', { p_slug: slug, p_kind: 'board_plan' }, { auth: false });
     const d = p && p.district;
+    stateApply((p && p.payload && p.payload.settings && p.payload.settings.state) || (d && d.state) || 'IA');
     let body = `<div class="card"><h2>Nothing published here yet</h2><p>This link doesn’t have a published plan. If you expected one, ask the district.</p></div>`;
     if (p && p.payload && p.payload.settings) body = publicBodyHtml(d, p);
     if (d) { let sv = null; try { sv = await HG.db.rpc('public_survey', { p_slug: slug }, { auth: false }); } catch (e) { sv = null; }
@@ -6354,6 +6861,19 @@
       const done = [];
       const set = (n, v, kind, label) => { const el = form.querySelector(`[name=${n}]`); if (!el || v == null || isNaN(Number(v))) return;
         el.value = kind === 'pct' ? pctIn(v) : kind === 'raw' ? v : Number(Math.round(v)).toLocaleString('en-US'); if (label) done.push(label); };
+      if (P.ne) {   // Nebraska
+        const T = P.teeosa || {};
+        set('enrollment', P.enrollment, 'raw', 'formula students'); set('property_tax', P.property_tax, null, 'property tax'); set('state_aid', P.state_aid, null, 'state aid');
+        set('other_state', P.other_state, null, 'other state aid'); set('misc_income', P.misc_income, null, 'other income'); set('fund_balance', P.fund_balance, null, 'General Fund cash');
+        set('t_need', T.need, null, 'TEEOSA need'); set('t_local', T.local); set('t_option', T.option); set('t_itr', T.itr); set('t_other', T.other); set('t_students', T.students, 'raw');
+        if (T.pyc != null) set('t_pyc', T.pyc); if (T.sga0) set('t_sga0', T.sga0);
+        const B = P.budget; if (B) { set('b_authority', B.authority, null, 'budget authority'); set('b_unused', B.unused); set('b_prior', B.prior_adjusted); set('b_sped', B.sped); set('b_excluded', B.excluded); set('b_reserve', B.reserve_pct, 'raw');
+          const mo = form.querySelector('[name=b_mode]'); if (mo && B.mode) mo.value = B.mode; if (B.sga) { set('b_bfps', B.sga.bfps); set('b_fm', B.sga.fm, 'raw'); } }
+        const FU = P.funds || {};
+        [['eb', 'Employee Benefit Fund'], ['cont', 'Contingency Fund']].forEach(([k, l]) => { const o = FU[k]; if (!o) return; set(k + '_balance', o.balance, null, l); set(k + '_transfer', o.transfer); set(k + '_use', o.use); });
+        toast('Filled in', `${done.join(', ')}. Check them, then Save.`);
+        return;
+      }
       set('enrollment', P.enrollment, 'raw', 'enrollment'); set('dcpp', P.dcpp, null, 'cost per pupil'); set('other_formula', P.other_formula, null, 'other formula funding');
       set('misc_income', P.misc_income, null, 'miscellaneous income'); set('misc_growth', P.misc_growth, 'pct');
       set('aea_flowthrough', P.aea_flowthrough, null, 'AEA flowthrough'); set('fund_balance', P.fund_balance, null, 'fund balance'); set('unspent', P.unspent, null, 'unspent balance');
@@ -6402,6 +6922,13 @@
     async iaSearch() {
       const q = (document.querySelector('[data-ia-q]') || {}).value || '', box = document.querySelector('[data-ia-results]');
       if (q.trim().length < 2) throw new UserError('Type at least two letters of the district’s name.');
+      const X = stDist();
+      if (X) {
+        const hits = await HG.db.rpc(X.rpc, { q: q.trim() }).catch(() => []);
+        box.innerHTML = hits && hits.length ? `<div class="stack" style="gap:6px">${hits.slice(0, 8).map((h) => `<div class="row"><button type="button" class="btn small" data-action="iaPick" data-de="${esc(h[X.col])}" data-name="${esc(h.name)}">Use ${esc(h[X.col])}</button> ${esc(h.name)}${esc(X.where(h))}</div>`).join('')}</div>`
+          : `<p class="small muted">${esc(X.none)}</p>`;
+        return;
+      }
       const hits = await HG.db.rpc('ia_district_search', { q: q.trim() });
       box.innerHTML = hits && hits.length ? `<div class="stack" style="gap:6px">${hits.slice(0, 8).map((h) => `<div class="row"><button type="button" class="btn small" data-action="iaPick" data-de="${esc(h.de_district)}" data-name="${esc(h.name)}">Use ${esc(h.de_district)}</button> ${esc(h.name)}${h.aea ? ` <span class="small muted">AEA ${esc(h.aea)}</span>` : ''}${h.last_fy ? ` <span class="small muted">· state data to FY${esc(h.last_fy)}</span>` : ''}</div>`).join('')}</div>`
         : '<p class="small muted">No Iowa district found by that name. Try part of the name, without “Community School District”.</p>';
@@ -6595,6 +7122,19 @@
         ${factorSteps(e)}
         ${old ? '<p class="small muted">Once the new phone’s code works, the old phone stops working.</p>' : ''}
         <div class="row"><button type="submit" class="btn primary">${old ? 'Switch to this phone' : 'Turn it on'}</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
+    },
+    async setStateView(el) {
+      const v = (el.closest('.card').querySelector('[data-state-view]') || {}).value || '';
+      try { if (v) localStorage.setItem(STATE_VIEW_KEY, v); else localStorage.removeItem(STATE_VIEW_KEY); } catch (e) { throw new UserError('This browser won’t keep the setting (private browsing?).'); }
+      flash = v ? `State view: every district now shows as ${HGStates.pack(v).name}, in this browser only.` : 'State view: each district shows in its own state again.'; renderStaff();
+    },
+    async setDistrictState(el) {
+      const d = (S.staffDistricts || []).find((x) => x.id === el.dataset.id) || {}, sel = el.closest('[data-district-state-box]').querySelector('select'), v = sel.value;
+      if (v === (d.state || 'IA')) return toast('No change', `${d.name || 'The district'} is already ${HGStates.pack(v).name}.`);
+      if (!d.is_demo && !confirm(`Change ${d.name || 'this district'} to ${HGStates.pack(v).name}? Its screens, fund names and rules change straight away. Its saved figures stay as they are, but some may mean something different in the new state.`)) return;
+      await HG.db.update('district', `id=eq.${enc(d.id)}`, { state: v });
+      await loadContext(true);
+      flash = `${d.name || 'The district'} is now ${HGStates.pack(v).name}.`; renderStaff();
     },
     async toggleTwoStep(el) {
       const on = el.dataset.on === '1', d = (S.staffDistricts || []).find((x) => x.id === el.dataset.id) || {};
@@ -6797,8 +7337,14 @@
       await loadContext(true); toast('Saved'); here();
     },
     async wizNumber(f) {
-      const t = String(f.state_district_id || '').trim();
-      if (t) {
+      const t = String(f.state_district_id || '').trim(), X = stDist();
+      if (t && X) {
+        const id = X.norm(t); if (!id) throw new UserError(X.bad);
+        const hit = await HG.db.select(X.table, `select=${X.col}&${X.col}=eq.${enc(id)}`).catch(() => []);
+        if (!hit.length) throw new UserError(`No district numbered ${id} in NDE’s data. Use Find to look it up by name.`);
+        await HG.db.update('district', `id=eq.${S.district.id}`, { state_district_id: id });
+        await loadContext(true);
+      } else if (t) {
         if (!/^\d{1,4}$/.test(t)) throw new UserError('The Iowa district number is up to 4 digits, like 0009.');
         const de = t.padStart(4, '0');
         const hit = await HG.db.select('ia_district', `select=de_district&de_district=eq.${de}`).catch(() => []);
@@ -6812,7 +7358,7 @@
       const box = form.querySelector('[data-setup-errors]'), r = readSetup(form);
       if (r.errs.length) { box.hidden = false; box.innerHTML = r.errs.map(esc).join('<br>'); box.scrollIntoView({ block: 'center' }); return; }
       // save only what this step shows (or carries hidden): the rest of Starting numbers keeps its values
-      r.settings = Object.fromEntries(Object.entries(r.settings).filter(([k]) => k === 'plan_start_fy' || form.querySelector(`[name="${k}"]`)));
+      r.settings = Object.fromEntries(Object.entries(r.settings).filter(([k]) => k === 'plan_start_fy' || form.querySelector(`[name="${k}"]`) || (k === 'state_inputs' && form.querySelector('[name="lid_gf_rate"]'))));
       await persistSetup(r, false);
       toast('Starting numbers saved'); go(WIZ.next);
     },
@@ -6820,9 +7366,15 @@
     async saveDistrict(f) {
       let de;
       if (f.state_district_id !== undefined) {
-        const t = String(f.state_district_id).trim();
+        const t = String(f.state_district_id).trim(), X = stDist();
         if (!t) de = null;
-        else {
+        else if (X) {
+          de = X.norm(t); if (!de) throw new UserError(X.bad);
+          if (de !== S.district.state_district_id) {
+            const hit = await HG.db.select(X.table, `select=${X.col}&${X.col}=eq.${enc(de)}`).catch(() => []);
+            if (!hit.length) throw new UserError(`No district numbered ${de} in NDE’s data. Use “Find” to look it up by name.`);
+          }
+        } else {
           if (!/^\d{1,4}$/.test(t)) throw new UserError('The Iowa district number is up to 4 digits, like 0009.');
           de = t.padStart(4, '0');
           if (de !== S.district.state_district_id) {
@@ -6845,7 +7397,7 @@
       form.reset(); await sendInvite(inv.id, email); here();
     },
     async createDistrict(f) {
-      const row = { name: f.name.trim(), short_name: f.short_name.trim() || null, slug: f.slug.trim(), is_demo: !!f.is_demo };
+      const row = { name: f.name.trim(), short_name: f.short_name.trim() || null, slug: f.slug.trim(), is_demo: !!f.is_demo, ...(f.state && f.state !== 'IA' ? { state: f.state } : {}) };
       // two-step sign-in required for real districts; demo districts start without it (part 26)
       const [d] = await HG.db.insert('district', { ...row, require_two_step: !f.is_demo })
         .catch((e) => { if (/require_two_step/.test(e.message)) return HG.db.insert('district', row); throw e; });

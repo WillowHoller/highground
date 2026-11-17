@@ -1,3 +1,57 @@
+# HighGround update, 11–14 Nov 2026: the state layer, and Nebraska with NDE's data
+
+**Two SQL files, then the files below to GitHub.** This replaces the 11 Nov, 12 Nov (a–c) and 14 Nov (a, b) packages (none was installed; everything in them is here). If you already ran `35_nebraska_data.sql` from an earlier package, run this one again: it's safe to run twice. Iowa districts look and calculate exactly as before.
+
+## Install
+1. **Supabase → SQL Editor:** paste `34_state_layer.sql` and Run. The last result should be 4 rows, all **PASS**.
+2. Then paste `35_nebraska_data.sql` and Run. Again 4 rows, all **PASS**.
+3. **GitHub → the HighGround repository → Add file → Upload files.** Drag in everything in this folder (keep the `loader` and `.github/workflows` folders as they are) and commit to `main`:
+   - **New:** `states.js`, `nedata.js`, `STATES.md`, `34_state_layer.sql`, `35_nebraska_data.sql`, `states_test.js`, `nebraska_test.js`, `guardrail_test.js`, `guardrail_baseline.json`, `loader/load_nebraska.py`, `loader/nebraska_loader_test.py`, `.github/workflows/nebraska-public-data.yml`.
+   - **Changed:** `app.js`, `engine.js`, `capital.js`, `tax.js`, `gf.js`, `gl.js`, `budget.js`, `uploads.js`, `peers.js`, `report.js`, `packet.js`, `plan.js`, `compare.js`, `direction.js`, `demo_data.js`, `index.html`, `styles.css`, `test_ui.py`, `demo_ledger_test.js`, `PUBLIC_DATA.md`, `STEPS.md`, `README.md`.
+   - GitHub's web upload skips folders whose names start with a dot. If `.github/workflows/nebraska-public-data.yml` doesn't appear, open the `.github/workflows` folder on GitHub → Add file → Create new file, name it `nebraska-public-data.yml`, and paste the file's contents.
+4. **GitHub → Actions → Nebraska public data → Run workflow.** It uses the same `DATABASE_URL` secret as the Iowa workflow. The first run takes about 20–30 minutes (each district's Annual Financial Report page, three years). If it stops on a download, tell me what it says.
+5. In Safari, press **Cmd+Option+R**.
+6. **To see Nebraska:**
+   - Admin Portal → Add a district: a demo district, with State set to Nebraska. Then Demo data → **Prairie Fork Public Schools (Nebraska)** → Load.
+   - Or **Admin Portal → State view → Nebraska** previews any district in Nebraska's view (only in your browser).
+   - After the workflow has run, a Nebraska district's **Settings → District** takes its NDE agency ID (Find by name). Starting numbers and the General Fund then offer NDE's figures, and peer callouts appear. Don't link the Prairie Fork demo to a real district's ID.
+
+## What changed
+- **The guardrail:** every state's funds, laws, rates, units, fiscal year and words are in `states.js`. `guardrail_test.js` fails if more Iowa-only words are written into the other files (counts went down this round).
+- **The state layer:** each district has a state. The engine, taxes, General Fund, fund rules, fiscal year, fund names, pickers, glossary and help follow it. Iowa is unchanged: the golden engine test has 32 cases, 0 differences.
+- **Nebraska, with its rules now confirmed against the statutes and NDE** (see STATES.md):
+  - Special Building Fund (≤14¢, inside the $1.05 lid and the property tax request authority) and QCPUF (≤3¢, ≤10 years, hazards, accessibility, life safety and school safety only).
+  - **Depreciation Fund** in place of SAVE: a reserve filled by planned General Fund transfers. The transfers count as General Fund spending.
+  - **Unused property tax authority carries forward** each year, as NDE's certification does.
+  - **TEEOSA state aid** in the General Fund forecast: equalization aid (need less resources) plus foundation aid, plus allocated income tax and option funding. It matches NDE's 2026/27 certified aid for three real districts to the dollar.
+  - The **allowable reserve** check (79-1027): General, Depreciation and Employee Benefit balances against 45/35/25/20% of the budget by size.
+  - September–August fiscal year; tax per $100 with farmland at 75% (50% for new bonds); bonds by majority vote.
+  - The Prairie Fork demo (fictional) now has a **sample NDE ledger** (September–November month-ends, NDE account codes).
+- **Added in (b):**
+  - **The authority's growth from NDE's formula** (79-3402): 3% plus the rise in K-12 fall membership × 0.4, 0.7 or 1, plus the English learner and poverty parts. Worked out each year from fall membership, which fills in from NDE. It reproduces NDE's 2026/27 rate for a real district exactly. A growth typed by hand still overrides it.
+  - **Special Building up to 17.5¢ with voter approval:** a box in Starting numbers.
+  - **The School District Property Tax Relief Credit** in "What it means for taxpayers": a new QCPUF levy shows its cost after the credit (about 26% off statewide, or the county's own figure); bond levies get none.
+  - **Employee Benefit and Contingency funds** in the General Fund: transfers in, what they pay, balances, the reserve check and the 5% Contingency cap. Filled from the AFR.
+- **Added in (c):**
+  - **General Fund budget authority:** NDE's certified figure, grown each year by the larger of 2.5% and the formula-needs method, with unused authority carried forward; spending above it is flagged. Filled from NDE's budget factors file (now loaded monthly), with NDE's allowable reserve %.
+  - **QCPUF bonds** repaid from the QCPUF levy, and the QCPUF's 3¢ and 10-year limits checked.
+  - **Three review rounds** over every Nebraska screen and download; the fixes are listed in STATES.md.
+- **Added 14 Nov:**
+  - **Levy override** (77-3444) in Starting numbers, which is what NDE's "17.5¢ Special Building with voter approval" means. It replaces the 17.5¢ box.
+  - **English learner and poverty part** filled from the average of NDE's last three certifications.
+  - **Budget authority** with the student growth adjustment, the 100–112% need band, and a Budget choice (the whole authority, or what the district plans to spend). NDE's LC-2 budget submissions are now loaded monthly and fill the adopted first year.
+  - **No school debt limit**, now confirmed against the statutes.
+  - **State aid as NDE pays it:** last year's aid correction (79-1065) in the first year, and the student growth correction two years after an adjustment (79-1007.20). The workflow now also installs pdftotext to read NDE's correction PDF.
+  - **From the LC-2:** a pre-2024 levy override's authority and the board's 70% vote now fill in.
+- **NDE public data and peers:** part 35, the loader and the monthly workflow load NDE's Statistical Information, state aid certification, property tax request authority certification and every district's Annual Financial Report. See PUBLIC_DATA.md.
+- **Admin Portal:** a State view card, a state for each district, a state for a new district.
+
+**Tests:** see the summary in chat. Unit tests all pass, including states_test, nebraska_test (121), the loader's reader test (109) and guardrail_test. Part 35 was installed and run on a local PostgreSQL 16.
+
+**Still open for Nebraska:** see STATES.md, "Still open".
+
+---
+
 # HighGround update, 21 Oct (d): sizes in every window
 
 Same install as (c) below: **install only this package** (it contains (a), (b) and (c)). Sixteen files.
