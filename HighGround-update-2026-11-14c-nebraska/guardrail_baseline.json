@@ -1,0 +1,104 @@
+{
+ "note": "Counts of Iowa-only words outside states.js. guardrail_test.js fails if any goes up. Lower them, then run node guardrail_test.js --update.",
+ "updated": "2026-11-12",
+ "counts": {
+  "app.js": {
+   "SAVE": 106,
+   "PPEL": 111,
+   "V-PPEL": 67,
+   "Iowa": 59,
+   "SF 2472": 19,
+   "per $1,000": 10,
+   "fiscal year July": 15
+  },
+  "budget.js": {
+   "Iowa": 2,
+   "fiscal year July": 1
+  },
+  "capital.js": {
+   "SAVE": 5,
+   "PPEL": 6,
+   "V-PPEL": 3,
+   "Iowa": 1,
+   "SF 2472": 7
+  },
+  "compare.js": {
+   "SAVE": 4,
+   "PPEL": 2,
+   "V-PPEL": 3,
+   "SF 2472": 1
+  },
+  "contract.js": {
+   "Iowa": 1
+  },
+  "direction.js": {
+   "SAVE": 1,
+   "PPEL": 1,
+   "fiscal year July": 2
+  },
+  "engine.js": {
+   "SAVE": 9,
+   "PPEL": 1,
+   "V-PPEL": 4,
+   "Iowa": 14,
+   "SF 2472": 21,
+   "fiscal year July": 3
+  },
+  "gf.js": {
+   "Iowa": 8,
+   "SF 2472": 2
+  },
+  "gl.js": {
+   "SAVE": 5,
+   "PPEL": 5,
+   "V-PPEL": 1,
+   "Iowa": 6
+  },
+  "index.html": {
+   "Iowa": 1
+  },
+  "peers.js": {
+   "SAVE": 3,
+   "PPEL": 3,
+   "Iowa": 2
+  },
+  "plan.js": {
+   "SAVE": 2,
+   "PPEL": 2,
+   "V-PPEL": 1,
+   "Iowa": 1
+  },
+  "ranking.js": {
+   "SAVE": 2,
+   "PPEL": 2,
+   "V-PPEL": 2,
+   "Iowa": 1
+  },
+  "register.js": {
+   "Iowa": 2
+  },
+  "report.js": {
+   "SAVE": 1,
+   "PPEL": 1,
+   "V-PPEL": 1
+  },
+  "schedule.js": {
+   "SAVE": 1,
+   "PPEL": 1,
+   "V-PPEL": 1
+  },
+  "tax.js": {
+   "SAVE": 1,
+   "PPEL": 1,
+   "V-PPEL": 1,
+   "Iowa": 4,
+   "SF 2472": 1
+  },
+  "uploads.js": {
+   "SAVE": 12,
+   "PPEL": 9,
+   "V-PPEL": 5,
+   "Iowa": 1
+  }
+ }
+}
