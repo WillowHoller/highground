@@ -1390,3 +1390,27 @@ button.pc{position:relative}
 @media (max-width:760px){.hm-sum{grid-template-columns:minmax(0,1fr)}}
 .hc-lead{stroke:rgba(241,238,228,.45);stroke-width:1}
 .row.nowrap{flex-wrap:nowrap;gap:6px;align-items:center}
+
+/* ---- the public community page (25 Nov 2026): a header with room for the district's logo, and a page that uses the window's
+   width, centred, at every size. The header's brand lines up with the page's left edge ---- */
+#app .pub-top{height:auto;min-height:104px;padding:0;display:block}
+#app .pub-top-in{max-width:1680px;margin:0 auto;padding:16px 40px;box-sizing:border-box;min-height:104px;display:flex;align-items:center}
+#app .pub-top .pub-brand{gap:18px}
+#app .pub-top .pub-dlogo{max-height:76px;max-width:300px;margin-right:0}
+#app .pub-top .pub-mono{width:64px;height:64px;font-size:22px;border-radius:14px}
+#app .pub-top .pub-dname{font-size:26px;line-height:1.2}
+#app .pub-top ~ .content{max-width:1680px;margin:0 auto;padding:28px 40px 56px}
+@media (max-width:1100px){ #app .pub-top-in,#app .pub-top ~ .content{padding-left:28px;padding-right:28px} }
+@media (max-width:820px){
+  #app .pub-top,#app .pub-top-in{min-height:76px}
+  #app .pub-top-in{padding:12px 14px}
+  #app .pub-top ~ .content{padding:16px 14px 40px}
+  #app .pub-top .pub-brand{gap:12px}
+  #app .pub-top .pub-dlogo{max-height:52px;max-width:170px}
+  #app .pub-top .pub-mono{width:48px;height:48px;font-size:17px;border-radius:11px}
+  #app .pub-top .pub-dname{font-size:19px}
+}
+/* the public page stacks the priority cards on narrow screens; the app's own row of them swipes */
+@media (max-width:900px){ #app .pub-top ~ .content .pc-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));overflow:visible;scroll-snap-type:none} #app .pub-top ~ .content .pc-row>*{min-width:0;width:auto} }
+/* the public page's spending chart fits a phone instead of scrolling sideways; its labels grow so they read at that size */
+@media (max-width:620px){ #app .pub-top ~ .content .capchart{min-width:0} #app .pub-top ~ .content .capchart .b-lab,#app .pub-top ~ .content .capchart .b-fy{font-size:17px} }

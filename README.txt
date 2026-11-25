@@ -1,25 +1,23 @@
-HighGround update, 24 Nov 2026: brand-colored header, neutral demo tag, demo state
+HighGround update, 25 Nov 2026: community page header and width, white Home panel
 
-Upload these four files to the repo root, replacing the old ones:
-  app.js, styles.css, test_ui.py, STATES.md
-No database changes. changes.diff shows every line that changed.
+Upload these three files to the repo root, replacing the old ones:
+  app.js, styles.css, test_ui.py
+No database changes. changes.diff shows every changed line.
+(Yesterday's README.txt and changes.diff in the repo root can be deleted; they aren't used.)
 
-What changed
-- Top bar takes the district's brand color. Text, icons, the HighGround wordmark and the
-  demo tag switch light/dark by contrast. No brand color = HighGround green.
-- Demo tag is neutral (never the brand color): "Demo · Iowa" for staff (click to switch
-  state), "Demo district" for everyone else.
-- The staff-only "State view" override and its banner are gone. Every district follows
-  its own state. The old saved setting clears itself on next load.
-- Home callout ("is the plan working") is tinted by the district's color by default.
-  It switches to a light panel with dark text when the color is red or pink (red means
-  debt and errors), when it's close to the chart's green, gold or red, or when text or
-  bars would be hard to read on it. No brand color also gets the light panel.
-  Examples: navy, blue, purple, teal, grey and black get a tint; red, maroon, pink,
-  green, orange, gold, brown and white get the light panel.
-- Demo districts: switch state from the demo tag or Admin Portal > Districts > Change...
-  Either load that state's demo data (Prairie Fork for Nebraska, Bridger Hollow for Iowa)
-  or keep the current figures. Real districts' state is read-only in the table.
+Community page (#/p/<district>)
+- Taller header with room for the logo: up to 76px tall / 300px wide on a computer,
+  52px on a phone, with a larger district name.
+- No "Back to HighGround" bar. Everyone, signed in or not, sees the same public page.
+  The app's "Open the community page" buttons open it in a new tab.
+- The page uses the window's width, centred (up to 1680px), at every size, and the
+  header's logo lines up with the content's left edge.
+- Phones: the priority cards stack instead of swiping sideways, and the spending chart
+  fits the screen instead of scrolling.
 
-Tested: all unit tests and guardrail pass; browser test 645 pass. The one failure
-("phone sign-in ... card stays put") fails the same way on the code before this change.
+Home
+- The big "is the plan working" panel is always the white panel, whatever the
+  district color. The brand color stays in the top bar only.
+
+Tested: unit tests pass; browser test 646 pass. The one failure ("phone sign-in ...
+card stays put") was failing before these changes.

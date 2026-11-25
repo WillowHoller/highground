@@ -128,32 +128,9 @@
     run([document.body]);
     return P;
   }
-  /* ---- the Home panel (25 Nov 2026): a deep tint of the district color by default. It turns into the light panel when the
-     color is red (red means debt and errors), when the tint's hue sits near the chart's green, gold or red, or when its
-     text or bars would be hard to read on it. No brand color: light. ---- */
-  const HH_DARK = { paid: '#8DBBA2', boost: '#D3AE58', gap: '#F89A8E', text: '#F1EEE4', sub: '#C4C8CC' };
+  /* ---- the Home panel (25 Nov 2026): always the light panel, whatever the district color. The brand color stays in the
+     top bar. Chart colors for a white card ---- */
   const HH_LIGHT = { paid: '#6FA88A', boost: '#D9A62E', gap: '#C0362C' };
-  const rgbOf = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
-  const hexOf = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
-  const mixHex = (a, b, t) => { const x = rgbOf(a), y = rgbOf(b); return hexOf(x.map((v, k) => v * t + y[k] * (1 - t))); };
-  const hslOf = (hex) => { const [r, g, b] = rgbOf(hex).map((v) => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
-    if (!d) return { h: 0, s: 0, l }; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-    return { h: (h * 60 + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
-  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-  function heroLook(hex) {
-    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return { light: true, why: 'no brand color' };
-    const b = hslOf(hex);
-    if (b.s > 0.25 && b.l > 0.12 && b.l < 0.9 && (b.h >= 320 || b.h <= 20)) return { light: true, why: 'red or pink' };
-    const base = [mixHex(hex, '#4A5058', 0.55), mixHex(hex, '#2B2F33', 0.65)], mid = hslOf(mixHex(base[0], base[1], 0.5));
-    const near = (h) => { const d = Math.abs(mid.h - h) % 360; return Math.min(d, 360 - d) < 28; };
-    if (mid.s > 0.14 && [HH_DARK.paid, HH_DARK.boost, HH_DARK.gap].some((c) => near(hslOf(c).h))) return { light: true, why: 'clashes with the chart' };
-    const reads = (bg) => ratio(HH_DARK.text, bg) >= 4.5 && ratio(HH_DARK.sub, bg) >= 4.5 && [HH_DARK.paid, HH_DARK.boost, HH_DARK.gap].every((c) => ratio(c, bg) >= 3);
-    for (const k of [1, 0.8, 0.62, 0.48]) {   // a light district color gets a deeper tint before giving up on it
-      const [top, bot] = base.map((c) => mixHex(c, '#1A1D20', k));
-      if (reads(top) && reads(bot)) return { light: false, top, bot };
-    }
-    return { light: true, why: 'text or bars hard to read' };
-  }
   /* ---- the top bar in the district's brand color. Text, icons, the wordmark and the demo tag go light or dark, whichever
      reads better on it (WCAG contrast against white and against the app's dark text). No brand color: HighGround green. ---- */
   const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce((a, v, k) => a + v * [0.2126, 0.7152, 0.0722][k], 0); };
@@ -801,7 +778,7 @@
     const W = 960, H = 290, L = 46, R = 10, top = 46, base = 248, f = HGReport.fmt, ys = x.years;
     const mx = Math.max(1, ...ys.map((y) => y.total)), step = mx > 8e6 ? 2e6 : mx > 3e6 ? 1e6 : mx > 1.2e6 ? 5e5 : 2.5e5, ceil = Math.ceil((mx * 1.12) / step) * step;
     const sc = (base - top) / ceil, col = (W - L - R) / ys.length, bw = Math.min(46, col * 0.52);
-    const placed = [], C = HOME.look && !HOME.look.light ? HH_DARK : HH_LIGHT;
+    const placed = [], C = HH_LIGHT;
     let g = `<defs><pattern id="hh-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="${C.gap}" fill-opacity=".18"/><rect width="2.2" height="6" fill="${C.gap}"/></pattern></defs>`;
     for (let t = 0; t <= ceil + 1; t += step) { const y = base - t * sc; g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="hc-grid${t ? ' d' : ''}"/><text x="${L - 9}" y="${(y + 4).toFixed(1)}" class="hc-ax" text-anchor="end">${t === 0 ? '$0' : t >= 1e6 ? '$' + +(t / 1e6).toFixed(1) + 'M' : '$' + Math.round(t / 1000) + 'k'}</text>`; }
     ys.forEach((r) => {
@@ -826,8 +803,7 @@
   }
   function homeHero(c, greet) {
     const x = homeCalc(); HOME.x = x;
-    const look = HOME.look = heroLook(S.district && S.district.brand_color);
-    return `<section class="home-hero hh-dark${look.light ? ' hh-light' : ''}" data-home-hero data-look="${look.light ? 'light' : 'tint'}"${look.light ? `` : ` style="--hh-top:${look.top};--hh-bot:${look.bot}"`}>
+    return `<section class="home-hero hh-dark hh-light" data-home-hero data-look="light">
       <div class="hh-hi">${greet}</div>
       <div class="hh-grid"><div class="hh-txt"><p class="lead" data-hh-head>${homeHeadline(x)}</p><p class="hh-assume" data-hh-assume>${homeAssume()}</p></div>
         <div class="hh-figs" data-hh-figs>${homeFigs(x)}</div></div>
@@ -6703,13 +6679,11 @@
     if (d) { let sv = null; try { sv = await HG.db.rpc('public_survey', { p_slug: slug }, { auth: false }); } catch (e) { sv = null; }
       if (sv && sv.survey) body = `<div class="card sv-invite" data-sv-invite><div><h3>${esc(sv.survey.name)}: tell us what you think</h3><p class="small">A few minutes, anonymous${sv.survey.closed_on ? `, open until ${esc(day(sv.survey.closed_on))}` : ''}.</p></div><a class="btn primary" href="#/s/${enc(slug)}">Take the survey</a></div>` + body; }
     document.title = d && d.name ? `${d.name}: capital plan` : 'Capital plan';
-    /* residents see the district's page and nothing else. Someone signed in (staff, board) gets a way back to HighGround:
-       on an iPhone home-screen app this page can open in the app's own window, which has no back button */
-    const home = d && d.slug ? `#/d/${enc(d.slug)}` : '#/';
+    /* everyone sees the district's page and nothing else (25 Nov 2026: no "Back to HighGround" bar for people signed in;
+       the app opens this page in a new tab for public display) */
     app.innerHTML = `
       <div class="main">
-        ${HG.auth.session ? `<div class="pub-back" data-pub-back><a href="${home}">← Back to HighGround</a><span class="small" style="opacity:.75">You’re signed in; residents don’t see this bar.</span></div>` : ''}
-        <header class="topbar pub-top">${d ? pubBrand(d) : ''}</header>
+        <header class="topbar pub-top"><div class="pub-top-in">${d ? pubBrand(d) : ''}</div></header>
         <main class="content">${body}
           ${HG.auth.session ? '' : '<p class="pub-foot" data-pub-foot>District staff or board member? <a href="#/signin">Sign in</a></p>'}</main>
       </div>`;

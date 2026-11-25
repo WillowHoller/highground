@@ -1,431 +1,148 @@
-diff --git a/STATES.md b/STATES.md
-index b61385a..6293d30 100644
---- a/STATES.md
-+++ b/STATES.md
-@@ -49,10 +49,10 @@ Iowa has no `say` or `hide`, so Iowa screens are exactly as before.
- 
- ## How the screens change by state
- 
--- **Which state a district uses:** `district.state`. Set it in the Admin Portal's Districts table, or when adding a district.
-+- **Which state a district uses:** `district.state`, always. A real district's state is chosen when it's added in the Admin Portal; the Districts table shows it read-only.
-+- **Demo districts (24 Nov 2026):** switch a demo's state for whichever state you're demoing in, from the demo tag in the top bar (staff) or **Change…** in the Admin Portal's Districts table. You can load that state's demo data set (Bridger Hollow for Iowa, Prairie Fork for Nebraska; this erases the demo plan first, as Reset does) or keep the current figures.
- - **A demo data set carries its state.** Loading it into a demo district moves the district to that state.
--- **Admin Portal → State view (staff only, this browser only):** previews every district in another state's view, with a banner on each screen.
--  - The numbers follow that state's rules. An Iowa plan paid from SAVE looks short in Nebraska's view, because Nebraska has no SAVE.
-+- **The old staff-only "State view"** (a browser-wide override with a banner on every screen) was removed on 24 Nov 2026. Its saved setting is cleared the next time the app loads.
- - **How the words change (`stateApply` in app.js):** for a non-Iowa district, a watcher puts every screen into the state's words as it is drawn, and removes the `hide` fields.
- - **Where the math differs, it's real code:**
-   - `engine.lidRoom` for Nebraska's three limits;
 diff --git a/app.js b/app.js
-index e6e47d3..8f4e8a0 100644
+index 8f4e8a0..73b3a92 100644
 --- a/app.js
 +++ b/app.js
-@@ -89,13 +89,13 @@
-   let flash = null; // one-time message for the next screen
- 
-   /* ---- state packs (states.js, 11 Nov 2026): which state's funds, rules and words a district's screens use.
--     A district's own state is district.state. Willow Holler staff can preview any district in another state's view from the
--     Admin Portal (kept in this browser only; the district's data and its state don't change). Iowa screens are written in
-+     A district's screens always follow its own state, district.state (24 Nov 2026: the staff-only browser-wide "State view"
-+     override and its banner are gone; its saved setting is cleared below). A demo district's state is switched from the Admin
-+     Portal or its demo tag, for whichever state is being demoed, optionally loading that state's demo figures. Iowa screens are written in
-      Iowa's words and pass through untouched; another state's screens are put in its words as they're drawn, and the parts
-      that only exist in Iowa (SAVE, SF 2472, the state prefill) are taken out. ---- */
--  const STATE_VIEW_KEY = 'highground-state-view';
--  function stateView() { if (!S.isStaff) return ''; try { const v = localStorage.getItem(STATE_VIEW_KEY) || ''; return HGStates.has(v) ? v.toUpperCase() : ''; } catch (e) { return ''; } }
--  const stateOf = (d) => stateView() || ((d && d.state) || 'IA').toUpperCase();
-+  try { localStorage.removeItem('highground-state-view'); } catch (e) { /* nothing saved */ }
-+  const stateOf = (d) => ((d && d.state) || 'IA').toUpperCase();
-   const PACK = () => HGStates.current();
-   const F_ON = (k) => HGStates.on(k);
-   const STATE_OBS = { o: null };
-@@ -128,10 +128,39 @@
+@@ -128,32 +128,9 @@
      run([document.body]);
      return P;
    }
--  /** the internal preview notice: staff looking at a district in another state's view */
--  function stateViewBanner(d) {
--    const v = stateView(); if (!v || !d || v === (d.state || 'IA').toUpperCase()) return '';
--    return `<div class="notice warn" data-state-view-banner><b>Internal preview: ${esc(HGStates.pack(v).name)} view.</b> ${esc(d.short_name || d.name)} is shown with ${esc(HGStates.pack(v).name)}’s funds, rules and words. Its own state (${esc(d.state || 'IA')}) and its data haven’t changed, but its numbers follow ${esc(HGStates.pack(v).name)}’s rules: money in a fund ${esc(HGStates.pack(v).name)} doesn’t have counts as short. <a href="#/staff">Change the state view in the Admin Portal</a>.</div>`;
-+  /* ---- the Home panel (25 Nov 2026): a deep tint of the district color by default. It turns into the light panel when the
-+     color is red (red means debt and errors), when the tint's hue sits near the chart's green, gold or red, or when its
-+     text or bars would be hard to read on it. No brand color: light. ---- */
-+  const HH_DARK = { paid: '#8DBBA2', boost: '#D3AE58', gap: '#F89A8E', text: '#F1EEE4', sub: '#C4C8CC' };
-+  const HH_LIGHT = { paid: '#6FA88A', boost: '#D9A62E', gap: '#C0362C' };
-+  const rgbOf = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
-+  const hexOf = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
-+  const mixHex = (a, b, t) => { const x = rgbOf(a), y = rgbOf(b); return hexOf(x.map((v, k) => v * t + y[k] * (1 - t))); };
-+  const hslOf = (hex) => { const [r, g, b] = rgbOf(hex).map((v) => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
-+    if (!d) return { h: 0, s: 0, l }; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-+    return { h: (h * 60 + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
-+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-+  function heroLook(hex) {
-+    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return { light: true, why: 'no brand color' };
-+    const b = hslOf(hex);
-+    if (b.s > 0.25 && b.l > 0.12 && b.l < 0.9 && (b.h >= 320 || b.h <= 20)) return { light: true, why: 'red or pink' };
-+    const base = [mixHex(hex, '#4A5058', 0.55), mixHex(hex, '#2B2F33', 0.65)], mid = hslOf(mixHex(base[0], base[1], 0.5));
-+    const near = (h) => { const d = Math.abs(mid.h - h) % 360; return Math.min(d, 360 - d) < 28; };
-+    if (mid.s > 0.14 && [HH_DARK.paid, HH_DARK.boost, HH_DARK.gap].some((c) => near(hslOf(c).h))) return { light: true, why: 'clashes with the chart' };
-+    const reads = (bg) => ratio(HH_DARK.text, bg) >= 4.5 && ratio(HH_DARK.sub, bg) >= 4.5 && [HH_DARK.paid, HH_DARK.boost, HH_DARK.gap].every((c) => ratio(c, bg) >= 3);
-+    for (const k of [1, 0.8, 0.62, 0.48]) {   // a light district color gets a deeper tint before giving up on it
-+      const [top, bot] = base.map((c) => mixHex(c, '#1A1D20', k));
-+      if (reads(top) && reads(bot)) return { light: false, top, bot };
-+    }
-+    return { light: true, why: 'text or bars hard to read' };
-+  }
-+  /* ---- the top bar in the district's brand color. Text, icons, the wordmark and the demo tag go light or dark, whichever
-+     reads better on it (WCAG contrast against white and against the app's dark text). No brand color: HighGround green. ---- */
-+  const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce((a, v, k) => a + v * [0.2126, 0.7152, 0.0722][k], 0); };
-+  function brandTone(hex) {
-+    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return null;
-+    const L = lum(hex), onLight = 1.05 / (L + 0.05), onDark = (L + 0.05) / (lum('#1C2A24') + 0.05);
-+    return { bg: hex, light: onDark > onLight };
-   }
-   function go(hash, message) {
-     flash = message || null;
-@@ -387,7 +416,7 @@
-   const icon = (k, size = 16, w = 1.9) => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
-   const railKey = 'highground-menu-collapsed';
-   const railCollapsed = () => { try { return localStorage.getItem(railKey) === '1'; } catch (e) { return false; } };
--  const districtMark = (d, cls) => (d.logo_path ? `<span class="tile logo ${cls || ''}"><img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt=""></span>` : `<span class="tile ${cls || ''}" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>`);
-+  const districtMark = (d, cls) => (d.logo_path ? `<span class="tile logo ${cls || ''}"><img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt=""></span>` : `<span class="tile ${cls || ''}" style="background:${esc(d.brand_color || '#1E3A2F')}${(brandTone(d.brand_color) || {}).light ? ';color:#1C2A24;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)' : ''}">${esc(initials(d.short_name || d.name))}</span>`);
-   function frame({ slug, sectionId, tabId, body }) {
-     const d = S.district;
-     const cur = (() => { const sec = ALL.find((x) => x.id === sectionId), t = sec && sec.tabs.find((x) => x.id === tabId); return t && t.parent ? t.parent : tabId; })();
-@@ -407,18 +436,23 @@
-     const roleName = S.preview ? 'Previewing as board member' : S.isStaff && !S.memberships.some((m) => d && m.district.id === d.id) ? 'Willow Holler staff' : (ROLE[S.realRole || S.role] || '');
-     const logoOnly = d && d.logo_path && d.menu_logo_only;
-     const org = d ? `<div class="org ${logoOnly ? 'lg' : ''}">${logoOnly ? `<img class="org-logo" src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt="${esc(d.name)}">${districtMark(d, 'rm')}`
--        : `${districtMark(d)}<span class="tx org-tx"><b>${esc(d.short_name || d.name)}</b><small>${d.is_demo ? 'Demo district' : esc(d.state || 'IA')}</small></span>`}
-+        : `${districtMark(d)}<span class="tx org-tx"><b>${esc(d.short_name || d.name)}</b><small>${d.is_demo ? `Demo · ${esc(stateOf(d))}` : esc(stateOf(d))}</small></span>`}
-         ${S.districts.length > 1 ? `<label class="org-switch"><span class="sr-only">Switch district</span><select data-switch aria-label="Switch district"><option value="" selected>Switch district…</option>${S.districts.filter((x) => x.slug !== d.slug).map((x) => `<option value="${esc(x.slug)}">${esc(x.name)}${x.is_demo ? ' (demo)' : ''}</option>`).join('')}</select></label>` : ''}</div>`
-       : (S.districts.length ? `<div class="org"><label class="org-switch"><select data-switch aria-label="District"><option value="">Choose a district</option>${options}</select></label></div>` : '');
-+    const tone = d ? brandTone(d.brand_color) : null;
-+    try { const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = tone ? tone.bg : '#1E3A2F'; } catch (e) {}
-+    const demoTag = d && d.is_demo ? (S.isStaff
-+      ? `<button type="button" class="demo-bar" data-action="demoState" data-id="${esc(d.id)}" title="Made-up figures. Click to demo another state.">Demo · ${esc(HGStates.pack(stateOf(d)).name)}${icon('chev', 12, 2)}</button>`
-+      : '<span class="demo-bar" title="Every figure in this district is made up">Demo district</span>') : '';
-     app.innerHTML = `
-       <div class="frame ${railCollapsed() ? 'rail-collapsed' : ''} ${S.present && slug ? 'presenting' : ''}" id="frame">
--        <header class="topbar">
-+        <header class="topbar ${tone ? (tone.light ? 'tb-light' : 'tb-dark') : ''}" ${tone ? `style="--tb:${tone.bg}"` : ''}>
-           <button type="button" class="panelbtn" data-action="toggleRail" aria-label="${railCollapsed() ? 'Expand menu' : 'Collapse menu'}" title="${railCollapsed() ? 'Expand menu' : 'Collapse menu'}  [">${icon('panel', 18, 1.8)}</button>
-           <button type="button" class="menu-btn" data-action="toggleMenu" aria-expanded="false" aria-controls="rail-menu" aria-label="Menu">${icon('menu', 18, 2)}</button>
--          <a class="brand" href="#/" aria-label="HighGround home">${LOGO_LIGHT}</a>
-+          <a class="brand" href="#/" aria-label="HighGround home">${tone && tone.light ? LOGO_COLOR : LOGO_LIGHT}</a>
-           ${slug ? '<span class="scen-top" id="scenTop"></span>' : ''}
-           <span class="spacer"></span>
--          ${d && d.is_demo ? '<span class="demo-bar">Demo district · made-up figures</span>' : ''}
-+          ${demoTag}
-           ${slug ? `<button type="button" class="helpbtn searchbtn" data-action="openSearch" aria-label="Search this district" title="Search: screens, initiatives, reports  (Ctrl K)">${icon('search', 18, 1.9)}</button>` : ''}
-           ${slug ? `<button type="button" class="helpbtn" data-action="startPresent" aria-label="Present on a big screen" title="Present on a big screen">${icon('present', 18, 1.8)}</button>` : ''}
-           ${slug ? `<button type="button" class="helpbtn" data-action="openHelp" aria-label="Help with this screen" title="Help with this screen">${icon('help', 18, 1.8)}</button>` : ''}
-@@ -484,7 +518,7 @@
-         <div class="right">${viewSwitch}${tab.status !== 'live' ? badge(tab.status) : ''}${tab.status !== 'live' && tab.phase ? `<span class="small muted">${tab.status === 'wip' ? 'Planned for' : 'Rest in'} Phase ${tab.phase}</span>` : ''}</div></div>
-       ${tabs}
-       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
--      ${stateViewBanner(d)}${setupBanner(section.id, tab.id)}
-+      ${setupBanner(section.id, tab.id)}
-       <div id="view" class="stack"><div class="empty">Loading…</div></div>` });
-     flash = null;
-     const view = document.getElementById('view');
-@@ -767,14 +801,14 @@
+-  /* ---- the Home panel (25 Nov 2026): a deep tint of the district color by default. It turns into the light panel when the
+-     color is red (red means debt and errors), when the tint's hue sits near the chart's green, gold or red, or when its
+-     text or bars would be hard to read on it. No brand color: light. ---- */
+-  const HH_DARK = { paid: '#8DBBA2', boost: '#D3AE58', gap: '#F89A8E', text: '#F1EEE4', sub: '#C4C8CC' };
++  /* ---- the Home panel (25 Nov 2026): always the light panel, whatever the district color. The brand color stays in the
++     top bar. Chart colors for a white card ---- */
+   const HH_LIGHT = { paid: '#6FA88A', boost: '#D9A62E', gap: '#C0362C' };
+-  const rgbOf = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+-  const hexOf = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
+-  const mixHex = (a, b, t) => { const x = rgbOf(a), y = rgbOf(b); return hexOf(x.map((v, k) => v * t + y[k] * (1 - t))); };
+-  const hslOf = (hex) => { const [r, g, b] = rgbOf(hex).map((v) => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
+-    if (!d) return { h: 0, s: 0, l }; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+-    return { h: (h * 60 + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
+-  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+-  function heroLook(hex) {
+-    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return { light: true, why: 'no brand color' };
+-    const b = hslOf(hex);
+-    if (b.s > 0.25 && b.l > 0.12 && b.l < 0.9 && (b.h >= 320 || b.h <= 20)) return { light: true, why: 'red or pink' };
+-    const base = [mixHex(hex, '#4A5058', 0.55), mixHex(hex, '#2B2F33', 0.65)], mid = hslOf(mixHex(base[0], base[1], 0.5));
+-    const near = (h) => { const d = Math.abs(mid.h - h) % 360; return Math.min(d, 360 - d) < 28; };
+-    if (mid.s > 0.14 && [HH_DARK.paid, HH_DARK.boost, HH_DARK.gap].some((c) => near(hslOf(c).h))) return { light: true, why: 'clashes with the chart' };
+-    const reads = (bg) => ratio(HH_DARK.text, bg) >= 4.5 && ratio(HH_DARK.sub, bg) >= 4.5 && [HH_DARK.paid, HH_DARK.boost, HH_DARK.gap].every((c) => ratio(c, bg) >= 3);
+-    for (const k of [1, 0.8, 0.62, 0.48]) {   // a light district color gets a deeper tint before giving up on it
+-      const [top, bot] = base.map((c) => mixHex(c, '#1A1D20', k));
+-      if (reads(top) && reads(bot)) return { light: false, top, bot };
+-    }
+-    return { light: true, why: 'text or bars hard to read' };
+-  }
+   /* ---- the top bar in the district's brand color. Text, icons, the wordmark and the demo tag go light or dark, whichever
+      reads better on it (WCAG contrast against white and against the app's dark text). No brand color: HighGround green. ---- */
+   const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce((a, v, k) => a + v * [0.2126, 0.7152, 0.0722][k], 0); };
+@@ -801,7 +778,7 @@
      const W = 960, H = 290, L = 46, R = 10, top = 46, base = 248, f = HGReport.fmt, ys = x.years;
      const mx = Math.max(1, ...ys.map((y) => y.total)), step = mx > 8e6 ? 2e6 : mx > 3e6 ? 1e6 : mx > 1.2e6 ? 5e5 : 2.5e5, ceil = Math.ceil((mx * 1.12) / step) * step;
      const sc = (base - top) / ceil, col = (W - L - R) / ys.length, bw = Math.min(46, col * 0.52);
--    const placed = [];
--    let g = `<defs><pattern id="hh-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F2897C" fill-opacity=".18"/><rect width="2.2" height="6" fill="#F2897C"/></pattern></defs>`;
-+    const placed = [], C = HOME.look && !HOME.look.light ? HH_DARK : HH_LIGHT;
-+    let g = `<defs><pattern id="hh-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="${C.gap}" fill-opacity=".18"/><rect width="2.2" height="6" fill="${C.gap}"/></pattern></defs>`;
+-    const placed = [], C = HOME.look && !HOME.look.light ? HH_DARK : HH_LIGHT;
++    const placed = [], C = HH_LIGHT;
+     let g = `<defs><pattern id="hh-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="${C.gap}" fill-opacity=".18"/><rect width="2.2" height="6" fill="${C.gap}"/></pattern></defs>`;
      for (let t = 0; t <= ceil + 1; t += step) { const y = base - t * sc; g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="hc-grid${t ? ' d' : ''}"/><text x="${L - 9}" y="${(y + 4).toFixed(1)}" class="hc-ax" text-anchor="end">${t === 0 ? '$0' : t >= 1e6 ? '$' + +(t / 1e6).toFixed(1) + 'M' : '$' + Math.round(t / 1000) + 'k'}</text>`; }
      ys.forEach((r) => {
-       const x0 = L + r.i * col + (col - bw) / 2; let y = base;
--      [[r.paid, '#8DBBA2', 'paid for by levies, grants and financing'], [r.boost, '#D3AE58', 'from boosters'], [r.gap, 'url(#hh-hatch)', 'with no way to pay yet']].forEach(([v, c, what], j) => {
-+      [[r.paid, C.paid, 'paid for by levies, grants and financing'], [r.boost, C.boost, 'from boosters'], [r.gap, 'url(#hh-hatch)', 'with no way to pay yet']].forEach(([v, c, what], j) => {
-         if (v < 0.5) return; const hh = v * sc; y -= hh;
--        g += `<rect x="${x0.toFixed(1)}" y="${(y + 0.75).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, hh - 1.5).toFixed(1)}" rx="2" fill="${c}"${j === 2 ? ' stroke="#F2897C" stroke-width="1.2"' : ''}><title>FY${r.fy}: ${f(v)} ${what}</title></rect>`;
-+        g += `<rect x="${x0.toFixed(1)}" y="${(y + 0.75).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, hh - 1.5).toFixed(1)}" rx="2" fill="${c}"${j === 2 ? ` stroke="${C.gap}" stroke-width="1.2"` : ''}><title>FY${r.fy}: ${f(v)} ${what}</title></rect>`;
-       });
-       if (r.total > 0.5) g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${(y - 8).toFixed(1)}" class="hc-tot${r.gap > 0.5 ? ' g' : ''}" text-anchor="middle">${f(r.total)}</text>`;
-       if (r.gap > 0.5 && r.label && r.gap >= 0.25 * Math.max(...ys.map((z) => z.gap))) {
-@@ -792,7 +826,8 @@
+@@ -826,8 +803,7 @@
    }
    function homeHero(c, greet) {
      const x = homeCalc(); HOME.x = x;
--    return `<section class="home-hero hh-dark" data-home-hero>
-+    const look = HOME.look = heroLook(S.district && S.district.brand_color);
-+    return `<section class="home-hero hh-dark${look.light ? ' hh-light' : ''}" data-home-hero data-look="${look.light ? 'light' : 'tint'}"${look.light ? `` : ` style="--hh-top:${look.top};--hh-bot:${look.bot}"`}>
+-    const look = HOME.look = heroLook(S.district && S.district.brand_color);
+-    return `<section class="home-hero hh-dark${look.light ? ' hh-light' : ''}" data-home-hero data-look="${look.light ? 'light' : 'tint'}"${look.light ? `` : ` style="--hh-top:${look.top};--hh-bot:${look.bot}"`}>
++    return `<section class="home-hero hh-dark hh-light" data-home-hero data-look="light">
        <div class="hh-hi">${greet}</div>
        <div class="hh-grid"><div class="hh-txt"><p class="lead" data-hh-head>${homeHeadline(x)}</p><p class="hh-assume" data-hh-assume>${homeAssume()}</p></div>
          <div class="hh-figs" data-hh-figs>${homeFigs(x)}</div></div>
-@@ -5886,16 +5921,18 @@
-     closeModal(); await loadContext(true);
-     flash = `${d.name} was deleted.`; renderStaff();
-   }
--  /** Admin Portal: preview any district in another state's view (this browser only) */
--  function stateViewCard() {
--    const v = stateView(), packs = HGStates.list();
--    return `<div class="card" data-state-view-card><h3>State view</h3>
--      <p class="small muted">See every district with another state’s funds, rules and words, to check how a state works before a district there signs on. Only in this browser and only for Willow Holler staff. No district’s data or state changes, and each screen says when the preview is on.</p>
--      <div class="inline-form"><label class="field">Show districts as<select data-state-view>
--        <option value="" ${v ? '' : 'selected'}>Each district’s own state</option>
--        ${packs.map((x) => `<option value="${x.code}" ${v === x.code ? 'selected' : ''}>${esc(x.name)}${x.status === 'preview' ? ' (preview)' : ''}</option>`).join('')}</select></label>
--        <button type="button" class="btn primary" data-action="setStateView">Apply</button></div>
--      <p class="small" data-state-view-now>${v ? `Now: every district shows as <b>${esc(HGStates.pack(v).name)}</b>.` : 'Now: each district shows in its own state.'} States HighGround knows: ${packs.map((x) => `${esc(x.name)}${x.status === 'preview' ? ' (preview)' : ''}`).join(', ')}.</p></div>`;
-+  /** a demo district's state, switched for whichever state is being demoed. Its figures belong to a state, so switching
-+      offers that state's demo data set too (erasing the demo plan first, as Reset does); or keep the figures as they are. */
-+  const demoSetFor = (code) => { const e = Object.entries(window.HG_DEMOS || {}).find(([, v]) => (v.state || 'IA').toUpperCase() === code); return e ? e[0] : ''; };
-+  function demoStateModal(d) {
-+    const cur = stateOf(d), others = HGStates.list().filter((x) => x.code !== cur);
-+    modal(`<div class="stack"><div class="row" style="justify-content:space-between"><h2 id="modal-title">Demo state: ${esc(d.short_name || d.name)}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
-+      <p>This demo district is set to <b>${esc(HGStates.pack(cur).name)}</b>. Its screens, fund names and rules follow that state. Real districts always follow their own state.</p>
-+      ${others.map((x) => { const set = demoSetFor(x.code), sn = set ? window.HG_DEMOS[set].name : '';
-+        return `<div class="card"><h3>Demo in ${esc(x.name)}</h3>
-+          ${set ? `<p class="small muted">Recommended: load ${esc(sn)}, made-up figures built for ${esc(x.name)}. This erases the demo district’s current plan first, as Reset does. People and access stay.</p>` : `<p class="small muted">There’s no ${esc(x.name)} demo data set yet, so the current figures stay. Funds that ${esc(x.name)} doesn’t have will show as short.</p>`}
-+          <div class="row">${set ? `<button type="button" class="btn primary" data-action="demoSwitch" data-id="${esc(d.id)}" data-state="${x.code}" data-set="${esc(set)}">Switch and load ${esc(sn.replace(/ (Community School District|Community Schools|Public Schools)$/, ''))}</button>` : ''}
-+            <button type="button" class="btn" data-action="demoSwitch" data-id="${esc(d.id)}" data-state="${x.code}">${set ? 'Switch, keep these figures' : `Switch to ${esc(x.name)}`}</button></div></div>`; }).join('')}</div>`, { noFocus: true });
-   }
-   async function renderStaff() {
-     S.district = null; S.role = null; stateApply('IA');
-@@ -5907,11 +5944,10 @@
-       <div class="page-head"><div><h1>Admin Portal</h1><div class="lede">Every district, and new ones. Willow Holler staff only.</div></div></div>
-       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
-       ${healthCard(health)}
--      ${stateViewCard()}
-       <div class="card"><h3>Districts</h3>${table([
-         { label: 'District', html: (r) => `<a href="#/d/${enc(r.slug)}/home/today">${esc(r.name)}</a>` },
-         { label: 'Link id', get: (r) => r.slug },
--        { label: 'State', html: (r) => `<span class="row nowrap" data-district-state-box><select data-district-state="${esc(r.id)}" aria-label="${esc(r.name)}: state">${HGStates.list().map((x) => `<option value="${x.code}" ${(r.state || 'IA') === x.code ? 'selected' : ''}>${esc(x.code)}</option>`).join('')}${HGStates.has(r.state || 'IA') ? '' : `<option value="${esc(r.state)}" selected>${esc(r.state)}</option>`}</select><button type="button" class="btn small" data-action="setDistrictState" data-id="${esc(r.id)}">Set</button></span>` },
-+        { label: 'State', html: (r) => (r.is_demo ? `<span class="row nowrap" data-district-state-box>${esc(stateOf(r))} <button type="button" class="btn small" data-action="demoState" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: demo another state">Change…</button></span>` : `<span title="A real district follows its own state">${esc(stateOf(r))}</span>`) },
-         { label: 'Demo', get: (r) => (r.is_demo ? 'Demo' : '') }, { label: 'Created', get: (r) => day(r.created_at) },
-         { label: 'Two-step sign-in', html: (r) => (r.require_two_step === undefined ? '' : `<button type="button" class="btn small" data-action="toggleTwoStep" data-id="${esc(r.id)}" data-on="${r.require_two_step ? 1 : 0}" title="${r.require_two_step ? 'Everyone in this district must use it. Click to make it optional.' : 'Optional here. Click to require it.'}">${r.require_two_step ? 'Required' : 'Optional'}</button>`) },
-         { label: '', html: (r) => `<button type="button" class="btn small danger" data-action="deleteDistrictAsk" data-id="${esc(r.id)}">Delete…</button>` },
-@@ -6550,23 +6586,25 @@
-       toast('Demo ledger not loaded', 'The plan is in, but the sample monthly ledger couldn’t be added. Budget vs. actual stays empty.');
-     }
-   }
--  /* erase a demo district's plan and load a data set again, then republish its board version */
-+  /* erase a demo district's plan, load a data set (which moves it to the set's state), republish its board version */
-+  async function reloadDemo(d, set) {
-+    if (!d || !d.is_demo) throw new UserError('Only a demo district can be reset.');
-+    for (const t of ERASE_ORDER) await HG.db.removeAll(t, `district_id=eq.${d.id}`);
-+    await writeDemo(d, set);
-+    if (!d.public_link_enabled) return false;
-+    try {
-+      const { board, payload } = await publicationPayload(d);
-+      await HG.db.insert('publication', { district_id: d.id, kind: 'board_plan', title: board.name, scenario_id: board.id, payload });
-+      return true;
-+    } catch (e) { console.warn('HighGround: demo republish skipped:', e); return false; }
-+  }
-   async function resetDemo(el) {
-     const card = el.closest('.card');
-     const did = card.querySelector('[data-demo-district]').value, set = card.querySelector('[data-demo-set]').value;
-     const d = S.districts.find((x) => x.id === did) || (S.staffDistricts || []).find((x) => x.id === did);
-     if (!d || !d.is_demo) throw new UserError('Only a demo district can be reset.');
-     if (!confirm(`Erase everything in ${d.name}’s plan (starting numbers, balances, debt, the strategic plan, initiatives, scenarios, assumption sets, the monthly ledger, uploads, reports and publishing history) and load ${window.HG_DEMOS[set].name} again? People and access stay as they are.`)) return;
--    for (const t of ERASE_ORDER) await HG.db.removeAll(t, `district_id=eq.${did}`);
--    await writeDemo(d, set);
--    let published = false;
--    if (d.public_link_enabled) {
--      try {
--        const { board, payload } = await publicationPayload(d);
--        await HG.db.insert('publication', { district_id: did, kind: 'board_plan', title: board.name, scenario_id: board.id, payload });
--        published = true;
--      } catch (e) { console.warn('HighGround: demo republish skipped:', e); }
--    }
-+    const published = await reloadDemo(d, set);
-     toast('Demo reset', `${d.name} is back to the ${window.HG_DEMOS[set].name.replace(/ Community School District$/, '')} demo${published ? ', and its board version is on the public link again' : ''}.`);
-     here();
-   }
-@@ -7123,18 +7161,23 @@
-         ${old ? '<p class="small muted">Once the new phone’s code works, the old phone stops working.</p>' : ''}
-         <div class="row"><button type="submit" class="btn primary">${old ? 'Switch to this phone' : 'Turn it on'}</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
-     },
--    async setStateView(el) {
--      const v = (el.closest('.card').querySelector('[data-state-view]') || {}).value || '';
--      try { if (v) localStorage.setItem(STATE_VIEW_KEY, v); else localStorage.removeItem(STATE_VIEW_KEY); } catch (e) { throw new UserError('This browser won’t keep the setting (private browsing?).'); }
--      flash = v ? `State view: every district now shows as ${HGStates.pack(v).name}, in this browser only.` : 'State view: each district shows in its own state again.'; renderStaff();
-+    async demoState(el) {
-+      const d = S.districts.find((x) => x.id === el.dataset.id) || (S.staffDistricts || []).find((x) => x.id === el.dataset.id);
-+      if (!d || !d.is_demo) throw new UserError('Only a demo district’s state can be switched. A real district follows its own state.');
-+      demoStateModal(d);
-     },
--    async setDistrictState(el) {
--      const d = (S.staffDistricts || []).find((x) => x.id === el.dataset.id) || {}, sel = el.closest('[data-district-state-box]').querySelector('select'), v = sel.value;
--      if (v === (d.state || 'IA')) return toast('No change', `${d.name || 'The district'} is already ${HGStates.pack(v).name}.`);
--      if (!d.is_demo && !confirm(`Change ${d.name || 'this district'} to ${HGStates.pack(v).name}? Its screens, fund names and rules change straight away. Its saved figures stay as they are, but some may mean something different in the new state.`)) return;
--      await HG.db.update('district', `id=eq.${enc(d.id)}`, { state: v });
--      await loadContext(true);
--      flash = `${d.name || 'The district'} is now ${HGStates.pack(v).name}.`; renderStaff();
-+    async demoSwitch(el) {
-+      const id = el.dataset.id, v = el.dataset.state, set = el.dataset.set || '';
-+      const d = S.districts.find((x) => x.id === id) || (S.staffDistricts || []).find((x) => x.id === id);
-+      if (!d || !d.is_demo) throw new UserError('Only a demo district’s state can be switched. A real district follows its own state.');
-+      if (!HGStates.has(v)) throw new UserError('HighGround doesn’t know that state.');
-+      el.disabled = true; el.textContent = set ? 'Loading the demo…' : 'Switching…';
-+      let published = false;
-+      if (set) published = await reloadDemo(d, set);
-+      else { await HG.db.update('district', `id=eq.${enc(d.id)}`, { state: v }); d.state = v; }
-+      await loadContext(true); closeModal();
-+      toast('Demo state', `${d.short_name || d.name} is now a ${HGStates.pack(v).name} demo${set ? ` with ${window.HG_DEMOS[set].name.replace(/ (Community School District|Community Schools|Public Schools)$/, '')}’s figures` : ''}${published ? ', and its board version is on the public link again' : ''}.`);
-+      if ((location.hash || '').startsWith('#/staff')) renderStaff(); else here();
-     },
-     async toggleTwoStep(el) {
-       const on = el.dataset.on === '1', d = (S.staffDistricts || []).find((x) => x.id === el.dataset.id) || {};
+@@ -6703,13 +6679,11 @@
+     if (d) { let sv = null; try { sv = await HG.db.rpc('public_survey', { p_slug: slug }, { auth: false }); } catch (e) { sv = null; }
+       if (sv && sv.survey) body = `<div class="card sv-invite" data-sv-invite><div><h3>${esc(sv.survey.name)}: tell us what you think</h3><p class="small">A few minutes, anonymous${sv.survey.closed_on ? `, open until ${esc(day(sv.survey.closed_on))}` : ''}.</p></div><a class="btn primary" href="#/s/${enc(slug)}">Take the survey</a></div>` + body; }
+     document.title = d && d.name ? `${d.name}: capital plan` : 'Capital plan';
+-    /* residents see the district's page and nothing else. Someone signed in (staff, board) gets a way back to HighGround:
+-       on an iPhone home-screen app this page can open in the app's own window, which has no back button */
+-    const home = d && d.slug ? `#/d/${enc(d.slug)}` : '#/';
++    /* everyone sees the district's page and nothing else (25 Nov 2026: no "Back to HighGround" bar for people signed in;
++       the app opens this page in a new tab for public display) */
+     app.innerHTML = `
+       <div class="main">
+-        ${HG.auth.session ? `<div class="pub-back" data-pub-back><a href="${home}">← Back to HighGround</a><span class="small" style="opacity:.75">You’re signed in; residents don’t see this bar.</span></div>` : ''}
+-        <header class="topbar pub-top">${d ? pubBrand(d) : ''}</header>
++        <header class="topbar pub-top"><div class="pub-top-in">${d ? pubBrand(d) : ''}</div></header>
+         <main class="content">${body}
+           ${HG.auth.session ? '' : '<p class="pub-foot" data-pub-foot>District staff or board member? <a href="#/signin">Sign in</a></p>'}</main>
+       </div>`;
 diff --git a/styles.css b/styles.css
-index 7915f7f..76b68bb 100644
+index 76b68bb..e1be0d0 100644
 --- a/styles.css
 +++ b/styles.css
-@@ -24,13 +24,28 @@ button,input,select,textarea{font:inherit;color:inherit}
- 
- /* ---------- frame: dark green top bar, light side menu (Home + four areas, each with its colour), page on warm grey ---------- */
- .frame{display:grid;grid-template-columns:232px minmax(0,1fr);grid-template-rows:62px minmax(0,1fr);min-height:calc(100vh / var(--z, 1));zoom:var(--z, 1);background:linear-gradient(to right,var(--side) 231px,var(--border) 231px,var(--border) 232px,var(--page) 232px)}
--.frame>.topbar{grid-column:1/-1;grid-row:1;position:sticky;top:0;z-index:30;height:62px;display:flex;align-items:center;gap:10px;padding:0 16px 0 12px;background:var(--rail);color:#F3EFE4;border:0}
-+.frame>.topbar{grid-column:1/-1;grid-row:1;position:sticky;top:0;z-index:30;height:62px;display:flex;align-items:center;gap:10px;padding:0 16px 0 12px;background:var(--tb,var(--rail));color:#F3EFE4;border:0}
- .frame>.topbar .spacer{flex:1}
- .frame>.topbar .brand{display:flex;align-items:center;flex-direction:row;padding:0 10px 0 4px;width:180px;flex-shrink:0}
- .frame>.topbar .brand .logo-img{width:136px}
- .panelbtn,.helpbtn{border:0;background:transparent;width:34px;height:34px;border-radius:7px;color:var(--rail-text);display:inline-grid;place-items:center;cursor:pointer;flex-shrink:0}
- .panelbtn:hover,.helpbtn:hover{background:rgba(255,255,255,.09);color:#fff}
--.frame>.topbar .demo-bar{background:var(--gold);color:#2B1F05;border:0;border-radius:5px;padding:3px 8px;font-size:12px;font-weight:600;white-space:nowrap}
-+/* the demo tag: neutral, never the brand color. Light glass on a dark bar, dark glass on a light one */
-+.frame>.topbar .demo-bar{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.34);border-radius:999px;padding:3px 10px;font:600 12px/1.4 var(--sans);letter-spacing:.01em;white-space:nowrap}
-+.frame>.topbar button.demo-bar{cursor:pointer}
-+.frame>.topbar button.demo-bar:hover{background:rgba(255,255,255,.24)}
-+.frame>.topbar button.demo-bar svg{opacity:.75}
-+/* a light brand color: dark text, icons and tag, a hairline under the bar */
-+.frame>.topbar.tb-light{color:var(--text);box-shadow:inset 0 -1px 0 rgba(0,0,0,.1)}
-+.frame>.topbar.tb-light .panelbtn,.frame>.topbar.tb-light .helpbtn,.frame>.topbar.tb-light .menu-btn{color:rgba(28,42,36,.8)}
-+.frame>.topbar.tb-light .panelbtn:hover,.frame>.topbar.tb-light .helpbtn:hover{background:rgba(0,0,0,.07);color:var(--text)}
-+.frame>.topbar.tb-light .demo-bar{background:rgba(0,0,0,.06);color:var(--text);border-color:rgba(0,0,0,.22)}
-+.frame>.topbar.tb-light button.demo-bar:hover{background:rgba(0,0,0,.11)}
-+.frame>.topbar.tb-light .scen-top .ctl{border-color:rgba(0,0,0,.18);background:rgba(0,0,0,.04);color:var(--muted)}
-+.frame>.topbar.tb-light .scen-top select,.frame>.topbar.tb-light .scen-top .ctl.ro b{color:var(--text)}
-+/* a dark brand color: the bar's glass and secondary text stay readable on any hue */
-+.frame>.topbar.tb-dark .panelbtn,.frame>.topbar.tb-dark .helpbtn{color:rgba(255,255,255,.82)}
-+.frame>.topbar.tb-dark .scen-top .ctl{border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:rgba(255,255,255,.78)}
- .rail{grid-column:1;grid-row:2;position:sticky;top:62px;height:calc(100vh / var(--z, 1) - 62px);background:var(--side);border-right:1px solid var(--border);color:var(--text);overflow-y:auto;overflow-x:hidden}
- .rail-menu{display:flex;flex-direction:column;gap:6px;min-height:100%;padding:10px 8px 8px}
- .org{display:flex;align-items:center;gap:8px;padding:4px 6px 10px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:4px}
-@@ -1273,27 +1288,27 @@ button.pc{position:relative}
- /* 21 Oct (d): on a narrower window the initiatives table drops the Owner column (it's in the editor) so the rest fits */
- @media (max-width: 1000px){ .ini-card table.data th:nth-child(4),.ini-card table.data td:nth-child(4){display:none} .ini-card td:first-child{min-width:170px} }
- 
--/* ---------- Home, answer first (10 Nov 2026): green panel with the plan in one sentence, live assumptions and the ten-year chart;
-+/* ---------- Home, answer first (10 Nov 2026): panel tinted by the district color (25 Nov 2026), or a light panel when that color is red or clashes with the chart with the plan in one sentence, live assumptions and the ten-year chart;
-    the ask bar straddles its bottom edge; "This week" cards say where each item came from ---------- */
--.home-hero.hh-dark{background:linear-gradient(180deg,#17322A 0%,var(--rail) 100%);border:0;color:#F1EEE4;padding:22px 26px 86px}
--.hh-dark .hh-hi{color:#B2C6BA}
--.hh-dark .hh-hi span{color:#86A193}
-+.home-hero.hh-dark{background:linear-gradient(180deg,var(--hh-top,#2E3A36) 0%,var(--hh-bot,#232B28) 100%);border:0;color:#F1EEE4;padding:22px 26px 86px}
-+.hh-dark .hh-hi{color:#D9DCDF}
-+.hh-dark .hh-hi span{color:#C4C8CC}
- .hh-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr);gap:18px 40px;align-items:end;margin-top:6px}
- .hh-dark p.lead{font-family:var(--serif);font-weight:500;font-size:34px;line-height:1.16;letter-spacing:-.012em;color:#F1EEE4;max-width:24ch;text-wrap:balance}
- .hh-dark p.lead em{font-style:normal;font-weight:600;color:#D3AE58}
--.hh-dark p.lead .gapn{font-weight:600;color:#F2897C;white-space:nowrap}
--.hh-assume{margin:12px 0 0;font-size:15px;line-height:1.8;color:#B2C6BA;max-width:62ch}
-+.hh-dark p.lead .gapn{font-weight:600;color:#F89A8E;white-space:nowrap}
-+.hh-assume{margin:12px 0 0;font-size:15px;line-height:1.8;color:#D9DCDF;max-width:62ch}
- .hh-scrub{display:inline-flex;align-items:center;border:0;border-bottom:1.5px dashed #D3AE58;border-radius:5px 5px 2px 2px;background:rgba(241,238,228,.09);color:#F1EEE4;font:600 15px/1.45 var(--sans);font-variant-numeric:tabular-nums;padding:0 7px;cursor:ew-resize;touch-action:none;user-select:none}
- .hh-scrub:hover,.hh-scrub[aria-expanded=true]{background:rgba(211,174,88,.24)}
--.hh-reset,.hh-math{border:0;background:transparent;padding:0;color:#86A193;font:inherit;font-size:13.5px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
-+.hh-reset,.hh-math{border:0;background:transparent;padding:0;color:#C4C8CC;font:inherit;font-size:13.5px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
- .hh-reset:hover,.hh-math:hover{color:#F1EEE4}
- .hh-figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid rgba(241,238,228,.16);container-type:inline-size}
- .hh-figs>div{padding:12px 10px 2px 0;display:flex;flex-direction:column;min-width:0}
- .hh-figs>div+div{padding-left:14px;border-left:1px solid rgba(241,238,228,.16)}
--.hh-figs span{font-size:12.5px;line-height:1.3;color:#86A193;display:flex;align-items:flex-start;gap:4px}
-+.hh-figs span{font-size:12.5px;line-height:1.3;color:#C4C8CC;display:flex;align-items:flex-start;gap:4px}
- /* values sit on one line at the foot of each column, whatever the label wraps to, and shrink to fit a narrow panel */
- .hh-figs b{font:600 25px/1.2 var(--serif);font-size:clamp(16px,calc(9.2cqi - 4px),25px);font-variant-numeric:tabular-nums;color:#F1EEE4;margin-top:auto;padding-top:4px;white-space:nowrap}
--.hh-figs .ok b{color:#8DBBA2} .hh-figs .g b{color:#F2897C}
-+.hh-figs .ok b{color:#8DBBA2} .hh-figs .g b{color:#F89A8E}
- .hh-figs .defn{background:rgba(241,238,228,.12);color:#F1EEE4;border-color:transparent}
- .hh-lever{margin-top:14px;max-width:440px;background:var(--card);color:var(--text);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;box-shadow:0 14px 34px rgba(0,0,0,.25)}
- .hh-lever label{display:flex;justify-content:space-between;gap:12px;font-size:14px}
-@@ -1305,13 +1320,27 @@ button.pc{position:relative}
- .hh-chart{margin-top:20px;overflow-x:auto}
- .hh-chart svg{display:block;width:100%;min-width:600px;font-family:var(--sans)}
- .hc-grid{stroke:rgba(241,238,228,.14)} .hc-grid.d{stroke-dasharray:2 4}
--.hc-ax{font-size:11.5px;fill:#86A193} .hc-yr{font-size:12px;fill:#86A193} .hc-yr.now{fill:#F1EEE4;font-weight:600} .hc-now{font-size:10.5px;fill:#D3AE58}
--.hc-tot{font-size:12px;font-weight:600;fill:#B2C6BA} .hc-tot.g{fill:#F2897C} .hc-lbl{font-size:11.5px;fill:#F1EEE4}
-+.hc-ax{font-size:11.5px;fill:#C4C8CC} .hc-yr{font-size:12px;fill:#C4C8CC} .hc-yr.now{fill:#F1EEE4;font-weight:600} .hc-now{font-size:10.5px;fill:#D3AE58}
-+.hc-tot{font-size:12px;font-weight:600;fill:#D9DCDF} .hc-tot.g{fill:#F89A8E} .hc-lbl{font-size:11.5px;fill:#F1EEE4}
- .hh-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-top:4px}
--.hh-legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:#B2C6BA}
-+.hh-legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:#D9DCDF}
- .hh-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:7px;vertical-align:-1px}
--.hh-legend .paid{background:#8DBBA2} .hh-legend .boost{background:#D3AE58} .hh-legend .gap{background:repeating-linear-gradient(135deg,#F2897C 0 2px,transparent 2px 4px);outline:1px solid #F2897C}
-+.hh-legend .paid{background:#8DBBA2} .hh-legend .boost{background:#D3AE58} .hh-legend .gap{background:repeating-linear-gradient(135deg,#F89A8E 0 2px,transparent 2px 4px);outline:1px solid #F89A8E}
- .hh-foot .hh-math{margin-left:auto}
-+/* the light panel: a white card with dark text. Used when the district color is red (debt and errors are red), would clash
-+   with the chart's green, gold or red, or would leave text or bars hard to read. Color stays only where it means something */
-+.home-hero.hh-light{background:#FFFFFF;border:1px solid #E2E2E0;color:#18181A}
-+.hh-light .hh-hi{color:#18181A} .hh-light .hh-hi span,.hh-light .hh-reset,.hh-light .hh-math,.hh-light .hh-figs span{color:#5C5C5E}
-+.hh-light .hh-reset:hover,.hh-light .hh-math:hover{color:#18181A}
-+.hh-light p.lead{color:#18181A} .hh-light p.lead em{color:#1F7A4D} .hh-light p.lead .gapn,.hh-light .hh-figs .g b{color:#C0362C}
-+.hh-light .hh-assume,.hh-light .hh-legend{color:#4A4A4C}
-+.hh-light .hh-scrub{background:#FFFFFF;box-shadow:0 0 0 1px #E2E2E0;color:#18181A;border-bottom-color:#1F7A4D}
-+.hh-light .hh-scrub:hover,.hh-light .hh-scrub[aria-expanded=true]{background:#E6F0EA}
-+.hh-light .hh-figs,.hh-light .hh-figs>div+div{border-color:#E2E2E0} .hh-light .hh-figs b{color:#18181A} .hh-light .hh-figs .ok b{color:#1F7A4D}
-+.hh-light .hh-figs .defn{background:#F4F4F3;color:#18181A;border-color:#E2E2E0}
-+.hh-light .hc-grid{stroke:#E2E2E0} .hh-light .hc-ax,.hh-light .hc-yr{fill:#5C5C5E} .hh-light .hc-yr.now,.hh-light .hc-lbl{fill:#18181A} .hh-light .hc-now{fill:#1F7A4D}
-+.hh-light .hc-tot{fill:#4A4A4C} .hh-light .hc-tot.g{fill:#C0362C} .hh-light .hc-lead{stroke:#B9B9B7}
-+.hh-light .hh-legend .paid{background:#6FA88A} .hh-light .hh-legend .boost{background:#D9A62E} .hh-light .hh-legend .gap{background:repeating-linear-gradient(135deg,#C0362C 0 2px,transparent 2px 4px);outline-color:#C0362C}
- .ha-zone.lift{margin-top:-74px;padding:0 16px;position:relative;z-index:2}
- .ha{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 2px 4px rgba(16,24,20,.06),0 16px 36px rgba(16,24,20,.12);padding:8px 8px 12px}
- .ha-row{display:flex;align-items:center;gap:10px;padding:0 4px 0 10px;color:var(--action)}
+@@ -1390,3 +1390,27 @@ button.pc{position:relative}
+ @media (max-width:760px){.hm-sum{grid-template-columns:minmax(0,1fr)}}
+ .hc-lead{stroke:rgba(241,238,228,.45);stroke-width:1}
+ .row.nowrap{flex-wrap:nowrap;gap:6px;align-items:center}
++
++/* ---- the public community page (25 Nov 2026): a header with room for the district's logo, and a page that uses the window's
++   width, centred, at every size. The header's brand lines up with the page's left edge ---- */
++#app .pub-top{height:auto;min-height:104px;padding:0;display:block}
++#app .pub-top-in{max-width:1680px;margin:0 auto;padding:16px 40px;box-sizing:border-box;min-height:104px;display:flex;align-items:center}
++#app .pub-top .pub-brand{gap:18px}
++#app .pub-top .pub-dlogo{max-height:76px;max-width:300px;margin-right:0}
++#app .pub-top .pub-mono{width:64px;height:64px;font-size:22px;border-radius:14px}
++#app .pub-top .pub-dname{font-size:26px;line-height:1.2}
++#app .pub-top ~ .content{max-width:1680px;margin:0 auto;padding:28px 40px 56px}
++@media (max-width:1100px){ #app .pub-top-in,#app .pub-top ~ .content{padding-left:28px;padding-right:28px} }
++@media (max-width:820px){
++  #app .pub-top,#app .pub-top-in{min-height:76px}
++  #app .pub-top-in{padding:12px 14px}
++  #app .pub-top ~ .content{padding:16px 14px 40px}
++  #app .pub-top .pub-brand{gap:12px}
++  #app .pub-top .pub-dlogo{max-height:52px;max-width:170px}
++  #app .pub-top .pub-mono{width:48px;height:48px;font-size:17px;border-radius:11px}
++  #app .pub-top .pub-dname{font-size:19px}
++}
++/* the public page stacks the priority cards on narrow screens; the app's own row of them swipes */
++@media (max-width:900px){ #app .pub-top ~ .content .pc-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));overflow:visible;scroll-snap-type:none} #app .pub-top ~ .content .pc-row>*{min-width:0;width:auto} }
++/* the public page's spending chart fits a phone instead of scrolling sideways; its labels grow so they read at that size */
++@media (max-width:620px){ #app .pub-top ~ .content .capchart{min-width:0} #app .pub-top ~ .content .capchart .b-lab,#app .pub-top ~ .content .capchart .b-fy{font-size:17px} }
 diff --git a/test_ui.py b/test_ui.py
-index a9d0b9e..bb06246 100644
+index bb06246..d774b3f 100644
 --- a/test_ui.py
 +++ b/test_ui.py
-@@ -2691,27 +2691,30 @@ async def main():
-     ia=await npg.evaluate("[document.getElementById('view').innerText.includes('SAVE'), document.documentElement.dataset.state]")
-     check("state layer (11 Nov): an Iowa district right after a Nebraska one is back in Iowa's words", ia[0] and ia[1]=="IA", str(ia))
-     await nx.close()
--    # the Admin Portal: per-district state, a new district's state, and the internal state view
-+    # the Admin Portal (24 Nov): no browser-wide state view; a real district's state is read-only, a demo's is switchable
-     sx,spg=await session("staff@example.test")
--    await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(1200)
--    sv=await spg.evaluate("[!!document.querySelector('[data-state-view-card] select[data-state-view]'),[...document.querySelectorAll('[data-state-view] option')].map(o=>o.value),!!document.querySelector('select[data-district-state]'),!!document.querySelector('form[data-form=createDistrict] select[name=state]')]")
--    check("admin portal (11 Nov): a State view card (each district's own, Iowa, Nebraska), a state per district, and a state for a new district", sv[0] and sv[1]==["","IA","NE"] and sv[2] and sv[3], str(sv))
--    await spg.select_option("[data-state-view]","NE"); await spg.click("[data-action=setStateView]"); await spg.wait_for_timeout(800)
--    now=await spg.evaluate("[localStorage.getItem('highground-state-view'),(document.querySelector('[data-state-view-now]')||{}).textContent]")
--    check("admin portal (11 Nov): choosing Nebraska keeps it in this browser and says so", now[0]=="NE" and "Nebraska" in (now[1] or ""), str(now))
-+    await spg.evaluate("localStorage.setItem('highground-state-view','NE')")   # an old saved State view is ignored and cleared
-+    await spg.goto("http://localhost:8765/#/staff"); await spg.reload(); await spg.wait_for_timeout(1200)
-+    sv=await spg.evaluate("[!!document.querySelector('[data-state-view-card]'),!!document.querySelector('select[data-district-state]'),document.querySelectorAll('[data-district-state-box] [data-action=demoState]').length,!!document.querySelector('form[data-form=createDistrict] select[name=state]'),localStorage.getItem('highground-state-view')]")
-+    check("admin portal (24 Nov): no State view card, no state picker on real districts, a Change button on demos, a state for a new district, old setting cleared", not sv[0] and not sv[1] and sv[2]>=1 and sv[3] and sv[4] is None, str(sv))
-     await spg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await spg.wait_for_timeout(1500)
--    pv=await spg.evaluate("[!!document.querySelector('[data-state-view-banner]'),document.getElementById('view').innerText.includes('Special Building'),/\\bSAVE\\b/.test(document.getElementById('view').innerText),document.documentElement.dataset.state]")
--    # an Iowa district's own SAVE money still shows in the preview (its data isn't changed); everything else reads as Nebraska
--    check("state view (11 Nov): an Iowa district previews in Nebraska's view, with a banner saying it's an internal preview", pv[0] and pv[1] and pv[3]=="NE", str(pv))
--    await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(900)
--    await spg.select_option("[data-state-view]",""); await spg.click("[data-action=setStateView]"); await spg.wait_for_timeout(600)
--    await spg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await spg.wait_for_timeout(1300)
--    back=await spg.evaluate("[!!document.querySelector('[data-state-view-banner]'),document.getElementById('view').innerText.includes('SAVE'),localStorage.getItem('highground-state-view')]")
--    check("state view (11 Nov): back to each district's own state: no banner, Iowa words", not back[0] and back[1] and back[2] is None, str(back))
--    n0=len(calls); await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(900)
--    await spg.locator("select[data-district-state]").nth(0).select_option("NE"); await spg.locator("[data-action=setDistrictState]").nth(0).click(); await spg.wait_for_timeout(900)
-+    pv=await spg.evaluate("[!!document.querySelector('[data-state-view-banner]'),document.documentElement.dataset.state,(document.querySelector('.frame>.topbar .demo-bar')||{}).textContent,getComputedStyle(document.querySelector('.frame>.topbar')).backgroundColor,document.querySelector('.frame>.topbar').className]")
-+    check("state (24 Nov): a district follows its own state, with no preview banner", not pv[0] and pv[1]=="IA", str(pv))
-+    check("top bar (24 Nov): the district's brand color, light text on a dark color, a neutral demo tag naming the state", pv[3]=="rgb(31, 78, 140)" and "tb-dark" in pv[4] and "Demo · Iowa" in (pv[2] or ""), str(pv))
-+    n0=len(calls); await spg.click(".frame>.topbar [data-action=demoState]"); await spg.wait_for_timeout(500)
-+    btns=await spg.evaluate("[...document.querySelectorAll('[data-modal] [data-action=demoSwitch]')].map(b=>[b.dataset.state,b.dataset.set||''])")
-+    check("demo state (24 Nov): the demo tag offers Nebraska, with its demo data set or keeping the figures", ["NE","prairie-fork"] in btns and ["NE",""] in btns, str(btns))
-+    await spg.click("[data-modal] [data-action=demoSwitch]:not([data-set])"); await spg.wait_for_timeout(1200)
+@@ -2304,8 +2304,15 @@ async def main():
+     check("public link (15 Oct): no Sign in in the header; a small staff line at the foot; no back bar for residents",
+           await pub.locator(".pub-top a[href='#/signin']").count()==0 and await pub.locator("[data-pub-foot] a[href='#/signin']").count()==1 and await pub.locator("[data-pub-back]").count()==0)
+     await pg.goto("http://localhost:8765/#/p/ironwood-valley"); await pg.wait_for_timeout(700)
+-    check("public link (15 Oct): someone signed in gets a way back to HighGround (the home-screen app has no back button)",
+-          await pg.locator("[data-pub-back] a[href='#/d/ironwood-valley']").count()==1 and await pg.locator("[data-pub-foot]").count()==0)
++    check("public link (25 Nov): someone signed in sees the same page as residents, with no back bar",
++          await pg.locator("[data-pub-back]").count()==0 and await pg.locator("[data-pub-foot]").count()==0)
++    fit=[]
++    for w in (1920,1440,1024,768,390):
++      await pg.set_viewport_size({"width":w,"height":900}); await pg.wait_for_timeout(250)
++      fit.append(await pg.evaluate("(()=>{const c=document.querySelector('.content').getBoundingClientRect(),t=document.querySelector('.pub-top').getBoundingClientRect(),b=document.querySelector('.pub-brand').getBoundingClientRect();return [innerWidth,document.documentElement.scrollWidth,Math.round(innerWidth-c.right-c.left),Math.round(c.width),Math.round(t.height),Math.round(Math.abs(b.left-c.left-parseFloat(getComputedStyle(document.querySelector('.content')).paddingLeft)))]})()"))
++    await pg.set_viewport_size({"width":1280,"height":900})
++    check("public link (25 Nov): the page fits every width, is centred, uses the width, and the header lines up with it", all(f[1]==f[0] and abs(f[2])<=1 and f[5]<=1 and (f[3]>=min(f[0],1680)-2) for f in fit), str(fit))
++    check("public link (25 Nov): the header has room for the logo", all(f[4]>=(96 if f[0]>820 else 72) for f in fit), str(fit))
+     await pg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pg.wait_for_timeout(500)
+     check("public link: branded, with the community note", "The board adopts the plan in October" in await pub.inner_text("body") and await pub.locator(".pub-top .pub-mono, .pub-top .pub-dlogo").count()==1
+       and "Willow Holler" not in await pub.inner_text("body") and await pub.locator(".pub-top img.logo-img").count()==0)
+@@ -2707,14 +2714,13 @@ async def main():
+     await spg.click("[data-modal] [data-action=demoSwitch]:not([data-set])"); await spg.wait_for_timeout(1200)
      pat=[c for c in calls[n0:] if c[0]=="PATCH" and "/district?" in c[1]]
--    check("admin portal (11 Nov): setting a demo district's state saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
-+    check("demo state (24 Nov): switching a demo district saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
-+    # the Home panel (25 Nov): tinted by the district color, or light when that color is red or clashes with the chart
-+    keep=(D1.get("state"),D1.get("brand_color")); D1["state"]="IA"; looks={}
-+    for nm,col in [("navy","#0B1A40"),("red","#B3202A"),("green","#2E7D32"),("gold","#F2C94C"),("purple","#5B2A86")]:
-+      D1["brand_color"]=col; await spg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await spg.reload(); await spg.wait_for_timeout(1300)
-+      looks[nm]=await spg.evaluate("(()=>{const h=document.querySelector('[data-home-hero]');return h?[h.dataset.look,getComputedStyle(h).backgroundImage,(h.querySelector('svg>rect:not([fill^=url])')||{getAttribute:()=>''}).getAttribute('fill')]:null})()")
-+    D1["state"],D1["brand_color"]=keep
-+    check("home panel (25 Nov): navy and purple get a tint of their own color", looks["navy"] and looks["navy"][0]=="tint" and "39, 50, 75" in looks["navy"][1] and looks["purple"][0]=="tint" and looks["navy"][2]=="#8DBBA2", str(looks))
-+    check("home panel (25 Nov): red, green and gold districts get the light panel with deeper chart colors", all(looks[k] and looks[k][0]=="light" for k in ("red","green","gold")) and looks["red"][2]=="#6FA88A", str(looks))
+     check("demo state (24 Nov): switching a demo district saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
+-    # the Home panel (25 Nov): tinted by the district color, or light when that color is red or clashes with the chart
++    # the Home panel (25 Nov, later): always the light panel, whatever the district color
+     keep=(D1.get("state"),D1.get("brand_color")); D1["state"]="IA"; looks={}
+-    for nm,col in [("navy","#0B1A40"),("red","#B3202A"),("green","#2E7D32"),("gold","#F2C94C"),("purple","#5B2A86")]:
++    for nm,col in [("navy","#0B1A40"),("red","#B3202A"),("purple","#5B2A86")]:
+       D1["brand_color"]=col; await spg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await spg.reload(); await spg.wait_for_timeout(1300)
+-      looks[nm]=await spg.evaluate("(()=>{const h=document.querySelector('[data-home-hero]');return h?[h.dataset.look,getComputedStyle(h).backgroundImage,(h.querySelector('svg>rect:not([fill^=url])')||{getAttribute:()=>''}).getAttribute('fill')]:null})()")
++      looks[nm]=await spg.evaluate("(()=>{const h=document.querySelector('[data-home-hero]');return h?[h.dataset.look,getComputedStyle(h).backgroundColor,(h.querySelector('svg>rect:not([fill^=url])')||{getAttribute:()=>''}).getAttribute('fill')]:null})()")
+     D1["state"],D1["brand_color"]=keep
+-    check("home panel (25 Nov): navy and purple get a tint of their own color", looks["navy"] and looks["navy"][0]=="tint" and "39, 50, 75" in looks["navy"][1] and looks["purple"][0]=="tint" and looks["navy"][2]=="#8DBBA2", str(looks))
+-    check("home panel (25 Nov): red, green and gold districts get the light panel with deeper chart colors", all(looks[k] and looks[k][0]=="light" for k in ("red","green","gold")) and looks["red"][2]=="#6FA88A", str(looks))
++    check("home panel (25 Nov): white for every district color, with the light chart colors", all(v and v[0]=="light" and v[1]=="rgb(255, 255, 255)" and v[2]=="#6FA88A" for v in looks.values()), str(looks))
      await sx.close()
      for t,v in SAVED.items(): TABLES[t]=v
      D2.clear(); D2.update(D2SAVED); USERS["admin@example.test"]=ADM

@@ -2304,8 +2304,15 @@ async def main():
     check("public link (15 Oct): no Sign in in the header; a small staff line at the foot; no back bar for residents",
           await pub.locator(".pub-top a[href='#/signin']").count()==0 and await pub.locator("[data-pub-foot] a[href='#/signin']").count()==1 and await pub.locator("[data-pub-back]").count()==0)
     await pg.goto("http://localhost:8765/#/p/ironwood-valley"); await pg.wait_for_timeout(700)
-    check("public link (15 Oct): someone signed in gets a way back to HighGround (the home-screen app has no back button)",
-          await pg.locator("[data-pub-back] a[href='#/d/ironwood-valley']").count()==1 and await pg.locator("[data-pub-foot]").count()==0)
+    check("public link (25 Nov): someone signed in sees the same page as residents, with no back bar",
+          await pg.locator("[data-pub-back]").count()==0 and await pg.locator("[data-pub-foot]").count()==0)
+    fit=[]
+    for w in (1920,1440,1024,768,390):
+      await pg.set_viewport_size({"width":w,"height":900}); await pg.wait_for_timeout(250)
+      fit.append(await pg.evaluate("(()=>{const c=document.querySelector('.content').getBoundingClientRect(),t=document.querySelector('.pub-top').getBoundingClientRect(),b=document.querySelector('.pub-brand').getBoundingClientRect();return [innerWidth,document.documentElement.scrollWidth,Math.round(innerWidth-c.right-c.left),Math.round(c.width),Math.round(t.height),Math.round(Math.abs(b.left-c.left-parseFloat(getComputedStyle(document.querySelector('.content')).paddingLeft)))]})()"))
+    await pg.set_viewport_size({"width":1280,"height":900})
+    check("public link (25 Nov): the page fits every width, is centred, uses the width, and the header lines up with it", all(f[1]==f[0] and abs(f[2])<=1 and f[5]<=1 and (f[3]>=min(f[0],1680)-2) for f in fit), str(fit))
+    check("public link (25 Nov): the header has room for the logo", all(f[4]>=(96 if f[0]>820 else 72) for f in fit), str(fit))
     await pg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await pg.wait_for_timeout(500)
     check("public link: branded, with the community note", "The board adopts the plan in October" in await pub.inner_text("body") and await pub.locator(".pub-top .pub-mono, .pub-top .pub-dlogo").count()==1
       and "Willow Holler" not in await pub.inner_text("body") and await pub.locator(".pub-top img.logo-img").count()==0)
@@ -2707,14 +2714,13 @@ async def main():
     await spg.click("[data-modal] [data-action=demoSwitch]:not([data-set])"); await spg.wait_for_timeout(1200)
     pat=[c for c in calls[n0:] if c[0]=="PATCH" and "/district?" in c[1]]
     check("demo state (24 Nov): switching a demo district saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
-    # the Home panel (25 Nov): tinted by the district color, or light when that color is red or clashes with the chart
+    # the Home panel (25 Nov, later): always the light panel, whatever the district color
     keep=(D1.get("state"),D1.get("brand_color")); D1["state"]="IA"; looks={}
-    for nm,col in [("navy","#0B1A40"),("red","#B3202A"),("green","#2E7D32"),("gold","#F2C94C"),("purple","#5B2A86")]:
+    for nm,col in [("navy","#0B1A40"),("red","#B3202A"),("purple","#5B2A86")]:
       D1["brand_color"]=col; await spg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await spg.reload(); await spg.wait_for_timeout(1300)
-      looks[nm]=await spg.evaluate("(()=>{const h=document.querySelector('[data-home-hero]');return h?[h.dataset.look,getComputedStyle(h).backgroundImage,(h.querySelector('svg>rect:not([fill^=url])')||{getAttribute:()=>''}).getAttribute('fill')]:null})()")
+      looks[nm]=await spg.evaluate("(()=>{const h=document.querySelector('[data-home-hero]');return h?[h.dataset.look,getComputedStyle(h).backgroundColor,(h.querySelector('svg>rect:not([fill^=url])')||{getAttribute:()=>''}).getAttribute('fill')]:null})()")
     D1["state"],D1["brand_color"]=keep
-    check("home panel (25 Nov): navy and purple get a tint of their own color", looks["navy"] and looks["navy"][0]=="tint" and "39, 50, 75" in looks["navy"][1] and looks["purple"][0]=="tint" and looks["navy"][2]=="#8DBBA2", str(looks))
-    check("home panel (25 Nov): red, green and gold districts get the light panel with deeper chart colors", all(looks[k] and looks[k][0]=="light" for k in ("red","green","gold")) and looks["red"][2]=="#6FA88A", str(looks))
+    check("home panel (25 Nov): white for every district color, with the light chart colors", all(v and v[0]=="light" and v[1]=="rgb(255, 255, 255)" and v[2]=="#6FA88A" for v in looks.values()), str(looks))
     await sx.close()
     for t,v in SAVED.items(): TABLES[t]=v
     D2.clear(); D2.update(D2SAVED); USERS["admin@example.test"]=ADM
