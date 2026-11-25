@@ -1288,27 +1288,27 @@ button.pc{position:relative}
 /* 21 Oct (d): on a narrower window the initiatives table drops the Owner column (it's in the editor) so the rest fits */
 @media (max-width: 1000px){ .ini-card table.data th:nth-child(4),.ini-card table.data td:nth-child(4){display:none} .ini-card td:first-child{min-width:170px} }
 
-/* ---------- Home, answer first (10 Nov 2026): green panel with the plan in one sentence, live assumptions and the ten-year chart;
+/* ---------- Home, answer first (10 Nov 2026): panel tinted by the district color (25 Nov 2026), or a light panel when that color is red or clashes with the chart with the plan in one sentence, live assumptions and the ten-year chart;
    the ask bar straddles its bottom edge; "This week" cards say where each item came from ---------- */
-.home-hero.hh-dark{background:linear-gradient(180deg,#17322A 0%,var(--rail) 100%);border:0;color:#F1EEE4;padding:22px 26px 86px}
-.hh-dark .hh-hi{color:#B2C6BA}
-.hh-dark .hh-hi span{color:#86A193}
+.home-hero.hh-dark{background:linear-gradient(180deg,var(--hh-top,#2E3A36) 0%,var(--hh-bot,#232B28) 100%);border:0;color:#F1EEE4;padding:22px 26px 86px}
+.hh-dark .hh-hi{color:#D9DCDF}
+.hh-dark .hh-hi span{color:#C4C8CC}
 .hh-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr);gap:18px 40px;align-items:end;margin-top:6px}
 .hh-dark p.lead{font-family:var(--serif);font-weight:500;font-size:34px;line-height:1.16;letter-spacing:-.012em;color:#F1EEE4;max-width:24ch;text-wrap:balance}
 .hh-dark p.lead em{font-style:normal;font-weight:600;color:#D3AE58}
-.hh-dark p.lead .gapn{font-weight:600;color:#F2897C;white-space:nowrap}
-.hh-assume{margin:12px 0 0;font-size:15px;line-height:1.8;color:#B2C6BA;max-width:62ch}
+.hh-dark p.lead .gapn{font-weight:600;color:#F89A8E;white-space:nowrap}
+.hh-assume{margin:12px 0 0;font-size:15px;line-height:1.8;color:#D9DCDF;max-width:62ch}
 .hh-scrub{display:inline-flex;align-items:center;border:0;border-bottom:1.5px dashed #D3AE58;border-radius:5px 5px 2px 2px;background:rgba(241,238,228,.09);color:#F1EEE4;font:600 15px/1.45 var(--sans);font-variant-numeric:tabular-nums;padding:0 7px;cursor:ew-resize;touch-action:none;user-select:none}
 .hh-scrub:hover,.hh-scrub[aria-expanded=true]{background:rgba(211,174,88,.24)}
-.hh-reset,.hh-math{border:0;background:transparent;padding:0;color:#86A193;font:inherit;font-size:13.5px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.hh-reset,.hh-math{border:0;background:transparent;padding:0;color:#C4C8CC;font:inherit;font-size:13.5px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .hh-reset:hover,.hh-math:hover{color:#F1EEE4}
 .hh-figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid rgba(241,238,228,.16);container-type:inline-size}
 .hh-figs>div{padding:12px 10px 2px 0;display:flex;flex-direction:column;min-width:0}
 .hh-figs>div+div{padding-left:14px;border-left:1px solid rgba(241,238,228,.16)}
-.hh-figs span{font-size:12.5px;line-height:1.3;color:#86A193;display:flex;align-items:flex-start;gap:4px}
+.hh-figs span{font-size:12.5px;line-height:1.3;color:#C4C8CC;display:flex;align-items:flex-start;gap:4px}
 /* values sit on one line at the foot of each column, whatever the label wraps to, and shrink to fit a narrow panel */
 .hh-figs b{font:600 25px/1.2 var(--serif);font-size:clamp(16px,calc(9.2cqi - 4px),25px);font-variant-numeric:tabular-nums;color:#F1EEE4;margin-top:auto;padding-top:4px;white-space:nowrap}
-.hh-figs .ok b{color:#8DBBA2} .hh-figs .g b{color:#F2897C}
+.hh-figs .ok b{color:#8DBBA2} .hh-figs .g b{color:#F89A8E}
 .hh-figs .defn{background:rgba(241,238,228,.12);color:#F1EEE4;border-color:transparent}
 .hh-lever{margin-top:14px;max-width:440px;background:var(--card);color:var(--text);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;box-shadow:0 14px 34px rgba(0,0,0,.25)}
 .hh-lever label{display:flex;justify-content:space-between;gap:12px;font-size:14px}
@@ -1320,13 +1320,27 @@ button.pc{position:relative}
 .hh-chart{margin-top:20px;overflow-x:auto}
 .hh-chart svg{display:block;width:100%;min-width:600px;font-family:var(--sans)}
 .hc-grid{stroke:rgba(241,238,228,.14)} .hc-grid.d{stroke-dasharray:2 4}
-.hc-ax{font-size:11.5px;fill:#86A193} .hc-yr{font-size:12px;fill:#86A193} .hc-yr.now{fill:#F1EEE4;font-weight:600} .hc-now{font-size:10.5px;fill:#D3AE58}
-.hc-tot{font-size:12px;font-weight:600;fill:#B2C6BA} .hc-tot.g{fill:#F2897C} .hc-lbl{font-size:11.5px;fill:#F1EEE4}
+.hc-ax{font-size:11.5px;fill:#C4C8CC} .hc-yr{font-size:12px;fill:#C4C8CC} .hc-yr.now{fill:#F1EEE4;font-weight:600} .hc-now{font-size:10.5px;fill:#D3AE58}
+.hc-tot{font-size:12px;font-weight:600;fill:#D9DCDF} .hc-tot.g{fill:#F89A8E} .hc-lbl{font-size:11.5px;fill:#F1EEE4}
 .hh-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-top:4px}
-.hh-legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:#B2C6BA}
+.hh-legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:#D9DCDF}
 .hh-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:7px;vertical-align:-1px}
-.hh-legend .paid{background:#8DBBA2} .hh-legend .boost{background:#D3AE58} .hh-legend .gap{background:repeating-linear-gradient(135deg,#F2897C 0 2px,transparent 2px 4px);outline:1px solid #F2897C}
+.hh-legend .paid{background:#8DBBA2} .hh-legend .boost{background:#D3AE58} .hh-legend .gap{background:repeating-linear-gradient(135deg,#F89A8E 0 2px,transparent 2px 4px);outline:1px solid #F89A8E}
 .hh-foot .hh-math{margin-left:auto}
+/* the light panel: a white card with dark text. Used when the district color is red (debt and errors are red), would clash
+   with the chart's green, gold or red, or would leave text or bars hard to read. Color stays only where it means something */
+.home-hero.hh-light{background:#FFFFFF;border:1px solid #E2E2E0;color:#18181A}
+.hh-light .hh-hi{color:#18181A} .hh-light .hh-hi span,.hh-light .hh-reset,.hh-light .hh-math,.hh-light .hh-figs span{color:#5C5C5E}
+.hh-light .hh-reset:hover,.hh-light .hh-math:hover{color:#18181A}
+.hh-light p.lead{color:#18181A} .hh-light p.lead em{color:#1F7A4D} .hh-light p.lead .gapn,.hh-light .hh-figs .g b{color:#C0362C}
+.hh-light .hh-assume,.hh-light .hh-legend{color:#4A4A4C}
+.hh-light .hh-scrub{background:#FFFFFF;box-shadow:0 0 0 1px #E2E2E0;color:#18181A;border-bottom-color:#1F7A4D}
+.hh-light .hh-scrub:hover,.hh-light .hh-scrub[aria-expanded=true]{background:#E6F0EA}
+.hh-light .hh-figs,.hh-light .hh-figs>div+div{border-color:#E2E2E0} .hh-light .hh-figs b{color:#18181A} .hh-light .hh-figs .ok b{color:#1F7A4D}
+.hh-light .hh-figs .defn{background:#F4F4F3;color:#18181A;border-color:#E2E2E0}
+.hh-light .hc-grid{stroke:#E2E2E0} .hh-light .hc-ax,.hh-light .hc-yr{fill:#5C5C5E} .hh-light .hc-yr.now,.hh-light .hc-lbl{fill:#18181A} .hh-light .hc-now{fill:#1F7A4D}
+.hh-light .hc-tot{fill:#4A4A4C} .hh-light .hc-tot.g{fill:#C0362C} .hh-light .hc-lead{stroke:#B9B9B7}
+.hh-light .hh-legend .paid{background:#6FA88A} .hh-light .hh-legend .boost{background:#D9A62E} .hh-light .hh-legend .gap{background:repeating-linear-gradient(135deg,#C0362C 0 2px,transparent 2px 4px);outline-color:#C0362C}
 .ha-zone.lift{margin-top:-74px;padding:0 16px;position:relative;z-index:2}
 .ha{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 2px 4px rgba(16,24,20,.06),0 16px 36px rgba(16,24,20,.12);padding:8px 8px 12px}
 .ha-row{display:flex;align-items:center;gap:10px;padding:0 4px 0 10px;color:var(--action)}

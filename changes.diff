@@ -17,7 +17,7 @@ index b61385a..6293d30 100644
  - **Where the math differs, it's real code:**
    - `engine.lidRoom` for Nebraska's three limits;
 diff --git a/app.js b/app.js
-index e6e47d3..3cbee72 100644
+index e6e47d3..8f4e8a0 100644
 --- a/app.js
 +++ b/app.js
 @@ -89,13 +89,13 @@
@@ -39,7 +39,7 @@ index e6e47d3..3cbee72 100644
    const PACK = () => HGStates.current();
    const F_ON = (k) => HGStates.on(k);
    const STATE_OBS = { o: null };
-@@ -128,10 +128,13 @@
+@@ -128,10 +128,39 @@
      run([document.body]);
      return P;
    }
@@ -47,6 +47,32 @@ index e6e47d3..3cbee72 100644
 -  function stateViewBanner(d) {
 -    const v = stateView(); if (!v || !d || v === (d.state || 'IA').toUpperCase()) return '';
 -    return `<div class="notice warn" data-state-view-banner><b>Internal preview: ${esc(HGStates.pack(v).name)} view.</b> ${esc(d.short_name || d.name)} is shown with ${esc(HGStates.pack(v).name)}’s funds, rules and words. Its own state (${esc(d.state || 'IA')}) and its data haven’t changed, but its numbers follow ${esc(HGStates.pack(v).name)}’s rules: money in a fund ${esc(HGStates.pack(v).name)} doesn’t have counts as short. <a href="#/staff">Change the state view in the Admin Portal</a>.</div>`;
++  /* ---- the Home panel (25 Nov 2026): a deep tint of the district color by default. It turns into the light panel when the
++     color is red (red means debt and errors), when the tint's hue sits near the chart's green, gold or red, or when its
++     text or bars would be hard to read on it. No brand color: light. ---- */
++  const HH_DARK = { paid: '#8DBBA2', boost: '#D3AE58', gap: '#F89A8E', text: '#F1EEE4', sub: '#C4C8CC' };
++  const HH_LIGHT = { paid: '#6FA88A', boost: '#D9A62E', gap: '#C0362C' };
++  const rgbOf = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
++  const hexOf = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
++  const mixHex = (a, b, t) => { const x = rgbOf(a), y = rgbOf(b); return hexOf(x.map((v, k) => v * t + y[k] * (1 - t))); };
++  const hslOf = (hex) => { const [r, g, b] = rgbOf(hex).map((v) => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
++    if (!d) return { h: 0, s: 0, l }; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
++    return { h: (h * 60 + 360) % 360, s: d / (1 - Math.abs(2 * l - 1)), l }; };
++  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
++  function heroLook(hex) {
++    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return { light: true, why: 'no brand color' };
++    const b = hslOf(hex);
++    if (b.s > 0.25 && b.l > 0.12 && b.l < 0.9 && (b.h >= 320 || b.h <= 20)) return { light: true, why: 'red or pink' };
++    const base = [mixHex(hex, '#4A5058', 0.55), mixHex(hex, '#2B2F33', 0.65)], mid = hslOf(mixHex(base[0], base[1], 0.5));
++    const near = (h) => { const d = Math.abs(mid.h - h) % 360; return Math.min(d, 360 - d) < 28; };
++    if (mid.s > 0.14 && [HH_DARK.paid, HH_DARK.boost, HH_DARK.gap].some((c) => near(hslOf(c).h))) return { light: true, why: 'clashes with the chart' };
++    const reads = (bg) => ratio(HH_DARK.text, bg) >= 4.5 && ratio(HH_DARK.sub, bg) >= 4.5 && [HH_DARK.paid, HH_DARK.boost, HH_DARK.gap].every((c) => ratio(c, bg) >= 3);
++    for (const k of [1, 0.8, 0.62, 0.48]) {   // a light district color gets a deeper tint before giving up on it
++      const [top, bot] = base.map((c) => mixHex(c, '#1A1D20', k));
++      if (reads(top) && reads(bot)) return { light: false, top, bot };
++    }
++    return { light: true, why: 'text or bars hard to read' };
++  }
 +  /* ---- the top bar in the district's brand color. Text, icons, the wordmark and the demo tag go light or dark, whichever
 +     reads better on it (WCAG contrast against white and against the app's dark text). No brand color: HighGround green. ---- */
 +  const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce((a, v, k) => a + v * [0.2126, 0.7152, 0.0722][k], 0); };
@@ -57,7 +83,7 @@ index e6e47d3..3cbee72 100644
    }
    function go(hash, message) {
      flash = message || null;
-@@ -387,7 +390,7 @@
+@@ -387,7 +416,7 @@
    const icon = (k, size = 16, w = 1.9) => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
    const railKey = 'highground-menu-collapsed';
    const railCollapsed = () => { try { return localStorage.getItem(railKey) === '1'; } catch (e) { return false; } };
@@ -66,7 +92,7 @@ index e6e47d3..3cbee72 100644
    function frame({ slug, sectionId, tabId, body }) {
      const d = S.district;
      const cur = (() => { const sec = ALL.find((x) => x.id === sectionId), t = sec && sec.tabs.find((x) => x.id === tabId); return t && t.parent ? t.parent : tabId; })();
-@@ -407,18 +410,23 @@
+@@ -407,18 +436,23 @@
      const roleName = S.preview ? 'Previewing as board member' : S.isStaff && !S.memberships.some((m) => d && m.district.id === d.id) ? 'Willow Holler staff' : (ROLE[S.realRole || S.role] || '');
      const logoOnly = d && d.logo_path && d.menu_logo_only;
      const org = d ? `<div class="org ${logoOnly ? 'lg' : ''}">${logoOnly ? `<img class="org-logo" src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt="${esc(d.name)}">${districtMark(d, 'rm')}`
@@ -94,7 +120,7 @@ index e6e47d3..3cbee72 100644
            ${slug ? `<button type="button" class="helpbtn searchbtn" data-action="openSearch" aria-label="Search this district" title="Search: screens, initiatives, reports  (Ctrl K)">${icon('search', 18, 1.9)}</button>` : ''}
            ${slug ? `<button type="button" class="helpbtn" data-action="startPresent" aria-label="Present on a big screen" title="Present on a big screen">${icon('present', 18, 1.8)}</button>` : ''}
            ${slug ? `<button type="button" class="helpbtn" data-action="openHelp" aria-label="Help with this screen" title="Help with this screen">${icon('help', 18, 1.8)}</button>` : ''}
-@@ -484,7 +492,7 @@
+@@ -484,7 +518,7 @@
          <div class="right">${viewSwitch}${tab.status !== 'live' ? badge(tab.status) : ''}${tab.status !== 'live' && tab.phase ? `<span class="small muted">${tab.status === 'wip' ? 'Planned for' : 'Rest in'} Phase ${tab.phase}</span>` : ''}</div></div>
        ${tabs}
        ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
@@ -103,7 +129,36 @@ index e6e47d3..3cbee72 100644
        <div id="view" class="stack"><div class="empty">Loading…</div></div>` });
      flash = null;
      const view = document.getElementById('view');
-@@ -5886,16 +5894,18 @@
+@@ -767,14 +801,14 @@
+     const W = 960, H = 290, L = 46, R = 10, top = 46, base = 248, f = HGReport.fmt, ys = x.years;
+     const mx = Math.max(1, ...ys.map((y) => y.total)), step = mx > 8e6 ? 2e6 : mx > 3e6 ? 1e6 : mx > 1.2e6 ? 5e5 : 2.5e5, ceil = Math.ceil((mx * 1.12) / step) * step;
+     const sc = (base - top) / ceil, col = (W - L - R) / ys.length, bw = Math.min(46, col * 0.52);
+-    const placed = [];
+-    let g = `<defs><pattern id="hh-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#F2897C" fill-opacity=".18"/><rect width="2.2" height="6" fill="#F2897C"/></pattern></defs>`;
++    const placed = [], C = HOME.look && !HOME.look.light ? HH_DARK : HH_LIGHT;
++    let g = `<defs><pattern id="hh-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="${C.gap}" fill-opacity=".18"/><rect width="2.2" height="6" fill="${C.gap}"/></pattern></defs>`;
+     for (let t = 0; t <= ceil + 1; t += step) { const y = base - t * sc; g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="hc-grid${t ? ' d' : ''}"/><text x="${L - 9}" y="${(y + 4).toFixed(1)}" class="hc-ax" text-anchor="end">${t === 0 ? '$0' : t >= 1e6 ? '$' + +(t / 1e6).toFixed(1) + 'M' : '$' + Math.round(t / 1000) + 'k'}</text>`; }
+     ys.forEach((r) => {
+       const x0 = L + r.i * col + (col - bw) / 2; let y = base;
+-      [[r.paid, '#8DBBA2', 'paid for by levies, grants and financing'], [r.boost, '#D3AE58', 'from boosters'], [r.gap, 'url(#hh-hatch)', 'with no way to pay yet']].forEach(([v, c, what], j) => {
++      [[r.paid, C.paid, 'paid for by levies, grants and financing'], [r.boost, C.boost, 'from boosters'], [r.gap, 'url(#hh-hatch)', 'with no way to pay yet']].forEach(([v, c, what], j) => {
+         if (v < 0.5) return; const hh = v * sc; y -= hh;
+-        g += `<rect x="${x0.toFixed(1)}" y="${(y + 0.75).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, hh - 1.5).toFixed(1)}" rx="2" fill="${c}"${j === 2 ? ' stroke="#F2897C" stroke-width="1.2"' : ''}><title>FY${r.fy}: ${f(v)} ${what}</title></rect>`;
++        g += `<rect x="${x0.toFixed(1)}" y="${(y + 0.75).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, hh - 1.5).toFixed(1)}" rx="2" fill="${c}"${j === 2 ? ` stroke="${C.gap}" stroke-width="1.2"` : ''}><title>FY${r.fy}: ${f(v)} ${what}</title></rect>`;
+       });
+       if (r.total > 0.5) g += `<text x="${(x0 + bw / 2).toFixed(1)}" y="${(y - 8).toFixed(1)}" class="hc-tot${r.gap > 0.5 ? ' g' : ''}" text-anchor="middle">${f(r.total)}</text>`;
+       if (r.gap > 0.5 && r.label && r.gap >= 0.25 * Math.max(...ys.map((z) => z.gap))) {
+@@ -792,7 +826,8 @@
+   }
+   function homeHero(c, greet) {
+     const x = homeCalc(); HOME.x = x;
+-    return `<section class="home-hero hh-dark" data-home-hero>
++    const look = HOME.look = heroLook(S.district && S.district.brand_color);
++    return `<section class="home-hero hh-dark${look.light ? ' hh-light' : ''}" data-home-hero data-look="${look.light ? 'light' : 'tint'}"${look.light ? `` : ` style="--hh-top:${look.top};--hh-bot:${look.bot}"`}>
+       <div class="hh-hi">${greet}</div>
+       <div class="hh-grid"><div class="hh-txt"><p class="lead" data-hh-head>${homeHeadline(x)}</p><p class="hh-assume" data-hh-assume>${homeAssume()}</p></div>
+         <div class="hh-figs" data-hh-figs>${homeFigs(x)}</div></div>
+@@ -5886,16 +5921,18 @@
      closeModal(); await loadContext(true);
      flash = `${d.name} was deleted.`; renderStaff();
    }
@@ -132,7 +187,7 @@ index e6e47d3..3cbee72 100644
    }
    async function renderStaff() {
      S.district = null; S.role = null; stateApply('IA');
-@@ -5907,11 +5917,10 @@
+@@ -5907,11 +5944,10 @@
        <div class="page-head"><div><h1>Admin Portal</h1><div class="lede">Every district, and new ones. Willow Holler staff only.</div></div></div>
        ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
        ${healthCard(health)}
@@ -145,7 +200,7 @@ index e6e47d3..3cbee72 100644
          { label: 'Demo', get: (r) => (r.is_demo ? 'Demo' : '') }, { label: 'Created', get: (r) => day(r.created_at) },
          { label: 'Two-step sign-in', html: (r) => (r.require_two_step === undefined ? '' : `<button type="button" class="btn small" data-action="toggleTwoStep" data-id="${esc(r.id)}" data-on="${r.require_two_step ? 1 : 0}" title="${r.require_two_step ? 'Everyone in this district must use it. Click to make it optional.' : 'Optional here. Click to require it.'}">${r.require_two_step ? 'Required' : 'Optional'}</button>`) },
          { label: '', html: (r) => `<button type="button" class="btn small danger" data-action="deleteDistrictAsk" data-id="${esc(r.id)}">Delete…</button>` },
-@@ -6550,23 +6559,25 @@
+@@ -6550,23 +6586,25 @@
        toast('Demo ledger not loaded', 'The plan is in, but the sample monthly ledger couldn’t be added. Budget vs. actual stays empty.');
      }
    }
@@ -182,7 +237,7 @@ index e6e47d3..3cbee72 100644
      toast('Demo reset', `${d.name} is back to the ${window.HG_DEMOS[set].name.replace(/ Community School District$/, '')} demo${published ? ', and its board version is on the public link again' : ''}.`);
      here();
    }
-@@ -7123,18 +7134,23 @@
+@@ -7123,18 +7161,23 @@
          ${old ? '<p class="small muted">Once the new phone’s code works, the old phone stops working.</p>' : ''}
          <div class="row"><button type="submit" class="btn primary">${old ? 'Switch to this phone' : 'Turn it on'}</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
      },
@@ -218,7 +273,7 @@ index e6e47d3..3cbee72 100644
      async toggleTwoStep(el) {
        const on = el.dataset.on === '1', d = (S.staffDistricts || []).find((x) => x.id === el.dataset.id) || {};
 diff --git a/styles.css b/styles.css
-index 7915f7f..b4602a0 100644
+index 7915f7f..76b68bb 100644
 --- a/styles.css
 +++ b/styles.css
 @@ -24,13 +24,28 @@ button,input,select,textarea{font:inherit;color:inherit}
@@ -252,11 +307,80 @@ index 7915f7f..b4602a0 100644
  .rail{grid-column:1;grid-row:2;position:sticky;top:62px;height:calc(100vh / var(--z, 1) - 62px);background:var(--side);border-right:1px solid var(--border);color:var(--text);overflow-y:auto;overflow-x:hidden}
  .rail-menu{display:flex;flex-direction:column;gap:6px;min-height:100%;padding:10px 8px 8px}
  .org{display:flex;align-items:center;gap:8px;padding:4px 6px 10px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:4px}
+@@ -1273,27 +1288,27 @@ button.pc{position:relative}
+ /* 21 Oct (d): on a narrower window the initiatives table drops the Owner column (it's in the editor) so the rest fits */
+ @media (max-width: 1000px){ .ini-card table.data th:nth-child(4),.ini-card table.data td:nth-child(4){display:none} .ini-card td:first-child{min-width:170px} }
+ 
+-/* ---------- Home, answer first (10 Nov 2026): green panel with the plan in one sentence, live assumptions and the ten-year chart;
++/* ---------- Home, answer first (10 Nov 2026): panel tinted by the district color (25 Nov 2026), or a light panel when that color is red or clashes with the chart with the plan in one sentence, live assumptions and the ten-year chart;
+    the ask bar straddles its bottom edge; "This week" cards say where each item came from ---------- */
+-.home-hero.hh-dark{background:linear-gradient(180deg,#17322A 0%,var(--rail) 100%);border:0;color:#F1EEE4;padding:22px 26px 86px}
+-.hh-dark .hh-hi{color:#B2C6BA}
+-.hh-dark .hh-hi span{color:#86A193}
++.home-hero.hh-dark{background:linear-gradient(180deg,var(--hh-top,#2E3A36) 0%,var(--hh-bot,#232B28) 100%);border:0;color:#F1EEE4;padding:22px 26px 86px}
++.hh-dark .hh-hi{color:#D9DCDF}
++.hh-dark .hh-hi span{color:#C4C8CC}
+ .hh-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr);gap:18px 40px;align-items:end;margin-top:6px}
+ .hh-dark p.lead{font-family:var(--serif);font-weight:500;font-size:34px;line-height:1.16;letter-spacing:-.012em;color:#F1EEE4;max-width:24ch;text-wrap:balance}
+ .hh-dark p.lead em{font-style:normal;font-weight:600;color:#D3AE58}
+-.hh-dark p.lead .gapn{font-weight:600;color:#F2897C;white-space:nowrap}
+-.hh-assume{margin:12px 0 0;font-size:15px;line-height:1.8;color:#B2C6BA;max-width:62ch}
++.hh-dark p.lead .gapn{font-weight:600;color:#F89A8E;white-space:nowrap}
++.hh-assume{margin:12px 0 0;font-size:15px;line-height:1.8;color:#D9DCDF;max-width:62ch}
+ .hh-scrub{display:inline-flex;align-items:center;border:0;border-bottom:1.5px dashed #D3AE58;border-radius:5px 5px 2px 2px;background:rgba(241,238,228,.09);color:#F1EEE4;font:600 15px/1.45 var(--sans);font-variant-numeric:tabular-nums;padding:0 7px;cursor:ew-resize;touch-action:none;user-select:none}
+ .hh-scrub:hover,.hh-scrub[aria-expanded=true]{background:rgba(211,174,88,.24)}
+-.hh-reset,.hh-math{border:0;background:transparent;padding:0;color:#86A193;font:inherit;font-size:13.5px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
++.hh-reset,.hh-math{border:0;background:transparent;padding:0;color:#C4C8CC;font:inherit;font-size:13.5px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+ .hh-reset:hover,.hh-math:hover{color:#F1EEE4}
+ .hh-figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid rgba(241,238,228,.16);container-type:inline-size}
+ .hh-figs>div{padding:12px 10px 2px 0;display:flex;flex-direction:column;min-width:0}
+ .hh-figs>div+div{padding-left:14px;border-left:1px solid rgba(241,238,228,.16)}
+-.hh-figs span{font-size:12.5px;line-height:1.3;color:#86A193;display:flex;align-items:flex-start;gap:4px}
++.hh-figs span{font-size:12.5px;line-height:1.3;color:#C4C8CC;display:flex;align-items:flex-start;gap:4px}
+ /* values sit on one line at the foot of each column, whatever the label wraps to, and shrink to fit a narrow panel */
+ .hh-figs b{font:600 25px/1.2 var(--serif);font-size:clamp(16px,calc(9.2cqi - 4px),25px);font-variant-numeric:tabular-nums;color:#F1EEE4;margin-top:auto;padding-top:4px;white-space:nowrap}
+-.hh-figs .ok b{color:#8DBBA2} .hh-figs .g b{color:#F2897C}
++.hh-figs .ok b{color:#8DBBA2} .hh-figs .g b{color:#F89A8E}
+ .hh-figs .defn{background:rgba(241,238,228,.12);color:#F1EEE4;border-color:transparent}
+ .hh-lever{margin-top:14px;max-width:440px;background:var(--card);color:var(--text);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;box-shadow:0 14px 34px rgba(0,0,0,.25)}
+ .hh-lever label{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+@@ -1305,13 +1320,27 @@ button.pc{position:relative}
+ .hh-chart{margin-top:20px;overflow-x:auto}
+ .hh-chart svg{display:block;width:100%;min-width:600px;font-family:var(--sans)}
+ .hc-grid{stroke:rgba(241,238,228,.14)} .hc-grid.d{stroke-dasharray:2 4}
+-.hc-ax{font-size:11.5px;fill:#86A193} .hc-yr{font-size:12px;fill:#86A193} .hc-yr.now{fill:#F1EEE4;font-weight:600} .hc-now{font-size:10.5px;fill:#D3AE58}
+-.hc-tot{font-size:12px;font-weight:600;fill:#B2C6BA} .hc-tot.g{fill:#F2897C} .hc-lbl{font-size:11.5px;fill:#F1EEE4}
++.hc-ax{font-size:11.5px;fill:#C4C8CC} .hc-yr{font-size:12px;fill:#C4C8CC} .hc-yr.now{fill:#F1EEE4;font-weight:600} .hc-now{font-size:10.5px;fill:#D3AE58}
++.hc-tot{font-size:12px;font-weight:600;fill:#D9DCDF} .hc-tot.g{fill:#F89A8E} .hc-lbl{font-size:11.5px;fill:#F1EEE4}
+ .hh-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-top:4px}
+-.hh-legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:#B2C6BA}
++.hh-legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:#D9DCDF}
+ .hh-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:7px;vertical-align:-1px}
+-.hh-legend .paid{background:#8DBBA2} .hh-legend .boost{background:#D3AE58} .hh-legend .gap{background:repeating-linear-gradient(135deg,#F2897C 0 2px,transparent 2px 4px);outline:1px solid #F2897C}
++.hh-legend .paid{background:#8DBBA2} .hh-legend .boost{background:#D3AE58} .hh-legend .gap{background:repeating-linear-gradient(135deg,#F89A8E 0 2px,transparent 2px 4px);outline:1px solid #F89A8E}
+ .hh-foot .hh-math{margin-left:auto}
++/* the light panel: a white card with dark text. Used when the district color is red (debt and errors are red), would clash
++   with the chart's green, gold or red, or would leave text or bars hard to read. Color stays only where it means something */
++.home-hero.hh-light{background:#FFFFFF;border:1px solid #E2E2E0;color:#18181A}
++.hh-light .hh-hi{color:#18181A} .hh-light .hh-hi span,.hh-light .hh-reset,.hh-light .hh-math,.hh-light .hh-figs span{color:#5C5C5E}
++.hh-light .hh-reset:hover,.hh-light .hh-math:hover{color:#18181A}
++.hh-light p.lead{color:#18181A} .hh-light p.lead em{color:#1F7A4D} .hh-light p.lead .gapn,.hh-light .hh-figs .g b{color:#C0362C}
++.hh-light .hh-assume,.hh-light .hh-legend{color:#4A4A4C}
++.hh-light .hh-scrub{background:#FFFFFF;box-shadow:0 0 0 1px #E2E2E0;color:#18181A;border-bottom-color:#1F7A4D}
++.hh-light .hh-scrub:hover,.hh-light .hh-scrub[aria-expanded=true]{background:#E6F0EA}
++.hh-light .hh-figs,.hh-light .hh-figs>div+div{border-color:#E2E2E0} .hh-light .hh-figs b{color:#18181A} .hh-light .hh-figs .ok b{color:#1F7A4D}
++.hh-light .hh-figs .defn{background:#F4F4F3;color:#18181A;border-color:#E2E2E0}
++.hh-light .hc-grid{stroke:#E2E2E0} .hh-light .hc-ax,.hh-light .hc-yr{fill:#5C5C5E} .hh-light .hc-yr.now,.hh-light .hc-lbl{fill:#18181A} .hh-light .hc-now{fill:#1F7A4D}
++.hh-light .hc-tot{fill:#4A4A4C} .hh-light .hc-tot.g{fill:#C0362C} .hh-light .hc-lead{stroke:#B9B9B7}
++.hh-light .hh-legend .paid{background:#6FA88A} .hh-light .hh-legend .boost{background:#D9A62E} .hh-light .hh-legend .gap{background:repeating-linear-gradient(135deg,#C0362C 0 2px,transparent 2px 4px);outline-color:#C0362C}
+ .ha-zone.lift{margin-top:-74px;padding:0 16px;position:relative;z-index:2}
+ .ha{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 2px 4px rgba(16,24,20,.06),0 16px 36px rgba(16,24,20,.12);padding:8px 8px 12px}
+ .ha-row{display:flex;align-items:center;gap:10px;padding:0 4px 0 10px;color:var(--action)}
 diff --git a/test_ui.py b/test_ui.py
-index a9d0b9e..3bd8945 100644
+index a9d0b9e..bb06246 100644
 --- a/test_ui.py
 +++ b/test_ui.py
-@@ -2691,27 +2691,22 @@ async def main():
+@@ -2691,27 +2691,30 @@ async def main():
      ia=await npg.evaluate("[document.getElementById('view').innerText.includes('SAVE'), document.documentElement.dataset.state]")
      check("state layer (11 Nov): an Iowa district right after a Nebraska one is back in Iowa's words", ia[0] and ia[1]=="IA", str(ia))
      await nx.close()
@@ -294,6 +418,14 @@ index a9d0b9e..3bd8945 100644
      pat=[c for c in calls[n0:] if c[0]=="PATCH" and "/district?" in c[1]]
 -    check("admin portal (11 Nov): setting a demo district's state saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
 +    check("demo state (24 Nov): switching a demo district saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
++    # the Home panel (25 Nov): tinted by the district color, or light when that color is red or clashes with the chart
++    keep=(D1.get("state"),D1.get("brand_color")); D1["state"]="IA"; looks={}
++    for nm,col in [("navy","#0B1A40"),("red","#B3202A"),("green","#2E7D32"),("gold","#F2C94C"),("purple","#5B2A86")]:
++      D1["brand_color"]=col; await spg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await spg.reload(); await spg.wait_for_timeout(1300)
++      looks[nm]=await spg.evaluate("(()=>{const h=document.querySelector('[data-home-hero]');return h?[h.dataset.look,getComputedStyle(h).backgroundImage,(h.querySelector('svg>rect:not([fill^=url])')||{getAttribute:()=>''}).getAttribute('fill')]:null})()")
++    D1["state"],D1["brand_color"]=keep
++    check("home panel (25 Nov): navy and purple get a tint of their own color", looks["navy"] and looks["navy"][0]=="tint" and "39, 50, 75" in looks["navy"][1] and looks["purple"][0]=="tint" and looks["navy"][2]=="#8DBBA2", str(looks))
++    check("home panel (25 Nov): red, green and gold districts get the light panel with deeper chart colors", all(looks[k] and looks[k][0]=="light" for k in ("red","green","gold")) and looks["red"][2]=="#6FA88A", str(looks))
      await sx.close()
      for t,v in SAVED.items(): TABLES[t]=v
      D2.clear(); D2.update(D2SAVED); USERS["admin@example.test"]=ADM

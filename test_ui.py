@@ -2707,6 +2707,14 @@ async def main():
     await spg.click("[data-modal] [data-action=demoSwitch]:not([data-set])"); await spg.wait_for_timeout(1200)
     pat=[c for c in calls[n0:] if c[0]=="PATCH" and "/district?" in c[1]]
     check("demo state (24 Nov): switching a demo district saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
+    # the Home panel (25 Nov): tinted by the district color, or light when that color is red or clashes with the chart
+    keep=(D1.get("state"),D1.get("brand_color")); D1["state"]="IA"; looks={}
+    for nm,col in [("navy","#0B1A40"),("red","#B3202A"),("green","#2E7D32"),("gold","#F2C94C"),("purple","#5B2A86")]:
+      D1["brand_color"]=col; await spg.goto("http://localhost:8765/#/d/ironwood-valley/home/today"); await spg.reload(); await spg.wait_for_timeout(1300)
+      looks[nm]=await spg.evaluate("(()=>{const h=document.querySelector('[data-home-hero]');return h?[h.dataset.look,getComputedStyle(h).backgroundImage,(h.querySelector('svg>rect:not([fill^=url])')||{getAttribute:()=>''}).getAttribute('fill')]:null})()")
+    D1["state"],D1["brand_color"]=keep
+    check("home panel (25 Nov): navy and purple get a tint of their own color", looks["navy"] and looks["navy"][0]=="tint" and "39, 50, 75" in looks["navy"][1] and looks["purple"][0]=="tint" and looks["navy"][2]=="#8DBBA2", str(looks))
+    check("home panel (25 Nov): red, green and gold districts get the light panel with deeper chart colors", all(looks[k] and looks[k][0]=="light" for k in ("red","green","gold")) and looks["red"][2]=="#6FA88A", str(looks))
     await sx.close()
     for t,v in SAVED.items(): TABLES[t]=v
     D2.clear(); D2.update(D2SAVED); USERS["admin@example.test"]=ADM

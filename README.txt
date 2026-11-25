@@ -11,9 +11,15 @@ What changed
   state), "Demo district" for everyone else.
 - The staff-only "State view" override and its banner are gone. Every district follows
   its own state. The old saved setting clears itself on next load.
+- Home callout ("is the plan working") is tinted by the district's color by default.
+  It switches to a light panel with dark text when the color is red or pink (red means
+  debt and errors), when it's close to the chart's green, gold or red, or when text or
+  bars would be hard to read on it. No brand color also gets the light panel.
+  Examples: navy, blue, purple, teal, grey and black get a tint; red, maroon, pink,
+  green, orange, gold, brown and white get the light panel.
 - Demo districts: switch state from the demo tag or Admin Portal > Districts > Change...
   Either load that state's demo data (Prairie Fork for Nebraska, Bridger Hollow for Iowa)
   or keep the current figures. Real districts' state is read-only in the table.
 
-Tested: all unit tests and guardrail pass; browser test 643 pass. The one failure
+Tested: all unit tests and guardrail pass; browser test 645 pass. The one failure
 ("phone sign-in ... card stays put") fails the same way on the code before this change.
