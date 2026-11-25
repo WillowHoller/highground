@@ -89,13 +89,13 @@
   let flash = null; // one-time message for the next screen
 
   /* ---- state packs (states.js, 11 Nov 2026): which state's funds, rules and words a district's screens use.
-     A district's own state is district.state. Willow Holler staff can preview any district in another state's view from the
-     Admin Portal (kept in this browser only; the district's data and its state don't change). Iowa screens are written in
+     A district's screens always follow its own state, district.state (24 Nov 2026: the staff-only browser-wide "State view"
+     override and its banner are gone; its saved setting is cleared below). A demo district's state is switched from the Admin
+     Portal or its demo tag, for whichever state is being demoed, optionally loading that state's demo figures. Iowa screens are written in
      Iowa's words and pass through untouched; another state's screens are put in its words as they're drawn, and the parts
      that only exist in Iowa (SAVE, SF 2472, the state prefill) are taken out. ---- */
-  const STATE_VIEW_KEY = 'highground-state-view';
-  function stateView() { if (!S.isStaff) return ''; try { const v = localStorage.getItem(STATE_VIEW_KEY) || ''; return HGStates.has(v) ? v.toUpperCase() : ''; } catch (e) { return ''; } }
-  const stateOf = (d) => stateView() || ((d && d.state) || 'IA').toUpperCase();
+  try { localStorage.removeItem('highground-state-view'); } catch (e) { /* nothing saved */ }
+  const stateOf = (d) => ((d && d.state) || 'IA').toUpperCase();
   const PACK = () => HGStates.current();
   const F_ON = (k) => HGStates.on(k);
   const STATE_OBS = { o: null };
@@ -128,10 +128,13 @@
     run([document.body]);
     return P;
   }
-  /** the internal preview notice: staff looking at a district in another state's view */
-  function stateViewBanner(d) {
-    const v = stateView(); if (!v || !d || v === (d.state || 'IA').toUpperCase()) return '';
-    return `<div class="notice warn" data-state-view-banner><b>Internal preview: ${esc(HGStates.pack(v).name)} view.</b> ${esc(d.short_name || d.name)} is shown with ${esc(HGStates.pack(v).name)}’s funds, rules and words. Its own state (${esc(d.state || 'IA')}) and its data haven’t changed, but its numbers follow ${esc(HGStates.pack(v).name)}’s rules: money in a fund ${esc(HGStates.pack(v).name)} doesn’t have counts as short. <a href="#/staff">Change the state view in the Admin Portal</a>.</div>`;
+  /* ---- the top bar in the district's brand color. Text, icons, the wordmark and the demo tag go light or dark, whichever
+     reads better on it (WCAG contrast against white and against the app's dark text). No brand color: HighGround green. ---- */
+  const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce((a, v, k) => a + v * [0.2126, 0.7152, 0.0722][k], 0); };
+  function brandTone(hex) {
+    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return null;
+    const L = lum(hex), onLight = 1.05 / (L + 0.05), onDark = (L + 0.05) / (lum('#1C2A24') + 0.05);
+    return { bg: hex, light: onDark > onLight };
   }
   function go(hash, message) {
     flash = message || null;
@@ -387,7 +390,7 @@
   const icon = (k, size = 16, w = 1.9) => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
   const railKey = 'highground-menu-collapsed';
   const railCollapsed = () => { try { return localStorage.getItem(railKey) === '1'; } catch (e) { return false; } };
-  const districtMark = (d, cls) => (d.logo_path ? `<span class="tile logo ${cls || ''}"><img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt=""></span>` : `<span class="tile ${cls || ''}" style="background:${esc(d.brand_color || '#1E3A2F')}">${esc(initials(d.short_name || d.name))}</span>`);
+  const districtMark = (d, cls) => (d.logo_path ? `<span class="tile logo ${cls || ''}"><img src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt=""></span>` : `<span class="tile ${cls || ''}" style="background:${esc(d.brand_color || '#1E3A2F')}${(brandTone(d.brand_color) || {}).light ? ';color:#1C2A24;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)' : ''}">${esc(initials(d.short_name || d.name))}</span>`);
   function frame({ slug, sectionId, tabId, body }) {
     const d = S.district;
     const cur = (() => { const sec = ALL.find((x) => x.id === sectionId), t = sec && sec.tabs.find((x) => x.id === tabId); return t && t.parent ? t.parent : tabId; })();
@@ -407,18 +410,23 @@
     const roleName = S.preview ? 'Previewing as board member' : S.isStaff && !S.memberships.some((m) => d && m.district.id === d.id) ? 'Willow Holler staff' : (ROLE[S.realRole || S.role] || '');
     const logoOnly = d && d.logo_path && d.menu_logo_only;
     const org = d ? `<div class="org ${logoOnly ? 'lg' : ''}">${logoOnly ? `<img class="org-logo" src="${esc(HG.storage.publicUrl('district-public', d.logo_path))}" alt="${esc(d.name)}">${districtMark(d, 'rm')}`
-        : `${districtMark(d)}<span class="tx org-tx"><b>${esc(d.short_name || d.name)}</b><small>${d.is_demo ? 'Demo district' : esc(d.state || 'IA')}</small></span>`}
+        : `${districtMark(d)}<span class="tx org-tx"><b>${esc(d.short_name || d.name)}</b><small>${d.is_demo ? `Demo · ${esc(stateOf(d))}` : esc(stateOf(d))}</small></span>`}
         ${S.districts.length > 1 ? `<label class="org-switch"><span class="sr-only">Switch district</span><select data-switch aria-label="Switch district"><option value="" selected>Switch district…</option>${S.districts.filter((x) => x.slug !== d.slug).map((x) => `<option value="${esc(x.slug)}">${esc(x.name)}${x.is_demo ? ' (demo)' : ''}</option>`).join('')}</select></label>` : ''}</div>`
       : (S.districts.length ? `<div class="org"><label class="org-switch"><select data-switch aria-label="District"><option value="">Choose a district</option>${options}</select></label></div>` : '');
+    const tone = d ? brandTone(d.brand_color) : null;
+    try { const tc = document.querySelector('meta[name=theme-color]'); if (tc) tc.content = tone ? tone.bg : '#1E3A2F'; } catch (e) {}
+    const demoTag = d && d.is_demo ? (S.isStaff
+      ? `<button type="button" class="demo-bar" data-action="demoState" data-id="${esc(d.id)}" title="Made-up figures. Click to demo another state.">Demo · ${esc(HGStates.pack(stateOf(d)).name)}${icon('chev', 12, 2)}</button>`
+      : '<span class="demo-bar" title="Every figure in this district is made up">Demo district</span>') : '';
     app.innerHTML = `
       <div class="frame ${railCollapsed() ? 'rail-collapsed' : ''} ${S.present && slug ? 'presenting' : ''}" id="frame">
-        <header class="topbar">
+        <header class="topbar ${tone ? (tone.light ? 'tb-light' : 'tb-dark') : ''}" ${tone ? `style="--tb:${tone.bg}"` : ''}>
           <button type="button" class="panelbtn" data-action="toggleRail" aria-label="${railCollapsed() ? 'Expand menu' : 'Collapse menu'}" title="${railCollapsed() ? 'Expand menu' : 'Collapse menu'}  [">${icon('panel', 18, 1.8)}</button>
           <button type="button" class="menu-btn" data-action="toggleMenu" aria-expanded="false" aria-controls="rail-menu" aria-label="Menu">${icon('menu', 18, 2)}</button>
-          <a class="brand" href="#/" aria-label="HighGround home">${LOGO_LIGHT}</a>
+          <a class="brand" href="#/" aria-label="HighGround home">${tone && tone.light ? LOGO_COLOR : LOGO_LIGHT}</a>
           ${slug ? '<span class="scen-top" id="scenTop"></span>' : ''}
           <span class="spacer"></span>
-          ${d && d.is_demo ? '<span class="demo-bar">Demo district · made-up figures</span>' : ''}
+          ${demoTag}
           ${slug ? `<button type="button" class="helpbtn searchbtn" data-action="openSearch" aria-label="Search this district" title="Search: screens, initiatives, reports  (Ctrl K)">${icon('search', 18, 1.9)}</button>` : ''}
           ${slug ? `<button type="button" class="helpbtn" data-action="startPresent" aria-label="Present on a big screen" title="Present on a big screen">${icon('present', 18, 1.8)}</button>` : ''}
           ${slug ? `<button type="button" class="helpbtn" data-action="openHelp" aria-label="Help with this screen" title="Help with this screen">${icon('help', 18, 1.8)}</button>` : ''}
@@ -484,7 +492,7 @@
         <div class="right">${viewSwitch}${tab.status !== 'live' ? badge(tab.status) : ''}${tab.status !== 'live' && tab.phase ? `<span class="small muted">${tab.status === 'wip' ? 'Planned for' : 'Rest in'} Phase ${tab.phase}</span>` : ''}</div></div>
       ${tabs}
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
-      ${stateViewBanner(d)}${setupBanner(section.id, tab.id)}
+      ${setupBanner(section.id, tab.id)}
       <div id="view" class="stack"><div class="empty">Loading…</div></div>` });
     flash = null;
     const view = document.getElementById('view');
@@ -5886,16 +5894,18 @@
     closeModal(); await loadContext(true);
     flash = `${d.name} was deleted.`; renderStaff();
   }
-  /** Admin Portal: preview any district in another state's view (this browser only) */
-  function stateViewCard() {
-    const v = stateView(), packs = HGStates.list();
-    return `<div class="card" data-state-view-card><h3>State view</h3>
-      <p class="small muted">See every district with another state’s funds, rules and words, to check how a state works before a district there signs on. Only in this browser and only for Willow Holler staff. No district’s data or state changes, and each screen says when the preview is on.</p>
-      <div class="inline-form"><label class="field">Show districts as<select data-state-view>
-        <option value="" ${v ? '' : 'selected'}>Each district’s own state</option>
-        ${packs.map((x) => `<option value="${x.code}" ${v === x.code ? 'selected' : ''}>${esc(x.name)}${x.status === 'preview' ? ' (preview)' : ''}</option>`).join('')}</select></label>
-        <button type="button" class="btn primary" data-action="setStateView">Apply</button></div>
-      <p class="small" data-state-view-now>${v ? `Now: every district shows as <b>${esc(HGStates.pack(v).name)}</b>.` : 'Now: each district shows in its own state.'} States HighGround knows: ${packs.map((x) => `${esc(x.name)}${x.status === 'preview' ? ' (preview)' : ''}`).join(', ')}.</p></div>`;
+  /** a demo district's state, switched for whichever state is being demoed. Its figures belong to a state, so switching
+      offers that state's demo data set too (erasing the demo plan first, as Reset does); or keep the figures as they are. */
+  const demoSetFor = (code) => { const e = Object.entries(window.HG_DEMOS || {}).find(([, v]) => (v.state || 'IA').toUpperCase() === code); return e ? e[0] : ''; };
+  function demoStateModal(d) {
+    const cur = stateOf(d), others = HGStates.list().filter((x) => x.code !== cur);
+    modal(`<div class="stack"><div class="row" style="justify-content:space-between"><h2 id="modal-title">Demo state: ${esc(d.short_name || d.name)}</h2><button type="button" class="btn small" data-action="closeModal">Close</button></div>
+      <p>This demo district is set to <b>${esc(HGStates.pack(cur).name)}</b>. Its screens, fund names and rules follow that state. Real districts always follow their own state.</p>
+      ${others.map((x) => { const set = demoSetFor(x.code), sn = set ? window.HG_DEMOS[set].name : '';
+        return `<div class="card"><h3>Demo in ${esc(x.name)}</h3>
+          ${set ? `<p class="small muted">Recommended: load ${esc(sn)}, made-up figures built for ${esc(x.name)}. This erases the demo district’s current plan first, as Reset does. People and access stay.</p>` : `<p class="small muted">There’s no ${esc(x.name)} demo data set yet, so the current figures stay. Funds that ${esc(x.name)} doesn’t have will show as short.</p>`}
+          <div class="row">${set ? `<button type="button" class="btn primary" data-action="demoSwitch" data-id="${esc(d.id)}" data-state="${x.code}" data-set="${esc(set)}">Switch and load ${esc(sn.replace(/ (Community School District|Community Schools|Public Schools)$/, ''))}</button>` : ''}
+            <button type="button" class="btn" data-action="demoSwitch" data-id="${esc(d.id)}" data-state="${x.code}">${set ? 'Switch, keep these figures' : `Switch to ${esc(x.name)}`}</button></div></div>`; }).join('')}</div>`, { noFocus: true });
   }
   async function renderStaff() {
     S.district = null; S.role = null; stateApply('IA');
@@ -5907,11 +5917,10 @@
       <div class="page-head"><div><h1>Admin Portal</h1><div class="lede">Every district, and new ones. Willow Holler staff only.</div></div></div>
       ${flash ? `<div class="notice ok">${esc(flash)}</div>` : ''}
       ${healthCard(health)}
-      ${stateViewCard()}
       <div class="card"><h3>Districts</h3>${table([
         { label: 'District', html: (r) => `<a href="#/d/${enc(r.slug)}/home/today">${esc(r.name)}</a>` },
         { label: 'Link id', get: (r) => r.slug },
-        { label: 'State', html: (r) => `<span class="row nowrap" data-district-state-box><select data-district-state="${esc(r.id)}" aria-label="${esc(r.name)}: state">${HGStates.list().map((x) => `<option value="${x.code}" ${(r.state || 'IA') === x.code ? 'selected' : ''}>${esc(x.code)}</option>`).join('')}${HGStates.has(r.state || 'IA') ? '' : `<option value="${esc(r.state)}" selected>${esc(r.state)}</option>`}</select><button type="button" class="btn small" data-action="setDistrictState" data-id="${esc(r.id)}">Set</button></span>` },
+        { label: 'State', html: (r) => (r.is_demo ? `<span class="row nowrap" data-district-state-box>${esc(stateOf(r))} <button type="button" class="btn small" data-action="demoState" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: demo another state">Change…</button></span>` : `<span title="A real district follows its own state">${esc(stateOf(r))}</span>`) },
         { label: 'Demo', get: (r) => (r.is_demo ? 'Demo' : '') }, { label: 'Created', get: (r) => day(r.created_at) },
         { label: 'Two-step sign-in', html: (r) => (r.require_two_step === undefined ? '' : `<button type="button" class="btn small" data-action="toggleTwoStep" data-id="${esc(r.id)}" data-on="${r.require_two_step ? 1 : 0}" title="${r.require_two_step ? 'Everyone in this district must use it. Click to make it optional.' : 'Optional here. Click to require it.'}">${r.require_two_step ? 'Required' : 'Optional'}</button>`) },
         { label: '', html: (r) => `<button type="button" class="btn small danger" data-action="deleteDistrictAsk" data-id="${esc(r.id)}">Delete…</button>` },
@@ -6550,23 +6559,25 @@
       toast('Demo ledger not loaded', 'The plan is in, but the sample monthly ledger couldn’t be added. Budget vs. actual stays empty.');
     }
   }
-  /* erase a demo district's plan and load a data set again, then republish its board version */
+  /* erase a demo district's plan, load a data set (which moves it to the set's state), republish its board version */
+  async function reloadDemo(d, set) {
+    if (!d || !d.is_demo) throw new UserError('Only a demo district can be reset.');
+    for (const t of ERASE_ORDER) await HG.db.removeAll(t, `district_id=eq.${d.id}`);
+    await writeDemo(d, set);
+    if (!d.public_link_enabled) return false;
+    try {
+      const { board, payload } = await publicationPayload(d);
+      await HG.db.insert('publication', { district_id: d.id, kind: 'board_plan', title: board.name, scenario_id: board.id, payload });
+      return true;
+    } catch (e) { console.warn('HighGround: demo republish skipped:', e); return false; }
+  }
   async function resetDemo(el) {
     const card = el.closest('.card');
     const did = card.querySelector('[data-demo-district]').value, set = card.querySelector('[data-demo-set]').value;
     const d = S.districts.find((x) => x.id === did) || (S.staffDistricts || []).find((x) => x.id === did);
     if (!d || !d.is_demo) throw new UserError('Only a demo district can be reset.');
     if (!confirm(`Erase everything in ${d.name}’s plan (starting numbers, balances, debt, the strategic plan, initiatives, scenarios, assumption sets, the monthly ledger, uploads, reports and publishing history) and load ${window.HG_DEMOS[set].name} again? People and access stay as they are.`)) return;
-    for (const t of ERASE_ORDER) await HG.db.removeAll(t, `district_id=eq.${did}`);
-    await writeDemo(d, set);
-    let published = false;
-    if (d.public_link_enabled) {
-      try {
-        const { board, payload } = await publicationPayload(d);
-        await HG.db.insert('publication', { district_id: did, kind: 'board_plan', title: board.name, scenario_id: board.id, payload });
-        published = true;
-      } catch (e) { console.warn('HighGround: demo republish skipped:', e); }
-    }
+    const published = await reloadDemo(d, set);
     toast('Demo reset', `${d.name} is back to the ${window.HG_DEMOS[set].name.replace(/ Community School District$/, '')} demo${published ? ', and its board version is on the public link again' : ''}.`);
     here();
   }
@@ -7123,18 +7134,23 @@
         ${old ? '<p class="small muted">Once the new phone’s code works, the old phone stops working.</p>' : ''}
         <div class="row"><button type="submit" class="btn primary">${old ? 'Switch to this phone' : 'Turn it on'}</button><button type="button" class="btn" data-action="closeModal">Cancel</button></div></form>`);
     },
-    async setStateView(el) {
-      const v = (el.closest('.card').querySelector('[data-state-view]') || {}).value || '';
-      try { if (v) localStorage.setItem(STATE_VIEW_KEY, v); else localStorage.removeItem(STATE_VIEW_KEY); } catch (e) { throw new UserError('This browser won’t keep the setting (private browsing?).'); }
-      flash = v ? `State view: every district now shows as ${HGStates.pack(v).name}, in this browser only.` : 'State view: each district shows in its own state again.'; renderStaff();
+    async demoState(el) {
+      const d = S.districts.find((x) => x.id === el.dataset.id) || (S.staffDistricts || []).find((x) => x.id === el.dataset.id);
+      if (!d || !d.is_demo) throw new UserError('Only a demo district’s state can be switched. A real district follows its own state.');
+      demoStateModal(d);
     },
-    async setDistrictState(el) {
-      const d = (S.staffDistricts || []).find((x) => x.id === el.dataset.id) || {}, sel = el.closest('[data-district-state-box]').querySelector('select'), v = sel.value;
-      if (v === (d.state || 'IA')) return toast('No change', `${d.name || 'The district'} is already ${HGStates.pack(v).name}.`);
-      if (!d.is_demo && !confirm(`Change ${d.name || 'this district'} to ${HGStates.pack(v).name}? Its screens, fund names and rules change straight away. Its saved figures stay as they are, but some may mean something different in the new state.`)) return;
-      await HG.db.update('district', `id=eq.${enc(d.id)}`, { state: v });
-      await loadContext(true);
-      flash = `${d.name || 'The district'} is now ${HGStates.pack(v).name}.`; renderStaff();
+    async demoSwitch(el) {
+      const id = el.dataset.id, v = el.dataset.state, set = el.dataset.set || '';
+      const d = S.districts.find((x) => x.id === id) || (S.staffDistricts || []).find((x) => x.id === id);
+      if (!d || !d.is_demo) throw new UserError('Only a demo district’s state can be switched. A real district follows its own state.');
+      if (!HGStates.has(v)) throw new UserError('HighGround doesn’t know that state.');
+      el.disabled = true; el.textContent = set ? 'Loading the demo…' : 'Switching…';
+      let published = false;
+      if (set) published = await reloadDemo(d, set);
+      else { await HG.db.update('district', `id=eq.${enc(d.id)}`, { state: v }); d.state = v; }
+      await loadContext(true); closeModal();
+      toast('Demo state', `${d.short_name || d.name} is now a ${HGStates.pack(v).name} demo${set ? ` with ${window.HG_DEMOS[set].name.replace(/ (Community School District|Community Schools|Public Schools)$/, '')}’s figures` : ''}${published ? ', and its board version is on the public link again' : ''}.`);
+      if ((location.hash || '').startsWith('#/staff')) renderStaff(); else here();
     },
     async toggleTwoStep(el) {
       const on = el.dataset.on === '1', d = (S.staffDistricts || []).find((x) => x.id === el.dataset.id) || {};

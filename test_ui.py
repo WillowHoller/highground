@@ -2691,27 +2691,22 @@ async def main():
     ia=await npg.evaluate("[document.getElementById('view').innerText.includes('SAVE'), document.documentElement.dataset.state]")
     check("state layer (11 Nov): an Iowa district right after a Nebraska one is back in Iowa's words", ia[0] and ia[1]=="IA", str(ia))
     await nx.close()
-    # the Admin Portal: per-district state, a new district's state, and the internal state view
+    # the Admin Portal (24 Nov): no browser-wide state view; a real district's state is read-only, a demo's is switchable
     sx,spg=await session("staff@example.test")
-    await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(1200)
-    sv=await spg.evaluate("[!!document.querySelector('[data-state-view-card] select[data-state-view]'),[...document.querySelectorAll('[data-state-view] option')].map(o=>o.value),!!document.querySelector('select[data-district-state]'),!!document.querySelector('form[data-form=createDistrict] select[name=state]')]")
-    check("admin portal (11 Nov): a State view card (each district's own, Iowa, Nebraska), a state per district, and a state for a new district", sv[0] and sv[1]==["","IA","NE"] and sv[2] and sv[3], str(sv))
-    await spg.select_option("[data-state-view]","NE"); await spg.click("[data-action=setStateView]"); await spg.wait_for_timeout(800)
-    now=await spg.evaluate("[localStorage.getItem('highground-state-view'),(document.querySelector('[data-state-view-now]')||{}).textContent]")
-    check("admin portal (11 Nov): choosing Nebraska keeps it in this browser and says so", now[0]=="NE" and "Nebraska" in (now[1] or ""), str(now))
+    await spg.evaluate("localStorage.setItem('highground-state-view','NE')")   # an old saved State view is ignored and cleared
+    await spg.goto("http://localhost:8765/#/staff"); await spg.reload(); await spg.wait_for_timeout(1200)
+    sv=await spg.evaluate("[!!document.querySelector('[data-state-view-card]'),!!document.querySelector('select[data-district-state]'),document.querySelectorAll('[data-district-state-box] [data-action=demoState]').length,!!document.querySelector('form[data-form=createDistrict] select[name=state]'),localStorage.getItem('highground-state-view')]")
+    check("admin portal (24 Nov): no State view card, no state picker on real districts, a Change button on demos, a state for a new district, old setting cleared", not sv[0] and not sv[1] and sv[2]>=1 and sv[3] and sv[4] is None, str(sv))
     await spg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await spg.wait_for_timeout(1500)
-    pv=await spg.evaluate("[!!document.querySelector('[data-state-view-banner]'),document.getElementById('view').innerText.includes('Special Building'),/\\bSAVE\\b/.test(document.getElementById('view').innerText),document.documentElement.dataset.state]")
-    # an Iowa district's own SAVE money still shows in the preview (its data isn't changed); everything else reads as Nebraska
-    check("state view (11 Nov): an Iowa district previews in Nebraska's view, with a banner saying it's an internal preview", pv[0] and pv[1] and pv[3]=="NE", str(pv))
-    await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(900)
-    await spg.select_option("[data-state-view]",""); await spg.click("[data-action=setStateView]"); await spg.wait_for_timeout(600)
-    await spg.goto("http://localhost:8765/#/d/ironwood-valley/money/capital"); await spg.wait_for_timeout(1300)
-    back=await spg.evaluate("[!!document.querySelector('[data-state-view-banner]'),document.getElementById('view').innerText.includes('SAVE'),localStorage.getItem('highground-state-view')]")
-    check("state view (11 Nov): back to each district's own state: no banner, Iowa words", not back[0] and back[1] and back[2] is None, str(back))
-    n0=len(calls); await spg.goto("http://localhost:8765/#/staff"); await spg.wait_for_timeout(900)
-    await spg.locator("select[data-district-state]").nth(0).select_option("NE"); await spg.locator("[data-action=setDistrictState]").nth(0).click(); await spg.wait_for_timeout(900)
+    pv=await spg.evaluate("[!!document.querySelector('[data-state-view-banner]'),document.documentElement.dataset.state,(document.querySelector('.frame>.topbar .demo-bar')||{}).textContent,getComputedStyle(document.querySelector('.frame>.topbar')).backgroundColor,document.querySelector('.frame>.topbar').className]")
+    check("state (24 Nov): a district follows its own state, with no preview banner", not pv[0] and pv[1]=="IA", str(pv))
+    check("top bar (24 Nov): the district's brand color, light text on a dark color, a neutral demo tag naming the state", pv[3]=="rgb(31, 78, 140)" and "tb-dark" in pv[4] and "Demo · Iowa" in (pv[2] or ""), str(pv))
+    n0=len(calls); await spg.click(".frame>.topbar [data-action=demoState]"); await spg.wait_for_timeout(500)
+    btns=await spg.evaluate("[...document.querySelectorAll('[data-modal] [data-action=demoSwitch]')].map(b=>[b.dataset.state,b.dataset.set||''])")
+    check("demo state (24 Nov): the demo tag offers Nebraska, with its demo data set or keeping the figures", ["NE","prairie-fork"] in btns and ["NE",""] in btns, str(btns))
+    await spg.click("[data-modal] [data-action=demoSwitch]:not([data-set])"); await spg.wait_for_timeout(1200)
     pat=[c for c in calls[n0:] if c[0]=="PATCH" and "/district?" in c[1]]
-    check("admin portal (11 Nov): setting a demo district's state saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
+    check("demo state (24 Nov): switching a demo district saves district.state", pat and json.loads(pat[-1][2]).get("state")=="NE", str(pat[-1:] if pat else calls[n0:][-3:]))
     await sx.close()
     for t,v in SAVED.items(): TABLES[t]=v
     D2.clear(); D2.update(D2SAVED); USERS["admin@example.test"]=ADM

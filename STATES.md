@@ -49,10 +49,10 @@ Iowa has no `say` or `hide`, so Iowa screens are exactly as before.
 
 ## How the screens change by state
 
-- **Which state a district uses:** `district.state`. Set it in the Admin Portal's Districts table, or when adding a district.
+- **Which state a district uses:** `district.state`, always. A real district's state is chosen when it's added in the Admin Portal; the Districts table shows it read-only.
+- **Demo districts (24 Nov 2026):** switch a demo's state for whichever state you're demoing in, from the demo tag in the top bar (staff) or **Change…** in the Admin Portal's Districts table. You can load that state's demo data set (Bridger Hollow for Iowa, Prairie Fork for Nebraska; this erases the demo plan first, as Reset does) or keep the current figures.
 - **A demo data set carries its state.** Loading it into a demo district moves the district to that state.
-- **Admin Portal → State view (staff only, this browser only):** previews every district in another state's view, with a banner on each screen.
-  - The numbers follow that state's rules. An Iowa plan paid from SAVE looks short in Nebraska's view, because Nebraska has no SAVE.
+- **The old staff-only "State view"** (a browser-wide override with a banner on every screen) was removed on 24 Nov 2026. Its saved setting is cleared the next time the app loads.
 - **How the words change (`stateApply` in app.js):** for a non-Iowa district, a watcher puts every screen into the state's words as it is drawn, and removes the `hide` fields.
 - **Where the math differs, it's real code:**
   - `engine.lidRoom` for Nebraska's three limits;
